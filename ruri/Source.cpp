@@ -395,17 +395,20 @@ void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP) {
 
 	DWORD Off = 0;
 
+	bool Direction = 0;
+
 	while (RankList[GameMode][Off].ID) {
 		if (RankList[GameMode][Off].ID == UserID){
+			Direction = (RankList[GameMode][Off].PP > PP);
 			RankList[GameMode][Off].PP = PP;
 			break;
 		}
 		Off++;
 	}
-	Off++;
-	std::sort(RankList[GameMode], RankList[GameMode] + (Off * sizeof(_RankList)), SortRankCache);//TODO: sort this out
-
-
+	if (!Direction) {
+		Off++;
+		std::sort(RankList[GameMode], RankList[GameMode] + (Off * sizeof(_RankList)), SortRankCache);//The reason for the offset
+	}else std::sort(RankList[GameMode], &RankList[GameMode][USHORT(-1)], SortRankCache);//TODO properly bound this backwards (Yes I know the last one never gets sorted.)
 	RankListVersion[GameMode]++;
 	RankUpdate[GameMode].unlock();
 	printf("Updated ranks\n");
@@ -476,7 +479,7 @@ __forceinline void AddMem(std::vector<byte> &v, const void* Value, const DWORD S
 	v.resize(v.size() + Size);
 	memcpy(&v[v.size() - Size], Value, Size);
 }
-__forceinline void AddString(std::vector<byte> &v, const std::string Value) {
+__forceinline void AddString(std::vector<byte> &v, const std::string &Value) {
 
 	const DWORD Size = Value.size();
 	
@@ -522,13 +525,14 @@ struct _BanchoPacket {
 		AddVector(Bytes, Data);
 		return Bytes;
 	}
+
 	void GetBytes(std::vector<byte> &Bytes){
+		Bytes.reserve(Bytes.size() + 7 + Data.size());
 		AddShort(Bytes, Type);
 		Bytes.push_back(Compression);
 		AddInt(Bytes, Data.size());
 		AddVector(Bytes, Data);
 	}
-
 
 	_BanchoPacket() {
 		Type = 0;
@@ -739,43 +743,6 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 	return 1;
 }
 
-
-struct _CachePreviousBest {
-	int BID;
-	int Mods;
-	int UpdateTime;
-
-	int Beatmap_Rank;
-	float Beatmap_Acc;
-	USHORT Beatmap_Combo;
-	USHORT Beatmap_PP;
-	int Beatmap_Score;
-
-
-	void clearMap() {
-
-		Beatmap_Rank = 0;
-		Beatmap_Acc = 0.f;
-		Beatmap_Combo = 0;
-		Beatmap_PP = 0;
-		Beatmap_Score = 0;
-
-	}
-
-	_CachePreviousBest() {
-		BID = 0;
-		Mods = 0;
-		UpdateTime = 0;
-
-
-		Beatmap_Rank = 0;
-		Beatmap_Acc = 0.f;
-		Beatmap_Combo = 0;
-		Beatmap_PP = 0;
-		Beatmap_Score = 0;
-	}
-
-};
 enum MenuStates {
 	Menu_None,
 	Menu_ChooseScore
@@ -858,7 +825,6 @@ public:
 	USHORT CurrentMatchID;
 	bool HyperMode;
 	int LastSentBeatmap;
-	_CachePreviousBest PrevCache;
 	_Menu Menu;
 	DWORD Friends[256];
 
@@ -870,21 +836,6 @@ public:
 
 		return GameMode;
 	}
-
-	/*
-	USHORT GetMulti()const{
-
-		return CurrentMatchID;
-
-		USHORT ret;
-		//MultiLock.lock();
-		ret = CurrentMatchID;
-		//MultiLock.unlock();
-		return ret;
-	}
-	void SetMulti(const USHORT MultiID){
-		CurrentMatchID = MultiID;
-	}*/
 
 	void SendToSpecs(const _BanchoPacket b, int Privs) {
 
@@ -1176,7 +1127,7 @@ __inline byte GetUserType(const DWORD Priv){
 
 namespace bPacket {
 
-	__forceinline _BanchoPacket Message(const std::string senderName, const std::string targetname, const std::string  message, const int senderId) {
+	__forceinline _BanchoPacket Message(const std::string &senderName, const std::string &targetname, const std::string &message, const int senderId) {
 
 		_BanchoPacket b(OPac::server_sendMessage);
 
@@ -1187,7 +1138,7 @@ namespace bPacket {
 
 		return b;
 	}
-	__forceinline _BanchoPacket BotMessage(const std::string Target, const std::string message, const std::string Name = BOT_NAME, const DWORD ID = 999) {
+	__forceinline _BanchoPacket BotMessage(const std::string &Target, const std::string &message, const std::string &Name = BOT_NAME, const DWORD ID = 999) {
 
 		_BanchoPacket b(OPac::server_sendMessage);
 
@@ -1747,7 +1698,7 @@ __forceinline bool FileExistCheck(const std::string filename) {
 	return 0;
 }
 
-__forceinline bool WriteAllBytes(char const* filename, const std::string &res) {
+__forceinline bool WriteAllBytes(const std::string &filename, const std::string &res) {
 
 	std::ofstream ifs;
 	ifs.open(filename);
@@ -1760,7 +1711,7 @@ __forceinline bool WriteAllBytes(char const* filename, const std::string &res) {
 
 	return 1;
 }
-__forceinline bool WriteAllBytes(char const* filename, const void* data, const DWORD Size){
+__forceinline bool WriteAllBytes(const std::string &filename, const void* data, const DWORD Size){
 
 	std::ofstream ifs;
 	ifs.open(filename,std::ofstream::binary);
@@ -1795,10 +1746,11 @@ void UnChunk(std::string &S) {
 	const byte NewLine[] = {'\r','\n'};
 
 	std::string Ret;
+	Ret.reserve(S.size());
 
 	DWORD Start = S.find("\r\n\r\n");
 
-	if (Start == std::string::npos)return S.resize(0);
+	if (Start == std::string::npos)return S.clear();
 	
 	for (DWORD i = Start + 4; i < S.size(); i++){
 		//Read header hex
@@ -1816,17 +1768,16 @@ void UnChunk(std::string &S) {
 		i += 2;
 
 		if (ChunkSize + i > S.size())
-			return S.resize(0);
-		//Copy body
+			return S.clear();
+
+		//Copy data
 		Ret.resize(Ret.size() + ChunkSize);
 		memcpy(&Ret[Ret.size() - ChunkSize], &S[i], ChunkSize);
 
-		i += ChunkSize + 2;
-
-		i--;
+		i += ChunkSize + 1;
 	}
 
-	S.resize(0);
+	S = std::string();
 	S = Ret;
 }
 
@@ -1873,6 +1824,7 @@ int getBeatmapID_fHash(std::string H, _SQLCon* c) {
 		t.push_back(BeatmapData[Off]);
 		Off++;
 	}
+
 	//TODO add to database
 
 	return Safe_atoi(t.c_str());
@@ -1880,23 +1832,18 @@ int getBeatmapID_fHash(std::string H, _SQLCon* c) {
 
 bool DownloadMapFromOsu(const int ID){
 
-	if (ID < 0 || ID > 3000000)
+	if (ID < 0 || ID > 6000000)
 		return 0;
 
 	std::string bFile = GetOsuPage("osu/" + std::to_string(ID));
 
 	UnChunk(bFile);
 
-	if (bFile.size() == 0)return 0;
+	if (bFile.size() == 0 || bFile.find("[HitObjects]") == std::string::npos)return 0;
 
+	//ReplaceAll(bFile, "\r\n", "\n");//Could save diskspace
 
-	if (bFile.find("[HitObjects]") == std::string::npos)return 0;
-
-	//ReplaceAll(bFile, "\r\n", "\n");//Save disk space I guess?
-	
-	const std::string fName = "/home/akatsuki/lets/.data/beatmaps/" + std::to_string(ID) + ".osu\0";
-
-	WriteAllBytes((const char*)&fName[0], (void*)&bFile[0],bFile.size());
+	WriteAllBytes("/home/akatsuki/lets/.data/beatmaps/" + std::to_string(ID) + ".osu",(void*)&bFile[0],bFile.size());
 
 	return 1;
 }
@@ -3706,8 +3653,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 			u->addQueNonLocking(bPacket::ChannelInfo(&chan_Akatsuki, 1));
 
 			//u->addQueNonLocking(bPacket::ChannelInfo(&chan_Lobby, 0));
-
-
+			
 			u->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, chan_Akatsuki.ChannelName.c_str()));
 			chan_Akatsuki.JoinChannel(u);
 
@@ -3720,6 +3666,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 			std::vector<DWORD> FriendsList;
 			FriendsList.reserve(256);
 			FriendsList.push_back(999);//Bot is always their friend.
+			FriendsList.push_back(UserID);//Shows self in the friend ranking.
 
 			for (DWORD i = 0; i < 256; i++) {
 				if (u->Friends[i])
@@ -3731,16 +3678,11 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 			u->addQueNonLocking(bPacket::UserPanel(999, 0));
 			u->addQueNonLocking(bPacket::UserStats(999, 0));
 
-			//std::vector<DWORD> OnlineList;
-
 			bool FriendAdded = 0;
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++){
-
-				if (!User[i].choToken || &User[i] == u)continue;
-
+				if (!User[i].choToken || &User[i] == u)continue;				
 				u->addQueNonLocking(bPacket::UserPanel(User[i].UserID, UserID));
 				u->addQueNonLocking(bPacket::UserStats(User[i].UserID, UserID));
-
 			}
 
 			//if(OnlineList.size())
@@ -4031,7 +3973,6 @@ void receiveConnections(){
 
 
 int main(){
-
 
 	std::vector<byte> Config;
 

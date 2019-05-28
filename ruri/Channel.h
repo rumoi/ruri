@@ -30,8 +30,6 @@ struct _Channel{
 
 	_User* ConnectedUsers[MAX_USER_COUNT];
 
-	//std::vector<_User*> ConnectedUsers;
-
 	int ViewLevel;
 	int WriteLevel;
 
@@ -148,7 +146,7 @@ struct _Channel{
 		}
 
 	}
-	void Bot_SendMessage(const std::string &Name, const DWORD UserID, std::string message) {
+	void Bot_SendMessage(const std::string &Name, const DWORD UserID, const std::string &message) {
 
 		const _BanchoPacket b = bPacket::Message(Name, ChannelName, message, 999);
 
@@ -176,16 +174,15 @@ struct _Channel{
 
 };
 
-
 _Channel chan_Akatsuki("#akatsuki","Akatsuki General.", IRC_Public, IRC_Public);
-_Channel chan_Lobby("#lobby", "Chat with others browsing for a lobby.", IRC_Public, IRC_Public);
+_Channel chan_Lobby("#lobby", "Chat with others browsing for a lobby. And other hilarious jokes you can tell your self", IRC_Public, IRC_Public);
 _Channel chan_Announce("#announce", "Alerts you when something interesting happens", IRC_Public, IRC_Admin);
 
 __forceinline _Channel* GetChannelByName(const std::string &Name){
 	if (Name == chan_Akatsuki.ChannelName)return &chan_Akatsuki;
-	if (Name == chan_Lobby.ChannelName)return &chan_Lobby;
 	if (Name == chan_Announce.ChannelName)return &chan_Announce;
 
+	if (Name == chan_Lobby.ChannelName)return &chan_Lobby;
 
 	return 0;
 }
