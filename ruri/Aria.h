@@ -1384,7 +1384,7 @@ std::string GetMirrorResponse(std::string Input) {
 	SOCKADDR_IN SockAddr;
 	SockAddr.sin_port = htons(80);
 	SockAddr.sin_family = AF_INET;
-	SockAddr.sin_addr.s_addr = inet_addr("163.172.67.35");
+	SockAddr.sin_addr.s_addr = inet_addr(MIRROR_IP);
 	if (connect(Socket, (SOCKADDR*)(&SockAddr), sizeof(SockAddr)) != 0) {
 		printf("Could not connect to the mirror\n");
 		closesocket(Socket);

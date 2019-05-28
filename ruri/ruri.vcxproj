@@ -158,21 +158,29 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="aes.cpp" />
-    <ClCompile Include="bcrypt.c" />
-    <ClCompile Include="crypt_blowfish.c" />
-    <ClCompile Include="crypt_gensalt.c" />
+    <ClCompile Include="BCrypt\bcrypt.c" />
+    <ClCompile Include="BCrypt\crypt_blowfish.c" />
+    <ClCompile Include="BCrypt\crypt_gensalt.c" />
     <ClCompile Include="Source.cpp" />
-    <ClCompile Include="wrapper.c" />
+    <ClCompile Include="BCrypt\wrapper.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="aes.h" />
     <ClInclude Include="Aria.h" />
     <ClInclude Include="Base64.h" />
+    <ClInclude Include="BCrypt\bcrypt.h" />
+    <ClInclude Include="BCrypt\BCrypt.hpp" />
     <ClInclude Include="BotCommands.h" />
     <ClInclude Include="Channel.h" />
     <ClInclude Include="Connection.h" />
+    <ClInclude Include="BCrypt\crypt.h" />
+    <ClInclude Include="BCrypt\crypt_blowfish.h" />
+    <ClInclude Include="BCrypt\crypt_gensalt.h" />
     <ClInclude Include="Match.h" />
+    <ClInclude Include="oppai.h" />
+    <ClInclude Include="BCrypt\ow-crypt.h" />
     <ClInclude Include="SQL.h" />
+    <ClInclude Include="BCrypt\winbcrypt.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

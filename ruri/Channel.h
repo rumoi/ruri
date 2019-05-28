@@ -148,9 +148,9 @@ struct _Channel{
 		}
 
 	}
-	void Bot_SendMessage(const char* BotName, const DWORD UserID, std::string message) {
+	void Bot_SendMessage(const std::string &Name, const DWORD UserID, std::string message) {
 
-		const _BanchoPacket b = bPacket::Message(BOT_NAME, ChannelName.c_str(), message.c_str(), 999);
+		const _BanchoPacket b = bPacket::Message(Name, ChannelName, message, 999);
 
 		for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
 

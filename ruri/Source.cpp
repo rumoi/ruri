@@ -108,12 +108,12 @@ enum Mods
 #define KCYN  "\x1B[36m"
 #define KGRY  "\x1B[37m"
 #define KRESET "\033[0m"
-#define BOT_NAME "ruri"
 #define BOT_LOCATION 38
-#define FAKEUSER_NAME "testAccount"//"Kick this slot to go forward a page."
-
 #define RURIPORT 420
 #define ARIAPORT 421
+
+#define MIRROR_IP "163.172.67.35"
+#define OSU_IP "1.1.1.1"
 
 #define MAX_USER_COUNT 256
 #define MAX_USERNAME_LENGTH 19
@@ -259,6 +259,10 @@ WSADATA wsData;
 #include <iostream>
 #include <vector>
 #include <string>
+
+const std::string BOT_NAME = "ruri";
+const std::string FAKEUSER_NAME((const char*)new char[8]{ -30,-128,-115,95,-30,-128,-115,0 });
+
 #include <time.h>
 #include <thread>
 
@@ -266,7 +270,7 @@ WSADATA wsData;
 #include <shared_mutex>
 
 #include "SQL.h"
-#include "BCrypt.hpp"
+#include "BCrypt/BCrypt.hpp"
 
 #include <time.h>
 #include <random>
@@ -658,7 +662,7 @@ __forceinline std::vector<std::string> Explode(const std::string &Input, const c
 //cache leader boards
 
 __forceinline std::string MenuClickButton(const std::string Command, const std::string Desc) {
-	return "[osump://0/" + Command + " " + Desc + "]";
+	return "[osump://0/" + Command + "|" + FAKEUSER_NAME + " " + Desc + "]";
 }
 
 __forceinline bool PasswordCheck(const void* Pass1, const void* Pass2){
@@ -1301,7 +1305,7 @@ namespace bPacket {
 				AddString(b.Data, FAKEUSER_NAME);
 				break;
 			default:
-				AddString(b.Data, "BanchoBot");
+				AddString(b.Data, "Not Set");
 				break;
 			}
 
@@ -1695,7 +1699,7 @@ std::string GetOsuPage(std::string Input){
 	SOCKADDR_IN SockAddr;
 	SockAddr.sin_port = htons(80);
 	SockAddr.sin_family = AF_INET;
-	SockAddr.sin_addr.s_addr = inet_addr("1.1.1.1");
+	SockAddr.sin_addr.s_addr = inet_addr(OSU_IP);
 	if (connect(Socket, (SOCKADDR*)(&SockAddr), sizeof(SockAddr)) != 0) {
 		printf("WARNING: peppy might have blocked our IP\n");
 		closesocket(Socket);
@@ -2635,8 +2639,8 @@ __forceinline void Event_client_matchChangeSettings(_User *tP, const byte* Packe
 		if (m->Settings.BeatmapID != -1){
 
 			m->sendUpdate(bPacket::BotMessage("#multiplayer",
-				"Direct is still being worked on\n(Akatsuki)[https://akatsuki.pw/d/" + std::to_string(m->Settings.BeatmapID) + "]   (Bloodcat)[https://bloodcat.com/osu?q=" + std::to_string(m->Settings.BeatmapID) + "]"
-				));
+				"\nDirect is still being worked on\n(Akatsuki)[https://akatsuki.pw/d/" + std::to_string(m->Settings.BeatmapID) + "]   (Bloodcat)[https://bloodcat.com/osu?q=" + std::to_string(m->Settings.BeatmapID) + "]\n"
+				,FAKEUSER_NAME));
 		}
 	}
 
@@ -3261,7 +3265,8 @@ void IngameMenu(_User* u, _Con s){
 				+ std::to_string(u->UserID) + " AND beatmap_md5 = '" + bMD5 + "' AND completed = 2 ORDER BY pp DESC");
 
 			DWORD Count = 0;
-			Res += "ShownScoreSelector\nThis will also affect your total pp.\n";
+			Res += "This will also affect your total pp.\n";
+
 			while (res && res->next()) {
 				if (Count > 8)break;
 				
@@ -3285,11 +3290,11 @@ void IngameMenu(_User* u, _Con s){
 	if (Res.size()){
 		if (!u->Menu.BanchoLoaded) {
 			u->Menu.BanchoLoaded = 1;
-			u->addQueNonLocking(bPacket::UserPanel(1, 0));
-			u->addQueNonLocking(bPacket::UserStats(1, 0));
-		}else u->addQue(bPacket::GenericInt32(94, 1));
+			u->addQueNonLocking(bPacket::UserPanel(998, 0));
+			u->addQueNonLocking(bPacket::UserStats(998, 0));
+		}else u->addQue(bPacket::GenericInt32(94, 998));
 
-		u->addQueDelay(_DelayedBanchoPacket(1, bPacket::BotMessage(u->UserName, Res, "BanchoBot", 1)));
+		u->addQueDelay(_DelayedBanchoPacket(1, bPacket::BotMessage(u->UserName, Res,FAKEUSER_NAME, 998)));
 	}
 
 }
@@ -3507,7 +3512,6 @@ const char* countryCodes[] = {
 	"MF" };
 
 __forceinline byte getCountryNum(const char *isoCode){
-
 	if (isoCode[0] == 0 || isoCode[0] == '0')return 0;
 
 	for (byte i = 0; i < 253; i++){
@@ -3663,9 +3667,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 
 			if (!u){
 				u = GetPlayerSlot(Username.c_str());
-				if (!u)goto SERVERFULL;
-				
-
+				if (!u)goto SERVERFULL;				
 			}
 			
 			DisconnectUser(u);
@@ -3693,7 +3695,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 						
 			memcpy(&u->Password[0], &Password[0], 32);
 
-			u->addQueNonLocking(bPacket::Notification("Welcome to ruri.\n\nCurrently working on beatmap information."));
+			u->addQueNonLocking(bPacket::Notification("Welcome to ruri."));
 			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_silenceEnd, 0));
 			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_userID, UserID));
 			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_protocolVersion, 19));
@@ -3832,12 +3834,9 @@ void HandlePacket(_Con s){
 
 #include "Aria.h"
 
-//Used to logout dropped users, keep the SQL connections alive and other house keeping
+//Used to logout dropped users and other house keeping
 void LazyThread(){
 	printf("LazyThread running.\n");
-
-	//_SQLCon lThread;
-	//lThread.Connect();
 
 	while (1){
 
@@ -3851,40 +3850,6 @@ void LazyThread(){
 				//DisconnectUser(&User[i]);
 				debug_LogOutUser(&User[i]);
 			}
-
-			//preload best stats of maps - With how I set everything else up this is useless.
-			/*if (User[i].choToken){
-				//check if they are in a song playing?
-				const DWORD BID = User[i].BeatmapID;
-
-				if (BID && BID != User[i].PrevCache.BID && User[i].PrevCache.UpdateTime + 10000 < cTime){
-
-					const std::string BMD5(User[i].ActionMD5);
-					if (BMD5.size() == 32) {
-
-
-						const std::string TableName = (User[i].actionMods & Relax) ? "scores_relax" : "scores";
-
-						std::auto_ptr<sql::ResultSet> res(lThread.Execute("SELECT score,max_combo,accuracy,pp FROM " + TableName + " WHERE userid = " + std::to_string(User[i].UserID) + " AND completed = 3 AND beatmap_md5 = " + BMD5 + " ORDER BY pp DESC"));
-
-						if (res->next()) {
-
-							//TODO: beatmap rank
-
-							User[i].PrevCache.Beatmap_Score = res->getInt(1);
-							User[i].PrevCache.Beatmap_Combo = res->getInt(2);
-							User[i].PrevCache.Beatmap_Acc = res->getDouble(3);
-							User[i].PrevCache.Beatmap_PP = res->getDouble(4);
-
-						}
-						else User[i].PrevCache.clearMap();
-					}else User[i].PrevCache.clearMap();
-
-					User[i].PrevCache.UpdateTime = cTime;
-					User[i].PrevCache.BID = BID;
-				}
-
-			}*/
 		}
 		Sleep(250);
 
@@ -3895,18 +3860,6 @@ void LazyThread(){
 				ActiveLobbies++;
 
 		COUNT_MULTIPLAYER = ActiveLobbies;
-
-		/*
-		for (DWORD i = 0; i < BANCHO_THREAD_COUNT; i++)
-			if (SQL_BanchoThread[i].LastMessage + 30000 < cTime)//No SQL communications in 30 seconds.
-				SQL_BanchoThread[i].ExecuteSQL("DO 0");
-		if (lThread.LastMessage + 30000 < cTime)
-			lThread.ExecuteSQL("DO 0");
-
-		for (DWORD i = 0; i < ARIA_THREAD_COUNT; i++)
-			if (AriaSQL[i].LastMessage + 30000 < cTime)//No SQL communications in 30 seconds.
-				AriaSQL[i].ExecuteSQL("DO 0");
-			*/
 
 	}
 }
@@ -3923,7 +3876,6 @@ void DoFillRank(DWORD I, bool TableName){
 
 	if (TableName)
 		I += 4;
-
 	while (res->next()) {
 		RankList[I][cOffset] = _RankList(res->getInt(1), res->getInt(2));
 		cOffset++;
@@ -4005,15 +3957,20 @@ void receiveConnections(){
 
 	FillRankCache();
 
-
-	CreateThread(0, 0, (LPTHREAD_START_ROUTINE)Aria_Main, 0, 0, 0);
+	{
+		std::thread a(Aria_Main);
+		a.detach();
+	}
 
 	while(!ARIALOADED)
 		Sleep(100);
 
 	UpdateUsernameCache(&SQL_BanchoThread[0]);
 	
-	//CreateThread(0, 0, (LPTHREAD_START_ROUTINE)LazyThread, 0, 0, 0);
+	{
+		std::thread a(LazyThread);
+		a.detach();
+	}
 
 	SOCKET listening = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (listening == INVALID_SOCKET)
@@ -4021,18 +3978,16 @@ void receiveConnections(){
 		printf("Failed to load listening socket.\n");
 		return;
 	}
+
 	std::printf(KGRN "Created Socket\n" KRESET);
 
 	sockaddr_in hint;
 	hint.sin_family = AF_INET;
 	hint.sin_port = htons(RURIPORT);
-	hint.sin_addr.S_un.S_addr = INADDR_ANY; // Could also use inet_pton ....
+	hint.sin_addr.S_un.S_addr = INADDR_ANY;
 
-	::bind(listening, (sockaddr*)&hint, sizeof(hint));// Bind the ip address and port to a socket
-
-	listen(listening, SOMAXCONN);// Tell Winsock the socket is for listening
-
-	std::printf("Running\n");
+	::bind(listening, (sockaddr*)&hint, sizeof(hint));
+	listen(listening, SOMAXCONN);
 
 	sockaddr_in client;
 
@@ -4091,16 +4046,6 @@ int main(){
 
 	osu_API_KEY = std::string(Con[0].begin(), Con[0].end() - 1);
 	SQL_Password = std::string(Con[1].begin(), Con[1].end() - 1);
-
-	/*
-	if (osu_API_KEY.size() == 0){
-		printf("\nNo API key set.\n");
-		return;
-	}
-	if (SQL_Password.size() == 0) {
-		printf("\nNo SQL pass given.\n");
-		return;
-	}*/
 
 	osu_API_BEATMAP = "api/get_beatmaps?k=" + osu_API_KEY + "&";
 
