@@ -1382,7 +1382,7 @@ std::string GetMirrorResponse(std::string Input) {
 	SOCKET Socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
 	SOCKADDR_IN SockAddr;
-	SockAddr.sin_port = htons(80);
+	SockAddr.sin_port = htons(MIRROR_PORT);
 	SockAddr.sin_family = AF_INET;
 	SockAddr.sin_addr.s_addr = inet_addr(MIRROR_IP);
 	if (connect(Socket, (SOCKADDR*)(&SockAddr), sizeof(SockAddr)) != 0) {
@@ -1466,8 +1466,7 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s) {
 }
 
 void Handle_SearchSet(const _HttpRes http, _Con s){
-	
-	
+
 	DWORD Start = 0;
 
 	for (DWORD i = 19; i < http.Host.size() - 1; i++) {
@@ -1480,17 +1479,14 @@ void Handle_SearchSet(const _HttpRes http, _Con s){
 	if (!Start)
 		return s.close();
 
-	std::string Res = GetMirrorResponse("web/osu-search-set.php?" + std::string(http.Host.begin() + Start, http.Host.end()));
+	std::string Res = GetMirrorResponse("api/set?" + std::string(http.Host.begin() + Start, http.Host.end()));
+
+	UnChunk(Res);
 
 	if (!Res.size())
 		return s.close();
 
-	const DWORD PostStart = Res.find("\r\n\r\n");
-
-	if (PostStart == std::string::npos)
-		return s.close();
-
-	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Res.begin() + PostStart + 4, Res.end())));
+	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
 	s.close();
 }
 void Handle_DirectSearch(const _HttpRes http, _Con s) {
@@ -1509,7 +1505,7 @@ void Handle_DirectSearch(const _HttpRes http, _Con s) {
 	if (!Start)
 		return s.close();
 
-	std::string Res = GetMirrorResponse("web/osu-search.php?" + std::string(http.Host.begin() + Start, http.Host.end()));
+	std::string Res = GetMirrorResponse("api/search?" + std::string(http.Host.begin() + Start, http.Host.end()));
 
 	if (Res.size() == 0){
 
@@ -1520,14 +1516,19 @@ void Handle_DirectSearch(const _HttpRes http, _Con s) {
 		return s.close();
 	}
 
-	//UnChunk(Res);
+	UnChunk(Res);
 
-	const DWORD PostStart = Res.find("\r\n\r\n");
+	if (Res.size() == 0)
+		return s.close();
+
+	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
+
+	/*const DWORD PostStart = Res.find("\r\n\r\n");
 
 	if (PostStart == std::string::npos)
 		return s.close();
 
-	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Res.begin() + PostStart + 4, Res.end())));
+	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Res.begin() + PostStart + 4, Res.end())));*/
 
 	s.close();
 }

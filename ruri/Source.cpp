@@ -112,7 +112,8 @@ enum Mods
 #define RURIPORT 420
 #define ARIAPORT 421
 
-#define MIRROR_IP "163.172.67.35"
+#define MIRROR_IP "5.9.151.156"
+#define MIRROR_PORT 8420
 #define OSU_IP "1.1.1.1"
 
 #define MAX_USER_COUNT 256
@@ -166,8 +167,6 @@ enum OPac {
 	client_createMatch = 31,
 	client_joinMatch = 32,
 	client_partMatch = 33,
-	//server_lobbyJoin_obsolete = 34,
-	//#server_lobbyPart_obsolete = 35,
 	server_matchJoinSuccess = 36,
 	server_matchJoinFail = 37,
 	client_matchChangeSlot = 38,
@@ -408,7 +407,7 @@ void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP) {
 	if (!Direction) {
 		Off++;
 		std::sort(RankList[GameMode], RankList[GameMode] + (Off * sizeof(_RankList)), SortRankCache);//The reason for the offset
-	}else std::sort(RankList[GameMode], &RankList[GameMode][USHORT(-1)], SortRankCache);//TODO properly bound this backwards (Yes I know the last one never gets sorted.)
+	}else std::sort(RankList[GameMode], &RankList[GameMode][USHORT(-1)], SortRankCache);//TODO properly bound this backwards
 	RankListVersion[GameMode]++;
 	RankUpdate[GameMode].unlock();
 	printf("Updated ranks\n");
@@ -1648,9 +1647,11 @@ std::string GetOsuPage(std::string Input){
 
 	SOCKET Socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	SOCKADDR_IN SockAddr;
+	struct hostent *host;
+	host = gethostbyname("old.ppy.sh");
 	SockAddr.sin_port = htons(80);
 	SockAddr.sin_family = AF_INET;
-	SockAddr.sin_addr.s_addr = inet_addr(OSU_IP);
+	SockAddr.sin_addr.s_addr = *((unsigned long*)host->h_addr);
 	if (connect(Socket, (SOCKADDR*)(&SockAddr), sizeof(SockAddr)) != 0) {
 		printf("WARNING: peppy might have blocked our IP\n");
 		closesocket(Socket);
