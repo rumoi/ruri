@@ -260,7 +260,7 @@ WSADATA wsData;
 #include <string>
 
 const std::string BOT_NAME = "ruri";
-const std::string FAKEUSER_NAME((const char*)new char[8]{ -30,-128,-115,95,-30,-128,-115,0 });
+const std::string FAKEUSER_NAME((const char*)new char[8]{-30,-128,-115,95,-30,-128,-115,0});
 
 #include <time.h>
 #include <thread>
@@ -335,25 +335,8 @@ void UsernameCacheUpdateName(const DWORD UID, const std::string &s, _SQLCon *SQL
 	UsernameCacheLock.unlock_shared();
 }
 
-
 std::string osu_API_KEY;
 std::string osu_API_BEATMAP = "api/get_beatmaps?k=" + osu_API_KEY + "&";
-
-
-struct LogLock {
-	std::mutex L;
-
-	void lock(){
-
-		printf("Locked\n");
-		L.lock();
-	}
-	void unlock(){
-
-		printf("Un-Locked\n");
-		L.unlock();
-	}
-};
 
 struct _RankList {
 	DWORD ID;
@@ -644,6 +627,7 @@ std::vector<std::vector<byte>> Explode(const void *p, const DWORD Size, const st
 
 	return Output;
 }
+
 __forceinline std::vector<std::string> Explode(const std::string &Input, const char Delimiter) {
 
 	std::vector<std::string> Output;
@@ -662,7 +646,6 @@ __forceinline std::vector<std::string> Explode(const std::string &Input, const c
 
 	return Output;
 }
-//cache leader boards
 
 __forceinline std::string MenuClickButton(const std::string Command, const std::string Desc) {
 	return "[osump://0/" + Command + "|" + FAKEUSER_NAME + " " + Desc + "]";
@@ -780,6 +763,8 @@ bool StringCompareStart(const std::string &a, const std::string b) {
 	return 1;
 }
 
+#include "Achievement.h"
+
 struct _User {
 public:
 	std::vector<_BanchoPacket> Que;
@@ -826,6 +811,7 @@ public:
 	int LastSentBeatmap;
 	_Menu Menu;
 	DWORD Friends[256];
+	_Achievement Ach;//TODO: thread this.
 
 	__forceinline DWORD GetStatsOffset()const{
 
@@ -1652,16 +1638,20 @@ std::string GetOsuPage(std::string Input){
 	SockAddr.sin_port = htons(80);
 	SockAddr.sin_family = AF_INET;
 	SockAddr.sin_addr.s_addr = *((unsigned long*)host->h_addr);
+
 	if (connect(Socket, (SOCKADDR*)(&SockAddr), sizeof(SockAddr)) != 0) {
 		printf("WARNING: peppy might have blocked our IP\n");
 		closesocket(Socket);
 		return "";
 	}
+
 	Input = "GET /" + Input + " HTTP/1.1\r\nHost: old.ppy.sh\r\nConnection: close\r\n\r\n";
+
 	if (send(Socket, &Input[0], Input.size(), 0) == SOCKET_ERROR) {
 		closesocket(Socket);
 		return "";
 	}
+
 	char buffer[1400];
 	int nDataLength;
 	std::string Return = "";
@@ -1669,16 +1659,14 @@ std::string GetOsuPage(std::string Input){
 	do{
 		nDataLength = recv(Socket, buffer, 1400, 0);
 
-		if (nDataLength == SOCKET_ERROR) {
-
+		if (nDataLength == SOCKET_ERROR){
 			closesocket(Socket);
 			return "";
 		}
 
-		if (nDataLength) {
+		if (nDataLength){
 			Return.resize(Return.size() + nDataLength);
 			memcpy(&Return[Return.size() - nDataLength], buffer, nDataLength);
-
 		}
 
 	} while (nDataLength);
@@ -3848,13 +3836,11 @@ void FillRankCache(){
 
 std::mutex BanchoWorkLock[BANCHO_THREAD_COUNT];
 std::vector<_Con> BanchoConnectionQue[BANCHO_THREAD_COUNT];
-void BanchoWork(const DWORD ID) {
-
-	while (1) {
+void BanchoWork(const DWORD ID){
+	while(1){
 
 		DWORD Count = 0;
 		_Con* Req = 0;
-
 
 		Count = BanchoConnectionQue[ID].size();
 
@@ -3871,7 +3857,6 @@ void BanchoWork(const DWORD ID) {
 
 			BanchoWorkLock[ID].unlock();
 		}
-
 		for (DWORD i = 0; i < Count; i++)
 			HandlePacket(Req[i]);
 
@@ -3879,7 +3864,6 @@ void BanchoWork(const DWORD ID) {
 
 		Sleep(1);//It being 0 literally hogs an entire core so.. No?
 	}
-
 }
 
 
@@ -3968,10 +3952,6 @@ void receiveConnections(){
 
 	}
 }
-
-
-
-
 
 int main(){
 

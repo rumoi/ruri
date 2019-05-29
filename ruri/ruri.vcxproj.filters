@@ -86,5 +86,8 @@
     <ClInclude Include="BCrypt\winbcrypt.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Achievement.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

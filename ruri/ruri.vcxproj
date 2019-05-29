@@ -165,6 +165,7 @@
     <ClCompile Include="BCrypt\wrapper.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Achievement.h" />
     <ClInclude Include="aes.h" />
     <ClInclude Include="Aria.h" />
     <ClInclude Include="Base64.h" />

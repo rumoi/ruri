@@ -899,6 +899,43 @@ void ScoreFailed(_Con s){
 	s.close();
 }
 
+_Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
+
+	_Achievement Ret;
+
+	DWORD* Gen = 0;
+	if (s.GameMode == 0)
+		Gen = &Ret.osuGeneral;
+	else if (s.GameMode == 1)
+		Gen = &Ret.taikoGeneral;
+	else if (s.GameMode == 2)
+		Gen = &Ret.ctbGeneral;
+	else Gen = &Ret.maniaGeneral;
+
+	if (s.MaxCombo >= 500)
+		*Gen += AchGeneral::Combo500;
+	if (s.MaxCombo >= 750)
+		*Gen += AchGeneral::Combo750;
+	if (s.MaxCombo >= 1000)
+		*Gen += AchGeneral::Combo1000;
+	if (s.MaxCombo >= 2000)
+		*Gen += AchGeneral::Combo2000;
+
+	int StarCount = min((int)floor(StarDiff), 8);
+
+	while (StarCount > 0) {
+
+		if (s.FullCombo)
+			*Gen += 1 << (11 + StarCount);
+		*Gen += 1 << (3 + StarCount);
+
+		StarCount--;
+	}
+
+	return Ret;
+}
+
+
 void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 	const char* mName = "Aria";
@@ -1102,6 +1139,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				return TryScoreAgain(s);
 			}
 			float PP = 0.f;
+			float MapStars = 0.f;
 			if (BD->RankStatus >= RANKED){
 				ezpp_t ez = ezpp_new();
 
@@ -1117,6 +1155,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				if (!OppaiCheckMapDownload(ez, BD->BeatmapID))
 					return TryScoreAgain(s);
 				PP = ezpp_pp(ez);
+				MapStars = ezpp_stars(ez);
 			}
 			_ScoreCache sc(sData,u->UserID,PP);
 			
@@ -1131,12 +1170,26 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				"|beatmapPasscount: 1"
 				"|approvedDate: 0\n";
 
-			if(ClientScoreUpdate.size() != 0)
+			if (ClientScoreUpdate.size() != 0) {
 				Charts += "chartId: beatmap"
-				"|chartUrl: https://osu.ppy.sh/b/" + std::to_string(BD->BeatmapID) +
-				"|chartName: Beatmap Ranking" + ClientScoreUpdate + "\n";
+					"|chartUrl: https://osu.ppy.sh/b/" + std::to_string(BD->BeatmapID) +
+					"|chartName: Beatmap Ranking" + ClientScoreUpdate;
+				
+				//TODO: might want to add overall stats
+				std::string achievements;
+				
+				_Achievement New = GetAchievementsFromScore(sData, MapStars);
 
-			//TODO: might want to add overall stats
+				CalculateAchievement(New, u->Ach, sData.GameMode, &achievements);//TODO Add ach to DB.
+				u->Ach = New;
+
+
+				if(achievements.size())
+					Charts += "|achievements-new: " + achievements + "\n";
+				else Charts += "\n";
+			}
+
+
 
 			s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Charts.begin(), Charts.end())));
 			s.close();
@@ -1620,6 +1673,7 @@ void HandleAria(_Con s){
 	if (!DontCloseConnection) {
 		s.close();
 		printf(KMAG"Aria> " KRESET "%ims\n", clock() - sTime);
+
 	}
 }
 
