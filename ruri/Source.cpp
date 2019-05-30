@@ -607,8 +607,7 @@ std::vector<std::vector<byte>> Explode(const void *p, const DWORD Size, const st
 	std::vector<byte> t;
 	t.reserve(Size);
 	const DWORD dSize = delim.size();
-
-
+	
 	const char* in = (char*)p;
 
 	for (DWORD i = 0; i < Size; i++){
@@ -1770,11 +1769,47 @@ void UnChunk(std::string &S) {
 	S = Ret;
 }
 
-int getBeatmapID_fSetID(){
+int getSetID_fHash(const std::string &H, _SQLCon* c){//Could combine getbeatmapid and getsetid into one
 
-	return 0;
+	if (H.size() != 32)
+		return 0;
+
+	if (c){
+		sql::ResultSet* res = c->ExecuteQuery("SELECT beatmapset_id FROM beatmaps WHERE beatmap_md5 = '" + H + "' LIMIT 1");
+
+		if (res && res->next()) {
+			const int ID = res->getInt(1);
+			delete res;
+			return ID;
+		}
+
+		if (res)
+			delete res;
+	}	
+
+	std::string BeatmapData = GetOsuPage(osu_API_BEATMAP + "h=" + H);
+	UnChunk(BeatmapData);
+
+	if (BeatmapData.size() <= 25)return 0;
+
+	DWORD Off = BeatmapData.find("\"beatmapset_id\"");
+
+	if (Off == std::string::npos)return 0;
+
+	Off += 17;
+
+	std::string t;
+
+	while (BeatmapData[Off] != '"') {
+		t.push_back(BeatmapData[Off]);
+		Off++;
+	}
+
+	//TODO add to database
+	return Safe_atoi(t.c_str());
 }
-int getBeatmapID_fHash(std::string H, _SQLCon* c) {
+
+int getBeatmapID_fHash(std::string &H, _SQLCon* c) {
 
 	if (H.size() != 32)return 0;
 
@@ -1783,18 +1818,17 @@ int getBeatmapID_fHash(std::string H, _SQLCon* c) {
 
 		PrepareSQLString(H);
 
-		std::auto_ptr<sql::ResultSet> res(c->ExecuteQuery("SELECT beatmap_id FROM beatmaps WHERE beatmap_md5 = '" + H + "' LIMIT 1"));
+		sql::ResultSet* res = c->ExecuteQuery("SELECT beatmap_id FROM beatmaps WHERE beatmap_md5 = '" + H + "' LIMIT 1");
 
-		if (res->next()){
+		if (res && res->next()){
 			const int ID = res->getInt(1);
-			res.reset(0);
+			delete res;
 			return ID;
 		}
+		if (res)
+			delete res;
 
-
-		res.reset(0);
 	}
-
 
 	std::string BeatmapData = GetOsuPage(osu_API_BEATMAP + "h=" + H);
 	UnChunk(BeatmapData);

@@ -34,10 +34,8 @@ struct _Score {
 };
 
 struct _ScoreCache{
-
 	DWORD UserID;
-	DWORD ScoreID;
-	byte GameMode;
+	uint64_t ScoreID;
 	int Score;
 	int Time;
 	DWORD Mods;
@@ -49,6 +47,7 @@ struct _ScoreCache{
 	USHORT countMiss;
 	USHORT MaxCombo;
 	bool FullCombo;
+	byte GameMode;
 	float pp;
 
 	float GetAcc() const {
@@ -726,7 +725,7 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 	//if (GameMode >= 8)return 0;
 
 	bool ValidMD5 = (MD5.size() == 32);
-
+	bool DiffNameGiven = (DiffName.size() > 0);
 	_BeatmapSet *BS = 0;
 
 	if (ValidMD5) {
@@ -742,8 +741,8 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 		return 0;
 
 	if(!BS)
-		BS = GetBeatmapSetFromSetID(SetID, SQL);
-	
+		BS = GetBeatmapSetFromSetID((SetID) ? SetID : getSetID_fHash(MD5, SQL), SQL);
+
 	if (BS){
 
 	CheckSet:
@@ -754,7 +753,7 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 
 		for (DWORD i = 0; i < BS->Maps.size(); i++){
 
-			if ((ValidMD5 && BS->Maps[i].Hash == MD5) || BS->Maps[i].DiffName == DiffName){//TODO: check if the servers md5 is out of date.
+			if ((ValidMD5 && BS->Maps[i].Hash == MD5) || (DiffNameGiven && BS->Maps[i].DiffName == DiffName)){//TODO: check if the servers md5 is out of date.
 				_BeatmapData *b = &BS->Maps[i];
 				BS->Lock.unlock_shared();
 				return b;
@@ -773,7 +772,7 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 
 		}
 
-	}
+	}else printf("Could not find the map at all.");
 
 	//Worst case scenario. The beatmap is not in the database and the osuapi can not be reached.
 
@@ -936,6 +935,9 @@ _Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
 }
 
 
+const USHORT RCNL = *(USHORT*)"\r\n";
+
+
 void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 	const char* mName = "Aria";
@@ -955,7 +957,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				osuver,
 				clienthash,
 				Image,//Used if osu thinks the person is flash light cheating.
-				iv;
+				iv,ReplayFile;
 
 	auto RawScoreData = Explode(&res.Body[0], res.Body.size(), "-------------------------------28947758029299\r\n");
 
@@ -965,11 +967,10 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		//TODO: maybe make this not gross test code?
 		for (DWORD i = 0; i < RawScoreData.size(); i++){
 
-			if (FailTime == INT_MIN && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"ft\"")) {
-					
+			if (FailTime == INT_MIN && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"ft\"")){					
 					std::vector<byte> t;
-
-					for (DWORD z = 0; z < RawScoreData[i].size(); z++)
+					t.reserve(8);
+					for (DWORD z = 41; z < RawScoreData[i].size(); z++)
 						if (RawScoreData[i][z] >= '0' && RawScoreData[i][z] <= '9')
 							t.push_back(RawScoreData[i][z]);
 
@@ -979,10 +980,10 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 					continue;
 				}
-			if (Quit == -1 && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"x\"")) {
+			if (Quit == -1 && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"x\"")){
 					std::vector<byte> t;
-
-					for (DWORD z = 0; z < RawScoreData[i].size(); z++)
+					t.reserve(8);
+					for (DWORD z = 40; z < RawScoreData[i].size(); z++)
 						if (RawScoreData[i][z] >= '0' && RawScoreData[i][z] <= '9')
 							t.push_back(RawScoreData[i][z]);
 
@@ -990,80 +991,74 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 					Quit = Safe_atoi((char*)&t[0]);
 					continue;
-				}
+			}
 			if (!iv.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"iv\"")){
 					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
 
 					if (Chunk.size() != 4)continue;
 
-					Chunk[2].push_back(0);
-					iv = std::string((char*)&Chunk[2][0]);
+					iv = std::string(Chunk[2].begin(), Chunk[2].end());
 					continue;
-				}
+			}
 			if (!score.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"score\"")) {
 					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
 
 					if (Chunk.size() != 4)continue;
 
-					Chunk[2].push_back(0);
-					score = std::string((char*)&Chunk[2][0]);
+					score = std::string(Chunk[2].begin(), Chunk[2].end());
 					continue;
-				}
+			}
 			if (!bmk.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"bmk\"")) {
 					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
 
 					if (Chunk.size() != 4)continue;
 
-					Chunk[2].push_back(0);
-					bmk = std::string((char*)&Chunk[2][0]);
+					bmk = std::string(Chunk[2].begin(), Chunk[2].end());
 					continue;
-				}
+			}
 			if (!c1.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"c1\"")) {
 					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
 
 					if (Chunk.size() != 4)continue;
 
-					Chunk[2].push_back(0);
-					c1 = std::string((char*)&Chunk[2][0]);
+					c1 = std::string(Chunk[2].begin(), Chunk[2].end());
 					continue;
-				}
+			}
 			if (!pass.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"pass\"")) {
 					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
 
 					if (Chunk.size() != 4)continue;
 
-					Chunk[2].push_back(0);
-					pass = std::string((char*)&Chunk[2][0]);
+					pass = std::string(Chunk[2].begin(), Chunk[2].end());
 					continue;
-				}
+			}
 			if (!osuver.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"osuver\"")) {
 					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
 
 					if (Chunk.size() != 4)continue;
 
-					Chunk[2].push_back(0);
-					osuver = std::string((char*)&Chunk[2][0]);
+					osuver = std::string(Chunk[2].begin(), Chunk[2].end());
 					continue;
-				}
+			}
 			if (!clienthash.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"s\"")) {
 					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
 
 					if (Chunk.size() != 4)continue;
 
-					Chunk[2].push_back(0);
-					clienthash = std::string((char*)&Chunk[2][0]);
+					clienthash = std::string(Chunk[2].begin(), Chunk[2].end());
 					continue;
-				}
+			}
 			if (!Image.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"i\"")) {
 					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
 
 					if (Chunk.size() != 4)continue;
 
-					Chunk[2].push_back(0);
-					Image = std::string((char*)&Chunk[2][0]);
+					Image = std::string(Chunk[2].begin(), Chunk[2].end());
 					continue;
-				}
-
+			}
+			/*if (!ReplayFile.size() && RawScoreData[i].size() > 150 && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"score\"; filename=\"score\"")) {//Content-Disposition: form-data; name=\"score\"; filename=\"score\"
+				ReplayFile = std::string(RawScoreData[i].begin() + 107, RawScoreData[i].end() - 2);
+			}*/
 		}
 
 		if (!iv.size() || !clienthash.size() || !osuver.size() || !score.size() || pass.size() != 32){//something very important is missing.
@@ -1090,6 +1085,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		}
 
 		sData.BeatmapHash = ScoreData[scoreOffset::score_FileCheckSum];
+		PrepareSQLString(sData.BeatmapHash);
 		sData.UserName = ScoreData[scoreOffset::score_PlayerName];
 		sData.count300 = Safe_atoi(ScoreData[score_Count300].c_str());
 		sData.count100 = Safe_atoi(ScoreData[score_Count100].c_str());
@@ -1132,7 +1128,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 			if (lGameMode >= 8)lGameMode = 0;
 
-			_BeatmapData *BD = GetBeatmapCache(0,0, sData.BeatmapHash,"",0);// GetLeaderBoard(sData.BeatmapHash, &AriaSQL[s.ID], lGameMode);
+			_BeatmapData *BD = GetBeatmapCache(0,0, sData.BeatmapHash,"",&AriaSQL[s.ID]);// GetLeaderBoard(sData.BeatmapHash, &AriaSQL[s.ID], lGameMode);
 
 			if (!BD) {
 				LogError("Failed to find beatmap" "Aria");
@@ -1182,29 +1178,26 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 				CalculateAchievement(New, u->Ach, sData.GameMode, &achievements);//TODO Add ach to DB.
 				u->Ach = New;
-
-
 				if(achievements.size())
 					Charts += "|achievements-new: " + achievements + "\n";
 				else Charts += "\n";
 			}
-
-
-
+			
 			s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Charts.begin(), Charts.end())));
 			s.close();
 
 			if((u->privileges & UserPublic) && NewBest && UpdateUserStatsFromDB(&AriaSQL[s.ID], UserID, lGameMode, u->Stats[lGameMode]))
 				u->addQue(bPacket::UserStats(u));
 
-			if (NewBest){
-				//Save replay.
+			if (NewBest && sc.ScoreID && ReplayFile.size()){
+				//Might want to save the headers into the file its self.
+				//The only time having raw data would be nice is when someone changes their username. But is it really that big of an issue.
+				WriteAllBytes("/home/akatsuki/lets/.data/replays/replay_" + std::to_string(sc.ScoreID) + ".osr", ReplayFile);
 			}
 
 			return;
 		}
 
-		//DEBUG
 		AddStringToVector(Body, "error: no");
 		s.SendData(ConstructResponse("HTTP/1.0 200 OK", Headers, Body));
 		s.close();
@@ -1304,9 +1297,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 		std::string BeatmapFailed = std::to_string(Status) + "|0";
 
 		s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(BeatmapFailed.begin(), BeatmapFailed.end())));
-		s.close();
-
-		return;
+		return s.close();
 	}
 
 
@@ -1430,12 +1421,12 @@ struct _UpdateCache{
 }; std::vector<_UpdateCache> UpdateCache;
 
 
-std::string GetMirrorResponse(std::string Input) {
+std::string GetMirrorResponse(std::string Input, const USHORT Port = MIRROR_PORT) {
 
 	SOCKET Socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
 	SOCKADDR_IN SockAddr;
-	SockAddr.sin_port = htons(MIRROR_PORT);
+	SockAddr.sin_port = htons(Port);
 	SockAddr.sin_family = AF_INET;
 	SockAddr.sin_addr.s_addr = inet_addr(MIRROR_IP);
 	if (connect(Socket, (SOCKADDR*)(&SockAddr), sizeof(SockAddr)) != 0) {
@@ -1443,7 +1434,8 @@ std::string GetMirrorResponse(std::string Input) {
 		closesocket(Socket);
 		return "";
 	}
-	Input = "GET /" + Input + " HTTP/1.1\r\nHost: osu.ppy.sh\r\nConnection: close\r\n\r\n";
+
+	Input = "GET /" + Input + " HTTP/1.1\r\nHost: osu.ppy.sh\r\nConnection: close\r\n\r\n";//Might want to performance scope this...
 	
 	if (send(Socket, &Input[0], Input.size(), 0) == SOCKET_ERROR){
 		printf("Mirror send error\n");
@@ -1540,12 +1532,11 @@ void Handle_SearchSet(const _HttpRes http, _Con s){
 		return s.close();
 
 	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
-	s.close();
+	return s.close();
 }
 void Handle_DirectSearch(const _HttpRes http, _Con s) {
 
-	const char Find[] = { '&','r' };
-	const USHORT Key = *(USHORT*)&Find[0];
+	const USHORT Key = *(USHORT*)"&r";
 	DWORD Start = 0;
 
 	for (DWORD i = 19; i < http.Host.size() - 2; i++){
@@ -1560,6 +1551,8 @@ void Handle_DirectSearch(const _HttpRes http, _Con s) {
 
 	std::string Res = GetMirrorResponse("api/search?" + std::string(http.Host.begin() + Start, http.Host.end()));
 
+	UnChunk(Res);
+
 	if (Res.size() == 0){
 
 		std::string MirrorFailure = "1\n | |Could not contact the mirror|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0";
@@ -1569,21 +1562,9 @@ void Handle_DirectSearch(const _HttpRes http, _Con s) {
 		return s.close();
 	}
 
-	UnChunk(Res);
-
-	if (Res.size() == 0)
-		return s.close();
-
 	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
 
-	/*const DWORD PostStart = Res.find("\r\n\r\n");
-
-	if (PostStart == std::string::npos)
-		return s.close();
-
-	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Res.begin() + PostStart + 4, Res.end())));*/
-
-	s.close();
+	return s.close();
 }
 
 __forceinline bool ReadAllBytes(const std::string &filename, std::vector<byte>&res)
@@ -1615,12 +1596,32 @@ void GetReplay(const _HttpRes http, _Con s){
 		return s.close();
 	std::vector<byte> Data;
 
-	if (!ReadAllBytes(".data/replays/replay_" + std::to_string(ScoreID) + ".osr", Data))
+	if (!ReadAllBytes("/home/akatsuki/lets/.data/replays/replay_" + std::to_string(ScoreID) + ".osr", Data))
 		return s.close();
 
 	//sql::ResultSet *res = AriaSQL[s.ID].ExecuteQuery("SELECT * FROM ");
 
 
+	return s.close();
+}
+
+void DownloadOSZ(const _HttpRes http, _Con s){
+
+	const std::string URL(http.Host.begin(), http.Host.end());
+	const DWORD DataOff = URL.find('?');
+
+	std::string Res = GetMirrorResponse((DataOff == std::string::npos) ? URL : URL.substr(0, DataOff));
+
+	UnChunk(Res);
+
+	if (Res.size() < 100){
+		s.SendData(ConstructResponse("HTTP/1.0 404 Not Found", Empty_Headers, Empty_Byte));
+		return s.close();
+	}
+	
+	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
+	
+	return s.close();
 }
 
 void HandleAria(_Con s){
@@ -1666,6 +1667,10 @@ void HandleAria(_Con s){
 	}
 	else if (SafeStartCMP(res.Host, "/web/osu-getreplay.php")){
 		std::thread a(GetReplay, res, s);
+		a.detach();
+		DontCloseConnection = 1;
+	}else if (SafeStartCMP(res.Host, "/d/")) {
+		std::thread a(DownloadOSZ, res, s);
 		a.detach();
 		DontCloseConnection = 1;
 	}else SendAria404(s);
