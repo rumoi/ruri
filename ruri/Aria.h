@@ -1197,7 +1197,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			if (NewBest && sc.ScoreID && ReplayFile.size()){
 				//Might want to save the headers into the file its self.
 				//The only time having raw data would be nice is when someone changes their username. But is it really that big of an issue. Could leave the name as the userid and only resolve that (with the name cache) on fetch.
-				WriteAllBytes("/home/akatsuki/lets/.data/replays/replay_" + std::to_string(sc.ScoreID) + ".osr", ReplayFile);
+				WriteAllBytes(REPLAY_PATH +std::to_string(sc.ScoreID) + ".osr", ReplayFile);
 			}
 
 			return;
@@ -1401,7 +1401,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	s.close();
 }
 
-__forceinline const bool SafeStartCMP(const std::vector<byte> &b,  const std::string &Check){
+__forceinline const bool SafeStartCMP(const std::vector<byte> &b, const std::string &Check){
 	if (b.size() < Check.size())return 0;
 	return (memcmp(&b[0], &Check[0], Check.size()) == 0);
 }
@@ -1601,7 +1601,7 @@ void GetReplay(const _HttpRes http, _Con s){
 		return s.close();
 	std::vector<byte> Data;
 
-	if (!ReadAllBytes("/home/akatsuki/lets/.data/replays/replay_" + std::to_string(ScoreID) + ".osr", Data))
+	if (!ReadAllBytes(REPLAY_PATH + std::to_string(ScoreID) + ".osr", Data))
 		return s.close();
 
 	//sql::ResultSet *res = AriaSQL[s.ID].ExecuteQuery("SELECT * FROM ");

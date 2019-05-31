@@ -32,6 +32,8 @@ __forceinline void UserNameSafe(std::string &s){
 }
 
 std::string SQL_Password;
+std::string SQL_Username;
+std::string SQL_Schema;
 
 struct _SQLCon {
 
@@ -49,8 +51,8 @@ struct _SQLCon {
 			if (con)delete con;
 			if (!driver)driver = get_driver_instance();
 
-			con = driver->connect("localhost", "root", SQL_Password);
-			con->setSchema("ripple");
+			con = driver->connect("localhost", SQL_Username, SQL_Password);
+			con->setSchema(SQL_Schema);
 		}
 	}
 
@@ -150,12 +152,12 @@ struct _SQLCon {
 			Lock.unlock();
 			return 0;
 		}
-		con = driver->connect("localhost", "root", SQL_Password);
+		con = driver->connect("localhost", SQL_Username, SQL_Password);
 		if (!con) {
 			Lock.unlock();
 			return 0;
 		}
-		con->setSchema("ripple");
+		con->setSchema(SQL_Schema);
 
 		LastMessage = clock();
 

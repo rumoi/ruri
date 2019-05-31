@@ -335,6 +335,9 @@ void UsernameCacheUpdateName(const DWORD UID, const std::string &s, _SQLCon *SQL
 	UsernameCacheLock.unlock_shared();
 }
 
+
+std::string BEATMAP_PATH;
+std::string REPLAY_PATH;
 std::string osu_API_KEY;
 std::string osu_API_BEATMAP = "api/get_beatmaps?k=" + osu_API_KEY + "&";
 
@@ -1658,7 +1661,7 @@ std::string GetOsuPage(std::string Input){
 
 #include <fstream>
 
-__forceinline bool FileExistCheck(const std::string filename) {
+__forceinline bool FileExistCheck(const std::string &filename) {
 	std::ifstream ifs(filename, std::ios::binary | std::ios::ate);
 	if (ifs.is_open()) {
 		ifs.close();
@@ -1848,7 +1851,7 @@ bool DownloadMapFromOsu(const int ID){
 
 	//ReplaceAll(bFile, "\r\n", "\n");//Could save diskspace
 
-	WriteAllBytes("/home/akatsuki/lets/.data/beatmaps/" + std::to_string(ID) + ".osu",(void*)&bFile[0],bFile.size());
+	WriteAllBytes(BEATMAP_PATH + std::to_string(ID) + ".osu",(void*)&bFile[0],bFile.size());
 
 	return 1;
 }
@@ -1859,7 +1862,7 @@ bool DownloadMapFromOsu(const int ID){
 
 bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID){
 
-	const std::string MapPath = "/home/akatsuki/lets/.data/beatmaps/" + std::to_string(BID) + ".osu\0";
+	const std::string MapPath = BEATMAP_PATH + std::to_string(BID) + ".osu";
 
 	if (!FileExistCheck(MapPath) && !DownloadMapFromOsu(BID)) {
 		printf(KRED "Failed to download %i.osu\n" KRESET,BID);
@@ -3258,8 +3261,7 @@ void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 	_User *tP = GetUserFromToken(choToken);
 
 	if (!tP || !tP->UserID){//No user online with that token
-
-
+		
 		_BanchoPacket rC(OPac::server_restart);
 		AddInt(rC.Data, 1);//Restart Time
 
@@ -3653,7 +3655,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 
 			//u->addQueNonLocking(bPacket::ChannelInfo(&chan_Lobby, 0));
 			
-			u->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, chan_Akatsuki.ChannelName.c_str()));
+			u->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, chan_Akatsuki.ChannelName));
 			chan_Akatsuki.JoinChannel(u);
 
 			u->addQueNonLocking(bPacket::GenericString(OPac::server_channelKicked, "#osu"));
@@ -3960,23 +3962,60 @@ void receiveConnections(){
 	}
 }
 
+
+
+std::string ExtractConfigValue(const std::vector<byte> &Input){
+
+	DWORD Start = 0;
+	DWORD End = 0;
+
+	for (DWORD i = 0; i < Input.size(); i++){
+		if (!Start){
+			if (Input[i] == '"')
+				Start = i+1;
+		}
+		else if (Input[i] == '"') {
+			End = i;
+			break;
+		}
+	}
+
+
+	if (!Start || !End)
+		return "";
+
+	return std::string(Input.begin() + Start, Input.begin() + End);
+}
+
+
+
 int main(){
+	
+	std::vector<byte> ConfigBytes;
 
-	std::vector<byte> Config;
-
-	if (!ReadAllBytes("config.ini", Config)) {
+	if (!ReadAllBytes("config.ini", ConfigBytes)) {
 		printf("\nconfig.ini missing.\n");
 		return 0;
 	}
+	
+	auto Config = Explode(&ConfigBytes[0], ConfigBytes.size(), '\n');
 
-	//Temp config so it can be pushed
+	for (DWORD i = 0; i < Config.size(); i++){
 
-	auto Con = Explode(&Config[0],Config.size(), '\n');
+		if (SafeStartCMP(Config[i], "osu_API_Key"))
+			osu_API_KEY = ExtractConfigValue(Config[i]);
+		else if (SafeStartCMP(Config[i], "SQL_Password"))
+			SQL_Password = ExtractConfigValue(Config[i]);
+		else if (SafeStartCMP(Config[i], "SQL_Username"))
+			SQL_Username = ExtractConfigValue(Config[i]);
+		else if (SafeStartCMP(Config[i], "SQL_Schema"))
+			SQL_Schema = ExtractConfigValue(Config[i]);
+		else if (SafeStartCMP(Config[i], "BeatmapPath"))
+			BEATMAP_PATH = ExtractConfigValue(Config[i]);
+		else if (SafeStartCMP(Config[i], "ReplayPath"))
+			REPLAY_PATH = ExtractConfigValue(Config[i]);
 
-	osu_API_KEY = std::string(Con[0].begin(), Con[0].end() - 1);
-	SQL_Password = std::string(Con[1].begin(), Con[1].end() - 1);
-
-	osu_API_BEATMAP = "api/get_beatmaps?k=" + osu_API_KEY + "&";
+	}
 
 	
 	if (BANCHO_THREAD_COUNT < 4 || ARIA_THREAD_COUNT < 4) {
