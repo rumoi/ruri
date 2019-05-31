@@ -251,6 +251,12 @@ struct _LeaderBoardCache{
 					ScoreCache[i] = s;
 					NewTop = 1;
 					LastRank = i + 1;
+				}else{
+					SQL->ExecuteUPDATE("INSERT INTO " + TableName + " (id, beatmap_md5, userid, score, max_combo, full_combo, mods, 300_count, 100_count, 50_count, katus_count, gekis_count, misses_count, time, play_mode, completed, accuracy, pp) VALUES (NULL"
+						", '" + MD5 + "', " + std::to_string(s.UserID) + ", " + std::to_string(s.Score) + ", " + std::to_string(s.MaxCombo) + ", " + std::to_string(s.FullCombo) +
+						", " + std::to_string(s.Mods) + ", " + std::to_string(s.count300) + ", " + std::to_string(s.count100) + ", " + std::to_string(s.count50) + ", " + std::to_string(s.countKatu) +
+						", " + std::to_string(s.countGeki) + ", " + std::to_string(s.countMiss) + ", " + std::to_string(s.Time) + ", " + std::to_string(s.GameMode) + ", 2, " + std::to_string(s.GetAcc()) +
+						", " + std::to_string(s.pp) + ")");
 				}
 				break;
 			}
@@ -1206,7 +1212,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		AriaSQL[s.ID].ExecuteUPDATE("INSERT INTO " + TableName +" (id, beatmap_md5, userid, score, max_combo, full_combo, mods, 300_count, 100_count, 50_count, katus_count, gekis_count, misses_count, time, play_mode, completed, accuracy, pp) VALUES (NULL"
 			", '" + sData.BeatmapHash + "', " + std::to_string(UserID) + ", " + std::to_string(sData.Score) + ", " + std::to_string(sData.MaxCombo) + ", " + std::to_string(sData.FullCombo) +
 			", " + std::to_string(sData.Mods) + ", " + std::to_string(sData.count300) + ", " + std::to_string(sData.count100) + ", " + std::to_string(sData.count50) + ", " + std::to_string(sData.countKatu) +
-			", " + std::to_string(sData.countGeki) + ", " + std::to_string(sData.countMiss) + ", " + std::to_string(clock()) + ", " + std::to_string(sData.GameMode) + ", 1, " + std::to_string(sData.GetAcc()) + ", 0.0);");
+			", " + std::to_string(sData.countGeki) + ", " + std::to_string(sData.countMiss) + ", " + std::to_string(time(0)) + ", " + std::to_string(sData.GameMode) + ",0, " + std::to_string(sData.GetAcc()) + ", 0.0);");
 
 		return;
 	}
