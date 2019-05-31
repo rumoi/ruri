@@ -398,7 +398,7 @@ void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP) {
 
 
 namespace BR {
-	std::random_device randomDeviceInit;
+	std::random_device randomDeviceInit;	
 	std::mt19937 mersenneTwister = std::mt19937(randomDeviceInit());
 
 	int GetRand(int min = 0, int max = INT_MAX) {
@@ -825,13 +825,12 @@ public:
 
 		SpecLock.lock();
 
-		for (DWORD i = 0; i < Spectators.size(); i++) {
+		for (DWORD i = 0; i < Spectators.size(); i++){
 
 			_User* Spec = Spectators[i];
 
 			if (Spec && Spec->privileges & Privs)
-				Spec->addQue(b);
-		
+				Spec->addQue(b);		
 		}
 
 		SpecLock.unlock();
@@ -925,8 +924,7 @@ public:
 	void addQueDelay(const _DelayedBanchoPacket b) {
 
 		if (b.b.Type == NULL_PACKET || b.Time == 0 || !choToken)return;
-
-
+		
 		qLock.lock();
 		if(choToken)dQue.push_back(b);
 		qLock.unlock();
@@ -986,7 +984,6 @@ public:
 			Headers.push_back(_HttpHeader("cho-token", std::to_string(choToken).c_str()));
 			SendToken = 0;
 		}
-		//printf("%s> SendingSize: %i\n", UserName, SendBytes.size());
 
 		s.SendData(ConstructResponse("HTTP/1.0 200 OK", Headers, SendBytes));
 	}
@@ -1089,7 +1086,6 @@ DWORD GetIDFromName(std::string Name) {
 	for (DWORD i = 0; i < MAX_USER_COUNT; i++){
 		if (User[i].UserName == Name)
 			return User[i].UserID;
-
 	}
 	return 0;
 }
@@ -1187,7 +1183,7 @@ namespace bPacket {
 		return b;
 	}
 
-	__forceinline _BanchoPacket GenericString(short ID, const std::string Value) {
+	__forceinline _BanchoPacket GenericString(short ID, const std::string &Value) {
 
 		_BanchoPacket b(ID);
 
@@ -1272,9 +1268,6 @@ namespace bPacket {
 		return b;
 	}
 	__forceinline _BanchoPacket UserPanel(_User *tP) {
-
-
-		//printf("\nUserID:%i\nUserName:%s\nPriv:%i\n\n", tP->UserID, tP->UserName, tP->privileges);
 
 		_BanchoPacket b(OPac::server_userPanel);
 
@@ -1392,9 +1385,8 @@ void debug_SendOnlineToAll(_User *p) {
 	}
 }
 
-void Event_client_stopSpectating(_User *tP) {
-
-
+void Event_client_stopSpectating(_User *tP){
+	
 	tP->addQue(bPacket::GenericString(OPac::server_channelKicked, "#spectator"));
 
 	_User *SpecTarget = tP->CurrentlySpectating;
@@ -1414,13 +1406,12 @@ void Event_client_stopSpectating(_User *tP) {
 
 	const _BanchoPacket b = bPacket::GenericInt32(OPac::server_fellowSpectatorLeft, tP->UserID);
 
-	for (DWORD i = 0; i < SpecTarget->Spectators.size(); i++){//TODO make spectating 100% thread safe.
+	for (DWORD i = 0; i < SpecTarget->Spectators.size(); i++){
 
 		_User* FellowSpec = SpecTarget->Spectators[i];
 
-		if (FellowSpec) {
+		if (FellowSpec){
 			AllEmptySpecs = 0;
-
 			FellowSpec->addQue(b);
 		}
 	}
@@ -1430,6 +1421,9 @@ void Event_client_stopSpectating(_User *tP) {
 	SpecTarget->SpecLock.unlock();
 
 	SpecTarget->addQue(bPacket::GenericInt32(OPac::server_spectatorLeft, tP->UserID));
+
+	if (AllEmptySpecs)
+		SpecTarget->addQue(bPacket::GenericString(OPac::server_channelKicked,"#spectator"));
 
 	tP->CurrentlySpectating = 0;
 }
@@ -1442,19 +1436,7 @@ void Event_client_cantSpectate(_User *tP) {
 		return;
 
 	const _BanchoPacket b = bPacket::GenericInt32(OPac::server_spectatorCantSpectate, tP->UserID);
-
-	SpecHost->SpecLock.lock();
-
-	for (DWORD i = 0; i < SpecHost->Spectators.size(); i++) {
-		_User *fSpec = SpecHost->Spectators[i];
-
-		if (fSpec && fSpec != tP)
-			fSpec->addQue(b);
-
-	}
-
-	SpecHost->SpecLock.unlock();
-
+	SpecHost->SendToSpecs(b, Privileges::UserPublic);
 	SpecHost->addQue(b);
 }
 
@@ -1467,7 +1449,7 @@ void RenderHTMLPage(_Con s, _HttpRes &res) {
 
 	std::string Response = //"<iframe src=\"https://classic.minecraft.net\" style=\"position:fixed; top:0; left:0; bottom:0; right:0; width:100%; height:100%; border:none; margin:0; padding:0; overflow:hidden; z-index:999999;\"></iframe>";
 		"<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/567292020104888320/unknown.png\">"
-		"<br>ruri uptime : " + std::to_string(double(clock()) / 86400000.) + " days. With " + std::to_string(COUNT_REQUESTS) + " connnections handled."
+		"<br>ruri uptime : " + std::to_string(double(clock()) / 86400000.) + " days. With " + std::to_string(COUNT_REQUESTS) + " connections handled."
 		"<br>"+ std::to_string(COUNT_MULTIPLAYER) + " currently active multiplayer games.";
 	Response += "</HTML>";
 
@@ -1495,7 +1477,7 @@ RETRY:
 
 	return Token;
 }
-__forceinline std::string ReadUleb(uint64_t &O, const uint64_t Max) {
+__forceinline std::string ReadUleb(size_t &O, const size_t Max) {
 
 	if(O >= Max)return "";
 
@@ -1510,7 +1492,7 @@ __forceinline std::string ReadUleb(uint64_t &O, const uint64_t Max) {
 			sLength |= (tB & 0x7F) << 7 * i;
 		}
 
-		if (uint64_t(O) + sLength > Max)return "";
+		if (size_t(O) + sLength > Max)return "";
 
 		std::string ReturnS(sLength, 0);
 		for (int i = 0; i < sLength; i++) {
@@ -1528,7 +1510,7 @@ __forceinline void Event_client_channelJoin(_User *tP,const byte* Packet, const 
 	if (Size <= 2)
 		return;
 
-	uint64_t O = (uint64_t)&Packet[0];
+	size_t O = (size_t)&Packet[0];
 
 	std::string ChannelName = ReadUleb(O,O + Size + 1);
 
@@ -1554,7 +1536,7 @@ __forceinline void Event_client_channelPart(_User *tP, const byte* Packet, const
 
 	if (Size <= 2)return;
 
-	uint64_t O = (uint64_t)&Packet[0];
+	size_t O = (size_t)&Packet[0];
 
 	std::string ChannelName = ReadUleb(O,O + Size + 1);
 
@@ -2182,7 +2164,7 @@ __forceinline void Event_client_sendPublicMessage(_User *tP, const byte* Packet,
 			}
 		}
 		return;
-	}else if ((tP->CurrentlySpectating || tP->Spectators.size()) && Target == "#spectator"){//TODO see if this is thread safe!
+	}else if ((tP->CurrentlySpectating || tP->Spectators.size()) && Target == "#spectator"){
 
 		_User *SpecHost = (tP->Spectators.size()) ? tP : tP->CurrentlySpectating;
 
@@ -2247,7 +2229,7 @@ __forceinline void Event_client_startSpectating(_User *tP, const byte* Packet, c
 
 	_User *SpecTarget = GetUserFromID(ID);
 
-	if (!SpecTarget){
+	if (!SpecTarget || tP == SpecTarget){
 		tP->addQue(bPacket::Notification("Failed to find user."));
 		return;
 	}
@@ -2259,7 +2241,7 @@ __forceinline void Event_client_startSpectating(_User *tP, const byte* Packet, c
 	tP->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess,"#spectator"));
 
 	const _BanchoPacket b = bPacket::GenericInt32(OPac::server_fellowSpectatorJoined, tP->UserID);
-
+	
 	SpecTarget->SpecLock.lock();
 
 	if(SpecTarget->Spectators.size() == 0)
@@ -2269,9 +2251,11 @@ __forceinline void Event_client_startSpectating(_User *tP, const byte* Packet, c
 
 		_User* fSpec = SpecTarget->Spectators[i];
 
-		if (fSpec && fSpec != tP)
+		if (fSpec && fSpec != tP){
 			fSpec->addQue(b);
-		if (!fSpec && Add){
+			tP->addQue(bPacket::GenericInt32(OPac::server_fellowSpectatorJoined, fSpec->UserID));
+		}
+		if (!fSpec && Add) {
 			Add = 0;
 			SpecTarget->Spectators[i] = tP;
 		}
@@ -3491,11 +3475,6 @@ __forceinline byte getCountryNum(const char *isoCode){
 	return 0;
 }
 
-
-//_SQLCon SQLCONNECTIONS[SQLCONNECTIONCOUNT];
-
-
-
 void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 
 	if (res.Body.size() <= 1){
@@ -3503,7 +3482,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 		return;
 	}
 
-	if (!choToken){//No token sent - Assume its the login request which only ever comes in one
+	if (!choToken){//No token sent - Assume its the login request which only ever comes in once
 		int sTime = clock();
 		res.Body.pop_back();
 
@@ -3541,14 +3520,11 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 			}
 		}
 
-		LoginData[0].push_back(0);//Term Username
-		LoginData[1].push_back(0);//Tem Password
-		LoginData[2].push_back(0);//Term HWID
+		LoginData[1].push_back(0);//Password
+		LoginData[2].push_back(0);//HWID
 
-		std::string Username((char*)&LoginData[0][0]);
+		std::string Username(LoginData[0].begin(), LoginData[0].end());
 		char* Password = (char*)&LoginData[1][0];
-			
-		//const char* HWIDRAW = (char*)&LoginData[2][0];
 		
 		if(Username.size() > MAX_USERNAME_LENGTH || strlen(Password) != 32)goto INCORRECTLOGIN;
 
@@ -3586,7 +3562,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 
 
 			if (bcrypt_checkpw(Password, Password_Hash.c_str()) != 0)
-				goto INCORRECTLOGIN;//Might want to add a brute force checker
+				goto INCORRECTLOGIN;//Might want to add a brute force lock out
 
 			Username = res->getString(3);//get the database captialization for consistencies sake
 			Priv = res->getInt(4);
@@ -3681,7 +3657,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 			chan_Akatsuki.JoinChannel(u);
 
 			u->addQueNonLocking(bPacket::GenericString(OPac::server_channelKicked, "#osu"));
-			u->addQueNonLocking(bPacket::GenericString(OPac::server_channelInfo, "#osu"));
+			//u->addQueNonLocking(bPacket::GenericString(OPac::server_channelInfo, "#osu"));
 
 
 			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_channelInfoEnd, 0));
@@ -3835,17 +3811,17 @@ const std::string UserTableNames[] = { "users_stats","rx_stats" };
 
 void DoFillRank(DWORD I, bool TableName){
 
-	std::auto_ptr<sql::ResultSet> res(SQL_BanchoThread[I].ExecuteQuery("SELECT id, " + PPColNames[I] + " FROM "+ UserTableNames[TableName] +" WHERE " + PPColNames[I] + " > 0 ORDER BY " + PPColNames[I] + " DESC"));
+	sql::ResultSet *res = SQL_BanchoThread[I].ExecuteQuery("SELECT id, " + PPColNames[I] + " FROM " + UserTableNames[TableName] + " WHERE " + PPColNames[I] + " > 0 ORDER BY " + PPColNames[I] + " DESC");
 
 	DWORD cOffset = 0;
 
 	if (TableName)
 		I += 4;
-	while (res->next()) {
+	while (res && res->next()) {
 		RankList[I][cOffset] = _RankList(res->getInt(1), res->getInt(2));
 		cOffset++;
 	}
-	res.reset(0);
+	if (res)delete res;
 }
 
 
@@ -3971,9 +3947,6 @@ void receiveConnections(){
 
 		if (s == INVALID_SOCKET)continue;		
 		COUNT_REQUESTS++;
-
-		//std::thread a(HandlePacket, _Con(s));
-		//a.detach();
 
 		BanchoWorkLock[ID].lock();
 

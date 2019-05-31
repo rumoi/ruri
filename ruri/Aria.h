@@ -73,7 +73,7 @@ struct _ScoreCache{
 		countKatu = s.countKatu;
 		MaxCombo = s.MaxCombo;
 		FullCombo = s.FullCombo;
-		Time = clock();
+		Time = time(0);
 	}
 
 	_ScoreCache() {
@@ -98,7 +98,7 @@ struct _ScoreCache{
 	//id,score,max_combo,50_count,100_count,300_count,misses_count,katus_count,gekis_count,full_combo,mods,userid,pp,time
 	_ScoreCache(sql::ResultSet *r, const byte GM){
 		GameMode = GM;
-		ScoreID = r->getInt(1);
+		ScoreID = r->getInt64(1);
 		Score = r->getInt(2);
 		MaxCombo = r->getInt(3);
 		count50 = r->getInt(4);
@@ -244,7 +244,7 @@ struct _LeaderBoardCache{
 						SQL->Lock.unlock();
 						
 						if (res && res->next())
-							s.ScoreID = res->getInt(1);
+							s.ScoreID = res->getInt64(1);
 						if (res)delete res;
 
 					}
@@ -270,7 +270,7 @@ struct _LeaderBoardCache{
 			SQL->Lock.unlock();
 
 			if (res && res->next())
-				s.ScoreID = res->getInt(1);
+				s.ScoreID = res->getInt64(1);
 			if (res)delete res;
 
 			ScoreCache.push_back(s);
@@ -420,7 +420,8 @@ std::string GetJsonValue(const std::string &Input, const std::string Param) {
 	
 	DWORD Start = Input.find("\"" + Param + "\":\"");
 
-	if (Start == std::string::npos)return "";
+	if (Start == std::string::npos)
+		return "";
 
 	Start += Param.size() + 4;
 	DWORD End = Input.size();
@@ -625,7 +626,6 @@ TryMap:
 	}else if(FirstTime){
 
 		//The server does not have the data we need. We need to ask the osu API for all current maps in the set ID and add them to our own database.
-		//I think the best way is for it to return a failure. When the client reasks it can get it for real.
 
 		std::string ApiRes = GetOsuPage(osu_API_BEATMAP + "s=" + std::to_string(SetID));
 
@@ -704,7 +704,7 @@ TryMap:
 
 					if(it == MapSet->end())
 						MapSet->insert(std::pair<const DWORD, _BeatmapSet*>(SetID, &BeatmapSetDeleted));
-					else (*it).second = &BeatmapSetDeleted;
+					else (*it).second->ID = 0;
 				}
 			}
 		}else{
@@ -747,7 +747,8 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 
 	CheckSet:
 
-		if(!BS->ID)return &BeatmapNotSubmitted;
+		if(!BS->ID)
+			return &BeatmapNotSubmitted;
 
 		BS->Lock.lock_shared();
 
@@ -853,8 +854,7 @@ bool bVecCompareStart(const std::vector<byte> &a, const std::string b) {
 
 	for (DWORD i = 0; i < b.size(); i++)
 		if (a[i] != b[i])return 0;
-
-
+	
 	return 1;
 }
 
@@ -871,12 +871,10 @@ __forceinline std::string GetParam(const std::string &s, const std::string param
 			End = i;
 			break;
 		}
-
 	}
 
 	return std::string(s.begin() + Off, s.begin() + End);
 }
-
 
 void SendAria404(_Con s){
 
@@ -903,6 +901,7 @@ _Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
 	_Achievement Ret;
 
 	DWORD* Gen = 0;
+
 	if (s.GameMode == 0)
 		Gen = &Ret.osuGeneral;
 	else if (s.GameMode == 1)
@@ -1128,7 +1127,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 			if (lGameMode >= 8)lGameMode = 0;
 
-			_BeatmapData *BD = GetBeatmapCache(0,0, sData.BeatmapHash,"",&AriaSQL[s.ID]);// GetLeaderBoard(sData.BeatmapHash, &AriaSQL[s.ID], lGameMode);
+			_BeatmapData *BD = GetBeatmapCache(0, 0, sData.BeatmapHash, "", &AriaSQL[s.ID]);
 
 			if (!BD) {
 				LogError("Failed to find beatmap" "Aria");
@@ -1191,7 +1190,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 			if (NewBest && sc.ScoreID && ReplayFile.size()){
 				//Might want to save the headers into the file its self.
-				//The only time having raw data would be nice is when someone changes their username. But is it really that big of an issue.
+				//The only time having raw data would be nice is when someone changes their username. But is it really that big of an issue. Could leave the name as the userid and only resolve that (with the name cache) on fetch.
 				WriteAllBytes("/home/akatsuki/lets/.data/replays/replay_" + std::to_string(sc.ScoreID) + ".osr", ReplayFile);
 			}
 
@@ -1246,7 +1245,7 @@ std::string urlDecode(const std::string &SRC) {
 
 void osu_getScores(const _HttpRes &http, _Con s){
 	const char* mName = "Aria";
-	const std::string URL(http.Host.begin(), http.Host.end());	
+	const std::string URL(http.Host.begin(), http.Host.end());
 
 	std::string BeatmapMD5 = GetParam(URL, "&c=");
 	int SetID = Safe_stoul(GetParam(URL,"&i="));
