@@ -95,30 +95,27 @@ struct _Con{
 
 		if (!s)return 0;
 
-		for(DWORD i=0;i<32;i++)
-			res.H[i].Clear();
-		res.Host.clear();
-		res.Body.clear();
+		res = _HttpRes();
 
+		DWORD pSize = 0;
 		std::vector<byte> p;
-		p.reserve(MAX_PACKET_LENGTH);
-
+		p.reserve(USHORT(-1));
 		int pLength = MAX_PACKET_LENGTH;
-		char TempStream[MAX_PACKET_LENGTH];
-
 		do{
-			pLength = recv(s, (char*)TempStream, MAX_PACKET_LENGTH, 0);
-			if (pLength == SOCKET_ERROR)break;
+			p.resize(pSize + MAX_PACKET_LENGTH);
 
-			if (pLength != 0) {
-				p.resize(p.size() + pLength);
-				memcpy(&p[p.size() - pLength], TempStream, pLength);
-			}
+			pLength = recv(s, (char*)&p[pSize], MAX_PACKET_LENGTH, 0);
+
+			if (pLength == SOCKET_ERROR)break;
+			pSize += pLength;
+
 		} while (pLength == MAX_PACKET_LENGTH);
 
-		if (p.size() == 0)return 0;
+		
 
-		auto temp = Explode(&p[0], p.size(), '\r');
+		if (pSize == 0)return 0;
+
+		auto temp = Explode(&p[0], pSize, '\r');
 
 		if (!temp.size() || !temp[0].size())return 0;
 
@@ -176,8 +173,7 @@ struct _Con{
 
 
 		}
-
-
+		
 		return 1;
 	}
 

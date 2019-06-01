@@ -469,7 +469,7 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWOR
 
 			m->Lock.unlock();
 
-			return std::string(u->UserName) + " has forced host upon them self.";
+			return u->Username + " has forced host upon them self.";
 		}
 
 		if (Split[1] == "start") {

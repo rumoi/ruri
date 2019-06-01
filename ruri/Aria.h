@@ -945,6 +945,12 @@ const USHORT RCNL = *(USHORT*)"\r\n";
 
 void ScoreServerHandle(const _HttpRes &res, _Con s){
 
+
+
+	/*std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
+	const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+	printf("%fms\n", double(double(TTime) / 1000000.0));*/
+
 	const char* mName = "Aria";
 
 	//LogMessage("Start reading score.", mName);
@@ -1117,8 +1123,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			return TryScoreAgain(s);
 		}
 		const DWORD UserID = u->UserID;
-
-		if (memcmp(u->Password, &pass[0], 32) || u->UserName != sData.UserName){
+		if (!MD5CMP(u->Password, &pass[0]) || u->Username != sData.UserName){
 			AddStringToVector(Body, "error: pass");
 			goto SENDDATA;
 		}
@@ -1156,7 +1161,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				if (!OppaiCheckMapDownload(ez, BD->BeatmapID))
 					return TryScoreAgain(s);
 				PP = ezpp_pp(ez);
-				MapStars = ezpp_stars(ez);
+				MapStars = (sData.Mods & (NoFail | Relax | Relax2)) ? 0.f : ezpp_stars(ez);
 			}
 			_ScoreCache sc(sData,u->UserID,PP);
 			
@@ -1266,7 +1271,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	//Might want to lock the user or something in the future. just incase
 
 	_User* u = GetUserFromName(UserName);
-	if (!u || Password.size() != 32 || !PasswordCheck(&Password[0],u->Password))
+	if (!u || Password.size() != 32 || !MD5CMP(&Password[0],u->Password))
 		return SendAria404(s);
 
 	const DWORD Mods = Safe_stoul(GetParam(URL, "&mods="));
@@ -1334,7 +1339,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 				s = LeaderBoard->GetScoreByUID(u->UserID);
 			if (s.UserID != 0) {
 				Response += std::to_string(s.ScoreID);//online id
-				Response += "|" + std::string(u->UserName);//player name
+				Response += "|" + u->Username;//player name
 				Response += "|" + std::to_string((Mode>=4) ? int(s.pp + 0.5f) : s.Score);//total score
 				Response += "|" + std::to_string(s.MaxCombo);//max combo
 				Response += "|" + std::to_string(s.count50);//count 50
@@ -1631,20 +1636,17 @@ void DownloadOSZ(const _HttpRes http, _Con s){
 
 void HandleAria(_Con s){
 
-	const int sTime = clock();
-
 	const char* mName = "Aria";
 
 	DWORD TimeOut = 2500;
 	DWORD MPL = MAX_PACKET_LENGTH;
 
+	_HttpRes res;
+
 	setsockopt(s.s, SOL_SOCKET, SO_RCVTIMEO, (char*)&TimeOut, 4);
 	setsockopt(s.s, SOL_SOCKET, SO_SNDTIMEO, (char*)&TimeOut, 4);
 	setsockopt(s.s, SOL_SOCKET, SO_RCVBUF, (char*)&MPL, 4);
-
-	_HttpRes res;
-
-	bool Suc = s.RecvData(res);
+	bool Suc = s.RecvData(res);	
 
 	bool DontCloseConnection = 0;
 
@@ -1680,10 +1682,11 @@ void HandleAria(_Con s){
 		DontCloseConnection = 1;
 	}else SendAria404(s);
 
-	if (!DontCloseConnection) {
+	if (!DontCloseConnection){
 		s.close();
-		printf(KMAG"Aria> " KRESET "%ims\n", clock() - sTime);
-
+		/*const unsigned long long Time = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - begin).count();
+		
+		printf(KMAG"Aria> " KRESET "%fms\n", double(double(Time) / 1000000.0));*/
 	}
 }
 

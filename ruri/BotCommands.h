@@ -4,7 +4,7 @@
 namespace BOT_COMMANDS {
 
 
-	__forceinline std::string Roll(_User* u, const DWORD Max){return std::string(u->UserName) + " rolled " + std::to_string(BR::UGetRand(0, (Max) ? Max : 100));}
+	__forceinline std::string Roll(_User* u, const DWORD Max){return u->Username + " rolled " + std::to_string(BR::UGetRand(0, (Max) ? Max : 100));}
 
 
 

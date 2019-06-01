@@ -94,6 +94,7 @@ enum Mods
 	FreeModAllowed = NoFail | Easy | Hidden | HardRock | SuddenDeath | Flashlight | FadeIn | Relax | Relax2 | SpunOut | KeyMod,
 	ScoreIncreaseMods = Hidden | HardRock | DoubleTime | Flashlight | FadeIn,
 	TimeAltering = DoubleTime | HalfTime | Nightcore
+
 };
 
 #define WIN32_LEAN_AND_MEAN
@@ -129,7 +130,7 @@ const int PING_TIMEOUT_OSU = 50000;
 const bool USER_TEST = 0;
 //const bool LOW_LATENCY = 0;
 
-const int MAX_PACKET_LENGTH = 1403;
+const int MAX_PACKET_LENGTH = 1403 << 1;
 
 enum OPac {
 	NULL_PACKET = 1000,
@@ -649,12 +650,10 @@ __forceinline std::vector<std::string> Explode(const std::string &Input, const c
 	return Output;
 }
 
+#define MD5CMP(x,y) (memcmp(x,y,32) == 0)
+
 __forceinline std::string MenuClickButton(const std::string Command, const std::string Desc) {
 	return "[osump://0/" + Command + "|" + FAKEUSER_NAME + " " + Desc + "]";
-}
-
-__forceinline bool PasswordCheck(const void* Pass1, const void* Pass2){
-	return memcmp(Pass1,Pass2,32) == 0;
 }
 
 
@@ -768,18 +767,15 @@ bool StringCompareStart(const std::string &a, const std::string b) {
 #include "Achievement.h"
 
 struct _User {
-public:
-	std::vector<_BanchoPacket> Que;
-	std::vector<_DelayedBanchoPacket> dQue;
-	std::mutex qLock;
 
 	DWORD choToken;
 	DWORD UserID;
 	DWORD privileges;
-	char UserName[MAX_USERNAME_LENGTH + 1];
-	char UserName_Safe[MAX_USERNAME_LENGTH + 1];
-	char Password[33];//Could be half the size but who cares
-	char ActionMD5[33];
+
+	std::string Username;
+	std::string Username_Safe;
+	char Password[32];//Could be half the size but who cares
+	char ActionMD5[32];
 	DWORD actionMods;
 	int BeatmapID;
 	byte timeOffset;
@@ -793,7 +789,6 @@ public:
 
 	_UserStats Stats[8];//4 normal modes + 4 more relax ones
 
-	//int Rank;
 	std::string ActionText;
 	int LastPacketTime;
 	_User* CurrentlySpectating;
@@ -801,6 +796,7 @@ public:
 	int LoginTime;
 	bool SendToken;
 	bool inLobby;
+	bool HyperMode;
 	byte comMatchPage;
 	int LastReplayBundleTime;
 	int TotalDelta;
@@ -809,11 +805,15 @@ public:
 	std::vector<_User*> Spectators;
 	//std::mutex MultiLock;
 	USHORT CurrentMatchID;
-	bool HyperMode;
+	
 	int LastSentBeatmap;
 	_Menu Menu;
 	DWORD Friends[256];
 	_Achievement Ach;//TODO: thread this.
+
+	std::vector<_BanchoPacket> Que;
+	std::vector<_DelayedBanchoPacket> dQue;
+	std::mutex qLock;
 
 	__forceinline DWORD GetStatsOffset()const{
 
@@ -858,10 +858,10 @@ public:
 		UserID = 0;
 		SendToken = 0;
 		privileges = 0;
-		ZeroMemory(UserName, MAX_USERNAME_LENGTH + 1);
-		ZeroMemory(UserName_Safe, MAX_USERNAME_LENGTH + 1);
-		ZeroMemory(Password, 33);
-		ZeroMemory(ActionMD5, 33);
+		Username.clear();
+		Username_Safe.clear();
+		ZeroMemory(Password, 32);
+		ZeroMemory(ActionMD5, 32);
 		actionMods = 0;
 		BeatmapID = 0;
 		timeOffset = 0;
@@ -881,7 +881,7 @@ public:
 		comMatchPage = 0;
 		HyperMode = 0;
 		LastSentBeatmap = 0;
-		ZeroMemory(Friends, 256);
+		ZeroMemory(&Friends[0], 256 << 2);
 	}
 	void reset() {
 
@@ -891,9 +891,10 @@ public:
 		UserID = 0;
 		SendToken = 0;
 		privileges = 0;
-		ZeroMemory(UserName, MAX_USERNAME_LENGTH + 1);
-		ZeroMemory(Password, 33);
-		ZeroMemory(ActionMD5, 33);
+		Username.clear();
+		Username_Safe.clear();
+		ZeroMemory(Password, 32);
+		ZeroMemory(ActionMD5, 32);
 		actionMods = 0;
 		BeatmapID = 0;
 		timeOffset = 0;
@@ -914,7 +915,7 @@ public:
 		HyperMode = 0;
 		LastSentBeatmap = 0;
 		Menu = _Menu();
-		ZeroMemory(Friends, 256);
+		ZeroMemory(&Friends[0], 256 << 2);
 	}
 
 	void addQue(const _BanchoPacket b) {
@@ -999,13 +1000,15 @@ std::mutex LoginMutex;
 
 void debug_LogOutUser(_User *p);
 
-_User *GetPlayerSlot(const char *UserName){
+_User *GetPlayerSlot(const std::string &UserName){
+
+	if (!UserName.size())return 0;
 
 	LoginMutex.lock();
 
-	for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
-
-		if (strcmp(UserName, User[i].UserName))continue;
+	for (DWORD i = 0; i < MAX_USER_COUNT; i++){
+		if (User[i].Username != UserName)
+			continue;
 
 		LoginMutex.unlock();
 		return &User[i];
@@ -1057,11 +1060,10 @@ _User* GetUserFromName(const std::string &Name, const bool Force = 0){
 
 	if (Name.size() == 0)return 0;
 
-	const char *c = Name.c_str();
 	for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
 		if (User[i].choToken == 0 && !Force)continue;
 		
-		if (!strcmp(c, User[i].UserName))
+		if (Name == User[i].Username)
 			return &User[i];
 
 	}
@@ -1071,23 +1073,23 @@ _User* GetUserFromNameSafe(const std::string &Name, const bool Force = 0) {
 	//TODO: fix this
 
 	if (Name.size() == 0)return 0;
-	const char *c = Name.c_str();
+
 	for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
 		if (User[i].choToken == 0 && !Force)continue;
 
-		if (!strcmp(c, User[i].UserName_Safe))
+		if (Name == User[i].Username_Safe)
 			return &User[i];
 
 	}
 	return 0;
 }
 
-DWORD GetIDFromName(std::string Name) {
+DWORD GetIDFromName(const std::string &Name) {
 
 	if (Name.size() == 0)return 0;
 
 	for (DWORD i = 0; i < MAX_USER_COUNT; i++){
-		if (User[i].UserName == Name)
+		if (User[i].Username == Name)
 			return User[i].UserID;
 	}
 	return 0;
@@ -1259,7 +1261,7 @@ namespace bPacket {
 		_BanchoPacket b(OPac::server_userPanel);
 
 		AddInt(b.Data, UserID);
-		AddString(b.Data, tP->UserName);
+		AddString(b.Data, tP->Username);
 		b.Data.push_back(24 + tP->timeOffset);
 		b.Data.push_back(tP->country);
 		b.Data.push_back((UserID != AskerID) ? GetUserType(tP->privileges) : UserType::Supporter);
@@ -1275,7 +1277,7 @@ namespace bPacket {
 		_BanchoPacket b(OPac::server_userPanel);
 
 		AddInt(b.Data, tP->UserID);
-		AddString(b.Data, tP->UserName);
+		AddString(b.Data, tP->Username);
 		b.Data.push_back(24 + tP->timeOffset);
 		b.Data.push_back(tP->country);
 		b.Data.push_back(GetUserType(tP->privileges));
@@ -1320,7 +1322,8 @@ namespace bPacket {
 		AddInt(b.Data, UserID);
 		b.Data.push_back(tP->actionID);
 		AddString(b.Data, tP->ActionText);
-		AddString(b.Data, tP->ActionMD5);
+		if (tP->ActionMD5[0] == 0)AddString(b.Data, "");
+		else AddString(b.Data, std::string(tP->ActionMD5, 32));
 		AddInt(b.Data, tP->actionMods);
 		b.Data.push_back(tP->GameMode);
 		AddInt(b.Data, tP->BeatmapID);
@@ -1348,7 +1351,8 @@ namespace bPacket {
 		AddInt(b.Data, tP->UserID);
 		b.Data.push_back(tP->actionID);
 		AddString(b.Data, tP->ActionText);
-		AddString(b.Data, tP->ActionMD5);
+		if (tP->ActionMD5[0] == 0)AddString(b.Data, "");
+		else AddString(b.Data, std::string(tP->ActionMD5, 32));
 		AddInt(b.Data, tP->actionMods);
 		b.Data.push_back(tP->GameMode);
 		AddInt(b.Data, tP->BeatmapID);
@@ -1599,7 +1603,6 @@ __forceinline void Event_client_changeAction(_User *tP, const byte* Packet, cons
 
 	if (n_CheckSum.size() == 32)
 		memcpy(tP->ActionMD5, &n_CheckSum[0], 32);
-	//else ZeroMemory(tP->ActionMD5, 32);
 
 	tP->actionMods = n_Mods;
 	tP->GameMode = n_GameMode;
@@ -1914,7 +1917,7 @@ void BotMessaged(_User *tP, std::string Message){
 			const DWORD mSize = BotMessage[BeatmapOffset].size();
 
 			if(BotMessage[BeatmapOffset].find("/s/") != std::string::npos || mSize < 5)//mSize check is just to make it safe.
-				return tP->addQue(bPacket::BotMessage(tP->UserName, "This appears to be a Beatmapset - Which is not currently supported sorry!"));
+				return tP->addQue(bPacket::BotMessage(tP->Username, "This appears to be a Beatmapset - Which is not currently supported sorry!"));
 
 			char* Temp = new char[mSize]();
 
@@ -1985,7 +1988,7 @@ void BotMessaged(_User *tP, std::string Message){
 		if (BotMessage.size() >= 2){
 
 			if (BotMessage[0] == "!mods" || BotMessage[0] == "!acc")
-				return tP->addQue(bPacket::BotMessage(tP->UserName, "This is now in !with. Here are some examples of the usage.\n!with HDDT 95\n!with 98.5 HD HR"));
+				return tP->addQue(bPacket::BotMessage(tP->Username, "This is now in !with. Here are some examples of the usage.\n!with HDDT 95\n!with 98.5 HD HR"));
 
 			if (BotMessage[0] == "!with"){
 
@@ -2088,7 +2091,7 @@ WITHMODS:
 
 END:
 	ezpp_free(ez);
-	tP->addQue(bPacket::BotMessage(tP->UserName, Return));
+	tP->addQue(bPacket::BotMessage(tP->Username, Return));
 }
 
 __forceinline void Event_client_sendPrivateMessage(_User *tP, const byte* Packet, const DWORD Size){
@@ -2120,7 +2123,7 @@ __forceinline void Event_client_sendPrivateMessage(_User *tP, const byte* Packet
 		return;
 	}
 
-	u->addQue(bPacket::Message(tP->UserName, Target.c_str(), Message.c_str(), tP->UserID));
+	u->addQue(bPacket::Message(tP->Username, Target.c_str(), Message.c_str(), tP->UserID));
 
 }
 
@@ -2151,15 +2154,15 @@ __forceinline void Event_client_sendPublicMessage(_User *tP, const byte* Packet,
 
 				if (s.size() == 0){
 					m->Lock.lock();
-					m->sendUpdate(bPacket::Message(tP->UserName, Target.c_str(), Message.c_str(), tP->UserID), tP);
+					m->sendUpdate(bPacket::Message(tP->Username, Target, Message, tP->UserID), tP);
 					m->Lock.unlock();
 				}else{
 
 					if (C)
-						tP->addQue(bPacket::BotMessage("#multiplayer", s.c_str()));
+						tP->addQue(bPacket::BotMessage("#multiplayer", s));
 					else{
 						m->Lock.lock();
-						m->sendUpdate(bPacket::BotMessage("#multiplayer", s.c_str()), 0);
+						m->sendUpdate(bPacket::BotMessage("#multiplayer", s), 0);
 						m->Lock.unlock();
 					}
 
@@ -2171,7 +2174,7 @@ __forceinline void Event_client_sendPublicMessage(_User *tP, const byte* Packet,
 
 		_User *SpecHost = (tP->Spectators.size()) ? tP : tP->CurrentlySpectating;
 
-		const _BanchoPacket b = bPacket::Message(tP->UserName, Target.c_str(), Message.c_str(), tP->UserID);
+		const _BanchoPacket b = bPacket::Message(tP->Username, Target, Message, tP->UserID);
 
 		if (SpecHost){
 
@@ -2214,7 +2217,7 @@ __forceinline void Event_client_sendPublicMessage(_User *tP, const byte* Packet,
 		return;
 	}
 
-	const _BanchoPacket b = bPacket::Message(tP->UserName, Target.c_str(), Message.c_str(), tP->UserID);
+	const _BanchoPacket b = bPacket::Message(tP->Username, Target, Message, tP->UserID);
 
 	c->SendPublicMessage(tP, b);
 }
@@ -3153,12 +3156,9 @@ __forceinline void Event_client_invite(_User *tP, const byte* Packet, const DWOR
 		return;
 	}
 
-	const std::string FromName(tP->UserName);
-	const std::string ToName(Target->UserName);
+	tP->addQue(bPacket::BotMessage("#multiplayer", "Invited " + Target->Username + " to your match."));
 
-	tP->addQue(bPacket::BotMessage("#multiplayer", "Invited " + ToName + " to your match."));
-
-	_BanchoPacket b = bPacket::Message(FromName,ToName,"I have invited you to the multiplayer lobby \"[osump://" + std::to_string(m->MatchId) + "/" + m->Settings.Password +" " + m->Settings.Name + "]\".",tP->UserID);
+	_BanchoPacket b = bPacket::Message(tP->Username, Target->Username,"I have invited you to the multiplayer lobby \"[osump://" + std::to_string(m->MatchId) + "/" + m->Settings.Password +" " + m->Settings.Name + "]\".",tP->UserID);
 	//Users could fuck with the client [] url construction but its not dangerous in anyway so who cares.
 
 	b.Type = OPac::server_invite;
@@ -3216,7 +3216,7 @@ void IngameMenu(_User* u, _Con s){
 
 		if (BID && (u->Menu.ForceReDraw || BID != u->Menu.PreviousMap)) {
 			//TODO add relax
-			const std::string bMD5 = std::string(u->ActionMD5);
+			const std::string bMD5 = std::string(u->ActionMD5, 32);
 
 			sql::ResultSet *res = SQL_BanchoThread[s.ID].ExecuteQuery("SELECT id,score,max_combo,mods,accuracy,pp,completed FROM scores WHERE userid = "
 				+ std::to_string(u->UserID) + " AND beatmap_md5 = '" + bMD5 + "' AND completed = 2 ORDER BY pp DESC");
@@ -3251,7 +3251,7 @@ void IngameMenu(_User* u, _Con s){
 			u->addQueNonLocking(bPacket::UserStats(998, 0));
 		}else u->addQue(bPacket::GenericInt32(94, 998));
 
-		u->addQueDelay(_DelayedBanchoPacket(1, bPacket::BotMessage(u->UserName, Res,FAKEUSER_NAME, 998)));
+		u->addQueDelay(_DelayedBanchoPacket(1, bPacket::BotMessage(u->Username, Res,FAKEUSER_NAME, 998)));
 	}
 
 }
@@ -3280,7 +3280,7 @@ void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 		const DWORD PacketSize = *(DWORD*)&PacketBundle[In]; In += 4;
 
 		if (In + PacketSize > PacketBundle.size()) {
-			printf("%s> PACKET OUT OF RANGE\n	%i|%i|%i\n", tP->UserName, PacketID, (In + PacketSize), PacketBundle.size());
+			printf("%s> PACKET OUT OF RANGE\n	%i|%i|%i\n", tP->Username.c_str(), PacketID, (In + PacketSize), PacketBundle.size());
 			tP->doQue(s);
 			return;
 		}
@@ -3541,7 +3541,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 
 		int UserID = 0;
 		int Priv = 0;
-		if (u && u->Password[0] != 0 && !strcmp(u->Password, Password)){
+		if (u && u->Password[0] != 0 && MD5CMP(u->Password,Password)){
 			UserID = u->UserID;
 			Priv = u->privileges;//TODO make this able to be updated.
 			goto LOGGEDIN;
@@ -3554,7 +3554,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 
 			if (!res || !res->next())goto INCORRECTLOGIN;
 
-			if(!u)u = GetPlayerSlot(Username.c_str());
+			if(!u)u = GetPlayerSlot(Username);
 			if (!u)
 				goto SERVERFULL;
 
@@ -3614,7 +3614,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 		{
 
 			if (!u){
-				u = GetPlayerSlot(Username.c_str());
+				u = GetPlayerSlot(Username);
 				if (!u)goto SERVERFULL;				
 			}
 			
@@ -3636,12 +3636,10 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 			if (Username != GetUsernameFromCache(UserID))
 				UsernameCacheUpdateName(UserID, Username, &SQL_BanchoThread[s.ID]);
 
-			ZeroMemory(u->UserName, MAX_USERNAME_LENGTH + 1);
-			strcpy_s((char*)&u->UserName[0], MAX_USERNAME_LENGTH, Username.c_str());
-			ZeroMemory(u->UserName_Safe, MAX_USERNAME_LENGTH + 1);
-			strcpy_s((char*)&u->UserName_Safe[0], MAX_USERNAME_LENGTH, Username_Safe.c_str());
-						
-			memcpy(&u->Password[0], &Password[0], 32);
+
+			u->Username = Username;
+			u->Username_Safe = Username_Safe;
+			memcpy(u->Password, Password, 32);
 
 			u->addQueNonLocking(bPacket::Notification("Welcome to ruri."));
 			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_silenceEnd, 0));
