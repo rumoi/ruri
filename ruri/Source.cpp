@@ -1,4 +1,3 @@
-
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
 enum Privileges{
@@ -98,7 +97,6 @@ enum Mods
 };
 
 #define WIN32_LEAN_AND_MEAN
-#define WIN64_LEAN_AND_MEAN
 
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
@@ -274,6 +272,16 @@ const std::string FAKEUSER_NAME((const char*)new char[8]{-30,-128,-115,95,-30,-1
 
 #include <time.h>
 #include <random>
+
+int WeakStringToInt(const std::string &s) {
+
+	char Return[] = { 0,0,0,0 };
+
+	for (DWORD i = 0; i < s.size(); i++)
+		Return[i % 4] += s[i] ^ i;
+
+	return *(int*)&Return[0];
+}
 
 std::vector<std::string> UsernameCache;
 
@@ -807,7 +815,7 @@ struct _User {
 	USHORT CurrentMatchID;
 	
 	int LastSentBeatmap;
-	_Menu Menu;
+	//_Menu Menu;
 	DWORD Friends[256];
 	_Achievement Ach;//TODO: thread this.
 
@@ -914,7 +922,7 @@ struct _User {
 		comMatchPage = 0;
 		HyperMode = 0;
 		LastSentBeatmap = 0;
-		Menu = _Menu();
+		//Menu = _Menu();
 		ZeroMemory(&Friends[0], 256 << 2);
 	}
 
@@ -969,6 +977,10 @@ struct _User {
 			for (int i = int(dQue.size()) - 1; i >= 0; i--){
 				if (dQue[i].Time == 1){//means do the next bancho frame.
 					dQue[i].Time = 0;
+					continue;
+				}
+				if (dQue[i].Time == 2) {
+					dQue[i].Time = 1;
 					continue;
 				}
 				if(dQue[i].Time <= cTime){
@@ -1148,9 +1160,9 @@ namespace bPacket {
 
 		return b;
 	}
-	__forceinline _BanchoPacket ChannelInfo(const _Channel* c, const bool AutoJoin) {
+	__forceinline _BanchoPacket ChannelInfo(const _Channel* c) {
 
-		_BanchoPacket b((AutoJoin) ? OPac::server_channelAvailableAutojoin : OPac::server_channelInfo);
+		_BanchoPacket b(OPac::server_channelInfo);
 
 		AddString(b.Data, c->ChannelName);
 		AddString(b.Data, c->ChannelDesc);
@@ -1501,11 +1513,10 @@ __forceinline std::string ReadUleb(size_t &O, const size_t Max) {
 
 		if (size_t(O) + sLength > Max)return "";
 
-		std::string ReturnS(sLength, 0);
-		for (int i = 0; i < sLength; i++) {
-			ReturnS[i] = *(char*)O; O++;
-		}
-		return ReturnS;
+		const char* S = (char*)O;
+		O += sLength;
+
+		return std::string(S,sLength);
 
 	}else O++;
 
@@ -1519,7 +1530,7 @@ __forceinline void Event_client_channelJoin(_User *tP,const byte* Packet, const 
 
 	size_t O = (size_t)&Packet[0];
 
-	std::string ChannelName = ReadUleb(O,O + Size + 1);
+	const std::string ChannelName = ReadUleb(O,O + Size + 1);
 
 
 	_Channel *c = GetChannelByName(ChannelName);
@@ -1545,7 +1556,7 @@ __forceinline void Event_client_channelPart(_User *tP, const byte* Packet, const
 
 	size_t O = (size_t)&Packet[0];
 
-	std::string ChannelName = ReadUleb(O,O + Size + 1);
+	const std::string ChannelName = ReadUleb(O,O + Size + 1);
 
 	_Channel *c = GetChannelByName(ChannelName);
 
@@ -1584,18 +1595,16 @@ __forceinline void Event_client_changeAction(_User *tP, const byte* Packet, cons
 	size_t O = (size_t)&Packet[0];
 	size_t End = O + Size + 1;
 
-	byte n_actionID = *(byte*)O; O++;
-	std::string n_ActionText = ReadUleb(O, End);
+	const byte n_actionID = *(byte*)O; O++;
+	const std::string n_ActionText = ReadUleb(O, End);
 	std::string n_CheckSum = ReadUleb(O, End);
 	if (O + 4 > End)return;
-	DWORD n_Mods = *(DWORD*)O; O += 4;
+	const DWORD n_Mods = *(DWORD*)O; O += 4;
 	if (O + 1 > End)return;
-	byte n_GameMode = *(byte*)O; O++;
+	const byte n_GameMode = *(byte*)O; O++;
 	if (O + 4 > End)return;
-	int n_BeatmapID = *(int*)O;
+	const int n_BeatmapID = *(int*)O;
 
-	//TODO: Multiplayer
-	//TODO: Spectating
 	tP->actionID = n_actionID;
 	tP->ActionText = n_ActionText;
 
@@ -1882,18 +1891,41 @@ bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID){
 	return 1;
 }
 
+#define AddDeci(s,o) if (*(byte*)(s + o) == 0) { *(USHORT*)(s + o - 1) = *(USHORT*)(s + o - 2); *(byte*)(s + o - 2) = '.'; return s;}
+
+std::string RoundTo2(const float Input) {
+
+	char s[16];
+	*(uint64_t*)(s) = 0;
+	*(uint64_t*)(s + 8) = 0;
+
+	_itoa(int(Input * 100.f), s, 10);
+
+	return std::string([&]() {
+		if (s[0] == '0')return s;
+		AddDeci(s, 2)
+		AddDeci(s, 3)
+		AddDeci(s, 4)
+		AddDeci(s, 5)
+		AddDeci(s, 6)
+		AddDeci(s, 7)
+		AddDeci(s, 8)
+		AddDeci(s, 9)
+		AddDeci(s, 10)
+		AddDeci(s, 11)
+		AddDeci(s, 12)
+		AddDeci(s, 13)
+		AddDeci(s, 14)
+		return s;
+	}());
+}
 
 
-std::string RoundTo2(float Input) {
-	Input *= 100;
-	Input = round(Input);
-	Input /= 100;
 
-	std::string Output = std::to_string(Input);
-
-	Output.resize(Output.find_first_of('.') + 3);
-
-	return Output;
+float ezpp_NewAcc(ezpp_t ez, const float Acc) {
+	ezpp_set_accuracy_percent(ez, Acc);
+	calc(ez);
+	return ezpp_pp(ez);
 }
 
 void BotMessaged(_User *tP, std::string Message){
@@ -2051,61 +2083,49 @@ void BotMessaged(_User *tP, std::string Message){
 	}
 
 WITHMODS:
-	int sTime = clock();
-	std::string Return;
-
 	ezpp_t ez = ezpp_new();
-	if (!ez) {
-		Return = "Fatal PP error.";
-		goto END;
-	}
 
-	ezpp_set_mods(ez, Mods);
-	ezpp_set_accuracy_percent(ez, (Acc == 0.f) ? 95.f : Acc);
+	if (!ez)
+		return;
 
-	if (Combo)ezpp_set_combo(ez, Combo);
+	tP->addQue(bPacket::BotMessage(tP->Username, [&](){
+		ezpp_set_mods(ez, Mods);
+		ezpp_set_accuracy_percent(ez, (Acc == 0.f) ? 95.f : Acc);
 
-	if (!OppaiCheckMapDownload(ez, mapID)){
-		Return = "Sorry. I failed to get that map.";
-		goto END;
-	}
+		if (Combo)ezpp_set_combo(ez, Combo);
 
-	tP->LastSentBeatmap = mapID;
+		if (!OppaiCheckMapDownload(ez, mapID))
+			return std::string("Sorry. I failed to get that map.");
 
-	const float PP = ezpp_pp(ez);
-	
-	if (Acc != 0.f || Combo != 0){
-		Return = RoundTo2(PP) + "pp";
-		goto END;
-	}
-	Return = "95%: " + RoundTo2(PP);
-	ezpp_set_accuracy_percent(ez, 98.f);
-	calc(ez);
-	Return += " pp\n98%: " + RoundTo2(ezpp_pp(ez));
-	ezpp_set_accuracy_percent(ez, 99.f);
-	calc(ez);
-	Return += " pp\n99%: " + RoundTo2(ezpp_pp(ez));
-	ezpp_set_accuracy_percent(ez, 100.f);
-	calc(ez);
-	Return += " pp\n100%: " + RoundTo2(ezpp_pp(ez)) + " pp";
+		tP->LastSentBeatmap = mapID;
 
-END:
+		const float PP = ezpp_pp(ez);
+
+		if (Acc != 0.f || Combo != 0)
+			return RoundTo2(PP) + " pp";
+
+		const float PPValues[3] = { ezpp_NewAcc(ez,98.f),ezpp_NewAcc(ez,99.f),ezpp_NewAcc(ez,100.f) };
+
+		return "95%: " + RoundTo2(PP) + " pp\n98%: "
+			+ RoundTo2(PPValues[0]) + " pp\n99%: " + RoundTo2(PPValues[1]) + " pp\n100%: "
+			+ RoundTo2(PPValues[2]) + " pp";
+	}()));
+
 	ezpp_free(ez);
-	tP->addQue(bPacket::BotMessage(tP->Username, Return));
 }
 
 __forceinline void Event_client_sendPrivateMessage(_User *tP, const byte* Packet, const DWORD Size){
 
 	if (Size < 7)return;
 
-	uint64_t O = (uint64_t)&Packet[0];
-	uint64_t End = O + Size + 1;
+	size_t O = (size_t)&Packet[0];
+	const size_t End = O + Size + 1;
 
-	std::string Sender = ReadUleb(O, End);
-	std::string Message = ReadUleb(O, End);
-	std::string Target = ReadUleb(O, End);
+	const std::string Sender = ReadUleb(O, End);
+	const std::string Message = ReadUleb(O, End);
+	const std::string Target = ReadUleb(O, End);
 	if (O + 4 > End)return;
-	int ID = *(DWORD*)O;
+	const int ID = *(int*)O;
 
 	if (Message.size() == 0)return;
 
@@ -2114,16 +2134,10 @@ __forceinline void Event_client_sendPrivateMessage(_User *tP, const byte* Packet
 
 	_User* u = GetUserFromName(Target);
 
-	if (!u) {
-
-		DWORD ID = GetIDFromName(Target);//User might be in the cache of the server still.
-		if(ID)
-			tP->addQue(bPacket::GenericInt32(OPac::server_userLogout, ID));
-
-		return;
-	}
-
-	u->addQue(bPacket::Message(tP->Username, Target.c_str(), Message.c_str(), tP->UserID));
+	if (!u)
+		tP->addQue(bPacket::GenericInt32(OPac::server_userLogout, ID));
+	else 
+		u->addQue(bPacket::Message(tP->Username, Target.c_str(), Message.c_str(), tP->UserID));
 
 }
 
@@ -2131,14 +2145,14 @@ __forceinline void Event_client_sendPublicMessage(_User *tP, const byte* Packet,
 
 	if (Size < 7)return;
 
-	uint64_t O = (uint64_t)&Packet[0];
-	uint64_t End = O + Size + 1;
+	size_t O = (size_t)&Packet[0];
+	const size_t End = O + Size + 1;
 
-	std::string Sender = ReadUleb(O, End);
-	std::string Message = ReadUleb(O, End);
-	std::string Target = ReadUleb(O, End);
+	const std::string Sender = ReadUleb(O, End);
+	const std::string Message = ReadUleb(O, End);
+	const std::string Target = ReadUleb(O, End);
 	if (O + 4 > End)return;
-	int ID = *(DWORD*)O;
+	const int ID = *(int*)O;
 
 	if (Message.size() == 0 || Target == "#highlight" || Target == "#userlog")return;
 
@@ -2205,11 +2219,11 @@ __forceinline void Event_client_sendPublicMessage(_User *tP, const byte* Packet,
 
 	if (Message[0] == '!'){
 
-		DWORD SendSelf = 0;
-		std::string Res = ProcessCommand(tP, Message, SendSelf);
+		DWORD notVisible = 0;
+		const std::string Res = ProcessCommand(tP, Message, notVisible);
 
 		if (Res.size()){
-			if (SendSelf){
+			if (notVisible){
 				tP->addQue(bPacket::BotMessage(c->ChannelName.c_str(), Res.c_str()));
 			}else c->Bot_SendMessage(BOT_NAME, 999, Res);
 		}
@@ -2226,7 +2240,7 @@ __forceinline void Event_client_startSpectating(_User *tP, const byte* Packet, c
 
 	if (Size < 4)return;
 
-	DWORD ID = *(DWORD*)&Packet[0];
+	const DWORD ID = *(DWORD*)&Packet[0];
 
 	if (ID < 1000){
 		tP->addQue(bPacket::Notification("What are you doing spectating bots?"));
@@ -2267,7 +2281,8 @@ __forceinline void Event_client_startSpectating(_User *tP, const byte* Packet, c
 		}
 	}
 
-	if (Add)SpecTarget->Spectators.push_back(tP);
+	if (Add)
+		SpecTarget->Spectators.push_back(tP);
 	
 	SpecTarget->SpecLock.unlock();	
 
@@ -2348,8 +2363,8 @@ __forceinline void Event_client_spectateFrames(_User *tP, const byte* Packet, co
 
 	if (tP->Spectators.size() == 0)return;
 
-	_BanchoPacket b = bPacket::RawData(OPac::server_spectateFrames, Packet, Size);
-	_BanchoPacket u = bPacket::UserStats(tP);
+	const _BanchoPacket b = bPacket::RawData(OPac::server_spectateFrames, Packet, Size);
+	const _BanchoPacket u = bPacket::UserStats(tP);
 
 	tP->SpecLock.lock();
 	for (DWORD i = 0; i < tP->Spectators.size(); i++){
@@ -2370,8 +2385,8 @@ __forceinline void Event_client_spectateFrames(_User *tP, const byte* Packet, co
 
 __forceinline void ReadMatchData(_Match *m, const byte* Packet,const DWORD Size, bool Safe = 0){
 
-	uint64_t O = (uint64_t)&Packet[0];
-	uint64_t End = O + Size + 1;
+	size_t O = (size_t)&Packet[0];
+	const size_t End = O + Size + 1;
 
 	/*m->MatchId = *(USHORT*)O;*/ O += 2;
 	/*m->inProgress = *(byte*)O;*/ O++;
@@ -2619,7 +2634,7 @@ __forceinline void Event_client_matchLock(_User *tP, const byte* Packet, const D
 
 	if (Size != 4)return;
 
-	DWORD SlotID = *(DWORD*)&Packet[0];
+	const DWORD SlotID = *(DWORD*)&Packet[0];
 
 	if (SlotID >= 16)return;
 
@@ -2695,14 +2710,14 @@ __forceinline void Event_client_matchChangeMods(_User *tP, const byte* Packet, c
 
 __forceinline void Event_client_joinMatch(_User *tP, const byte* Packet, const DWORD Size) {
 
-	uint64_t O = (uint64_t)&Packet[0];
-	uint64_t End = O + Size + 1;
+	size_t O = (size_t)&Packet[0];
+	const size_t End = O + Size + 1;
 	
 	if (O + 4 > End)return;
-	USHORT MatchID = USHORT(*(DWORD*)O); O += 4;
-	std::string Password = ReadUleb(O,End);
+	const USHORT MatchID = USHORT(*(DWORD*)O); O += 4;
+	const std::string Password = ReadUleb(O,End);
 
-	if (!MatchID){//Clickable menu hack
+	/*if (!MatchID){//Clickable menu hack
 
 		if (Password.size() == 0 || !tP->Menu.State)
 			return tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));;
@@ -2736,10 +2751,17 @@ __forceinline void Event_client_joinMatch(_User *tP, const byte* Packet, const D
 		tP->Menu.ForceReDraw = 1;
 
 		return tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));;
+	}*/
+	
+	_Match* m = getMatchFromID(tP->CurrentMatchID);
+	
+	if (m) {
+		m->Lock.lock();
+		m->removeUser(tP, 0);
+		m->Lock.unlock();
 	}
 
-
-	_Match *m = getMatchFromID(MatchID);
+	m = getMatchFromID(MatchID);
 
 	bool Failed = 1;
 
@@ -2766,12 +2788,6 @@ __forceinline void Event_client_joinMatch(_User *tP, const byte* Packet, const D
 					tP->CurrentMatchID = m->MatchId;
 
 					tP->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "#multiplayer"));
-					//tP->addQueNonLocking(bPacket::GenericString(OPac::server_channelKicked, "#lobby"));
-					/*if (m->PlayerCount == 0) {
-						m->HostID = tP->UserID;
-						tP->addQueNonLocking(bPacket::bMatch(OPac::server_matchJoinSuccess, m, 1));
-						tP->addQueNonLocking(_BanchoPacket(OPac::server_matchTransferHost));
-					}else*/
 					tP->addQueNonLocking(bPacket::bMatch(OPac::server_matchJoinSuccess, m, 1));
 
 					tP->qLock.unlock();
@@ -2787,9 +2803,7 @@ __forceinline void Event_client_joinMatch(_User *tP, const byte* Packet, const D
 		m->Lock.unlock();
 	}
 	else tP->addQueNonLocking(bPacket::GenericInt32(OPac::server_disposeMatch, MatchID));// could be a disbanded match - send this to clear it out.
-
 	
-
 	if (Failed)
 		tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));
 	else tP->inLobby = 0;
@@ -2867,7 +2881,7 @@ __forceinline void Event_client_matchTransferHost(_User *tP, const byte* Packet,
 
 	if (Size != 4)return;
 
-	DWORD SlotID = *(DWORD*)&Packet[0];
+	const DWORD SlotID = *(DWORD*)&Packet[0];
 
 	if (SlotID >= 16)return;
 
@@ -3007,8 +3021,6 @@ __forceinline void Event_client_matchLoadComplete(_User *tP) {
 
 		const std::vector<_BanchoPacket> b = { _BanchoPacket(OPac::server_matchAllPlayersLoaded),bPacket::bMatch(OPac::server_updateMatch, m, 1) };
 		m->sendUpdates(b);
-		//m->sendUpdate(_BanchoPacket(OPac::server_matchAllPlayersLoaded));
-		//m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
 	}
 
 	m->Lock.unlock();
@@ -3030,7 +3042,7 @@ __forceinline void event_client_matchScoreUpdate(_User *tP, const byte* Packet, 
 
 	byte Slot = 0;
 
-	for (DWORD i = 0; i < 16; i++){
+	for (byte i = 0; i < 16; i++){
 		if (m->Slot[i].User == tP){
 			Slot = i;
 			break;
@@ -3138,7 +3150,8 @@ __forceinline void Event_client_matchSkipRequest(_User* tP) {
 
 __forceinline void Event_client_invite(_User *tP, const byte* Packet, const DWORD Size){
 
-	if (Size != 4);
+	if (Size != 4)
+		return;
 
 	_Match *m = getMatchFromID(tP->CurrentMatchID);
 
@@ -3189,7 +3202,7 @@ __forceinline void debug_LogOutUser(_User *tP){
 
 #define BANCHO_THREAD_COUNT 4
 _SQLCon SQL_BanchoThread[BANCHO_THREAD_COUNT];
-
+/*
 void IngameMenu(_User* u, _Con s){
 
 	if (!u->Menu.State || !u->choToken)return;
@@ -3254,7 +3267,7 @@ void IngameMenu(_User* u, _Con s){
 		u->addQueDelay(_DelayedBanchoPacket(1, bPacket::BotMessage(u->Username, Res,FAKEUSER_NAME, 998)));
 	}
 
-}
+}*/
 
 void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 
@@ -3313,7 +3326,7 @@ void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 			Event_client_channelPart(tP, Packet, PacketSize);
 			break;
 
-		case::OPac::client_sendPublicMessage:
+		case OPac::client_sendPublicMessage:
 			Event_client_sendPublicMessage(tP, Packet, PacketSize);
 			break;
 
@@ -3433,7 +3446,7 @@ void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 	}
 
 	SendMatchList(tP, 0);//Sends multiplayer data if they are in the lobby.
-	IngameMenu(tP,s);//Handles all the cool new clickable menus
+	//IngameMenu(tP,s);//Handles all the cool new clickable menus
 
 	//if (tP->HyperMode)
 		//tP->addQue(_BanchoPacket(server_ping));
@@ -3485,7 +3498,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 	}
 
 	if (!choToken){//No token sent - Assume its the login request which only ever comes in once
-		int sTime = clock();
+		std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
 		res.Body.pop_back();
 
 		auto LoginData = Explode(&res.Body[0], res.Body.size(), '\n');
@@ -3648,17 +3661,22 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_supporterGMT, Supporter));
 			u->addQueNonLocking(bPacket::UserPanel(u));
 			u->addQueNonLocking(bPacket::UserStats(u));
-
-			u->addQueNonLocking(bPacket::ChannelInfo(&chan_Akatsuki, 1));
-
-			//u->addQueNonLocking(bPacket::ChannelInfo(&chan_Lobby, 0));
 			
-			u->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, chan_Akatsuki.ChannelName));
-			chan_Akatsuki.JoinChannel(u);
+			const int IRC_LEVEL = GetMaxPerm(u->privileges);
+
+			for (DWORD i = 0; i < ChannelList.size(); i++) {
+
+				if (ChannelList[i]->ViewLevel > IRC_LEVEL)continue;
+
+				u->addQueNonLocking(bPacket::ChannelInfo(ChannelList[i]));
+				
+				if (ChannelList[i]->AutoJoin){
+					u->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, ChannelList[i]->ChannelName));
+					ChannelList[i]->JoinChannel(u);
+				}
+			}
 
 			u->addQueNonLocking(bPacket::GenericString(OPac::server_channelKicked, "#osu"));
-			//u->addQueNonLocking(bPacket::GenericString(OPac::server_channelInfo, "#osu"));
-
 
 			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_channelInfoEnd, 0));
 
@@ -3677,15 +3695,11 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 			u->addQueNonLocking(bPacket::UserPanel(999, 0));
 			u->addQueNonLocking(bPacket::UserStats(999, 0));
 
-			bool FriendAdded = 0;
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++){
 				if (!User[i].choToken || &User[i] == u)continue;				
 				u->addQueNonLocking(bPacket::UserPanel(User[i].UserID, UserID));
 				u->addQueNonLocking(bPacket::UserStats(User[i].UserID, UserID));
 			}
-
-			//if(OnlineList.size())
-				//u->addQueNonLocking(bPacket::GenericDWORDList(OPac::server_userPresenceBundle, OnlineList, 0));
 
 			u->SendToken = 1;
 			u->qLock.unlock();
@@ -3694,7 +3708,8 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 			debug_SendOnlineToAll(u);
 
 		}
-		printf("LoginTime: %i\n", clock() - sTime);
+		const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+		printf("LoginTime: %fms\n", double(double(TTime) / 1000000.0));
 		return;
 	}
 	else DoBanchoPacket(s,choToken,res.Body);
@@ -3731,13 +3746,6 @@ void DisconnectUser(_User *u){
 }
 
 void HandlePacket(_Con s){
-
-	DWORD TimeOut = 2500;
-	DWORD MPL = MAX_PACKET_LENGTH;
-
-	setsockopt(s.s, SOL_SOCKET, SO_RCVTIMEO, (char*)&TimeOut, 4);
-	setsockopt(s.s, SOL_SOCKET, SO_SNDTIMEO, (char*)&TimeOut, 4);
-	setsockopt(s.s, SOL_SOCKET, SO_RCVBUF, (char*)&MPL, 4);
 
 	_HttpRes res;
 
@@ -3928,7 +3936,7 @@ void receiveConnections(){
 
 	sockaddr_in client;
 
-	DWORD Time = 5000;
+	DWORD Time = 2000;
 	DWORD MPL = MAX_PACKET_LENGTH;
 
 	setsockopt(listening, SOL_SOCKET, SO_RCVTIMEO, (char*)&Time, 4);
@@ -3988,7 +3996,7 @@ std::string ExtractConfigValue(const std::vector<byte> &Input){
 
 
 int main(){
-	
+
 	std::vector<byte> ConfigBytes;
 
 	if (!ReadAllBytes("config.ini", ConfigBytes)) {

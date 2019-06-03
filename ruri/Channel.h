@@ -9,7 +9,7 @@ enum IRC_Perm {
 	IRC_Admin = 4,
 	IRC_Dev = 5
 };
-__forceinline IRC_Perm GetMaxPerm(const DWORD Priv) {
+__forceinline int GetMaxPerm(const DWORD Priv) {
 
 	if (Priv & Privileges::AdminDev)return IRC_Dev;
 	if (Priv & Privileges::AdminBanUsers)return IRC_Admin;
@@ -27,29 +27,33 @@ struct _Channel{
 	std::string ChannelDesc;
 	int ChannelCount;
 	std::mutex Lock;
-
+	
 	_User* ConnectedUsers[MAX_USER_COUNT];
 
 	int ViewLevel;
 	int WriteLevel;
+	int NameSum;
+	bool AutoJoin;
 
-
-	_Channel(const std::string Name, const std::string Desc, const int viewlevel, const int writeLevel){
-
+	_Channel(const std::string Name, const std::string Desc, const int viewlevel, const int writeLevel, const bool AJ = 0) {
+		NameSum = WeakStringToInt(Name);
 		ChannelName = Name;
 		ChannelDesc = Desc;
 
 		ViewLevel = viewlevel;
 		WriteLevel = writeLevel;
+
+		AutoJoin = AJ;
 	}
 
-	void CreateChannel(const std::string Name, const std::string Desc, const int viewlevel, const int writeLevel) {
-
+	void CreateChannel(const std::string Name, const std::string Desc, const int viewlevel, const int writeLevel, const bool AJ = 0) {
+		NameSum = WeakStringToInt(Name);
 		ChannelName = Name;
 		ChannelDesc = Desc;
 
 		ViewLevel = viewlevel;
 		WriteLevel = writeLevel;
+		AutoJoin = AJ;
 	}
 
 	void CleanChannel(){
@@ -73,12 +77,13 @@ struct _Channel{
 		if (ViewLevel > GetMaxPerm(u->privileges))return;
 
 		Lock.lock();
-		ChannelCount++;
+
 		bool NotIn = 1;
 
 		for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
 			if (ConnectedUsers[i] == u){
 				NotIn = 0;
+				ChannelCount++;
 				break;
 			}
 		}
@@ -88,6 +93,7 @@ struct _Channel{
 				if (ConnectedUsers[i] == 0) {
 					NotIn = 0;
 					ConnectedUsers[i] = u;
+					ChannelCount++;
 					break;
 				}
 			}
@@ -99,6 +105,7 @@ struct _Channel{
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++){
 				if (ConnectedUsers[i] == 0){
 					ConnectedUsers[i] = u;
+					ChannelCount++;
 					break;
 				}
 			}
@@ -111,14 +118,15 @@ struct _Channel{
 	void PartChannel(_User* u, const DWORD Offset = 0){
 
 		Lock.lock();
-		ChannelCount--;
 
-		if(Offset && ConnectedUsers[Offset] == u)
+		if (Offset && ConnectedUsers[Offset] == u) {
 			ConnectedUsers[Offset] = 0;
-		else {
+			ChannelCount--;
+		}else {
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++)
 				if (ConnectedUsers[i] == u) {
 					ConnectedUsers[i] = 0;
+					ChannelCount--;
 					break;
 				}
 		}
@@ -169,20 +177,28 @@ struct _Channel{
 	_Channel() {
 		ViewLevel = 0;
 		WriteLevel = 0;
+		NameSum = 0;
 		ZeroMemory(ConnectedUsers, sizeof(_User*) * MAX_USER_COUNT);
 	}
 
 };
 
-_Channel chan_Akatsuki("#akatsuki","Akatsuki General.", IRC_Public, IRC_Public);
-_Channel chan_Lobby("#lobby", "Chat with others browsing for a lobby. And other hilarious jokes you can tell your self", IRC_Public, IRC_Public);
-_Channel chan_Announce("#announce", "Alerts you when something interesting happens", IRC_Public, IRC_Admin);
+_Channel chan_Akatsuki("#akatsuki","Akatsuki General.", IRC_Public, IRC_Public,1);
+_Channel chan_Announce("#announce", "Public announcements.", IRC_Public, IRC_Admin);//Announcement being an option is on purpose
+_Channel chan_Supporter("#supporter", "Supporter only chat.", IRC_Supporter, IRC_Supporter,1);
+_Channel chan_Admin("#admin", "Command dumpster.", IRC_Admin, IRC_Admin,1);
+_Channel chan_DevLog("#devlog", "Log all the things.", IRC_Dev, IRC_Dev, 1);
+_Channel chan_Lobby("#lobby", "Chat with others browsing for a lobby.", IRC_Public, IRC_Public);
+
+const std::vector<_Channel*> ChannelList = {&chan_Akatsuki,&chan_Announce,&chan_Supporter,&chan_Admin,&chan_DevLog,&chan_Lobby};
 
 __forceinline _Channel* GetChannelByName(const std::string &Name){
-	if (Name == chan_Akatsuki.ChannelName)return &chan_Akatsuki;
-	if (Name == chan_Announce.ChannelName)return &chan_Announce;
 
-	if (Name == chan_Lobby.ChannelName)return &chan_Lobby;
+	const int Sum = WeakStringToInt(Name);
 
+	for (DWORD i = 0; i < ChannelList.size(); i++)
+		if (ChannelList[i]->NameSum == Sum)
+			return ChannelList[i];
+	
 	return 0;
 }

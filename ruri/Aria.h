@@ -290,7 +290,7 @@ struct _LeaderBoardCache{
 		
 		ScoreLock.unlock();
 
-		printf("ScoreID: %i\n", s.ScoreID);
+		printf("ScoreID: %llu\n", s.ScoreID);
 
 		if (Ret){
 			AppendScoreToString(Ret, LastRank, LastScore, 0);
@@ -905,16 +905,16 @@ void ScoreFailed(_Con s){
 _Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
 
 	_Achievement Ret;
-
-	DWORD* Gen = 0;
-
-	if (s.GameMode == 0)
-		Gen = &Ret.osuGeneral;
-	else if (s.GameMode == 1)
-		Gen = &Ret.taikoGeneral;
-	else if (s.GameMode == 2)
-		Gen = &Ret.ctbGeneral;
-	else Gen = &Ret.maniaGeneral;
+		
+	DWORD *const Gen = [&](){
+		if (s.GameMode == 0)
+			return &Ret.osuGeneral;
+		else if (s.GameMode == 1)
+			return &Ret.taikoGeneral;
+		else if (s.GameMode == 2)
+			return &Ret.ctbGeneral;
+		return &Ret.maniaGeneral;
+	}();
 
 	if (s.MaxCombo >= 500)
 		*Gen += AchGeneral::Combo500;
@@ -927,8 +927,7 @@ _Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
 
 	int StarCount = min((int)floor(StarDiff), 8);
 
-	while (StarCount > 0) {
-
+	while (StarCount > 0){
 		if (s.FullCombo)
 			*Gen += 1 << (11 + StarCount);
 		*Gen += 1 << (3 + StarCount);
@@ -944,8 +943,7 @@ const USHORT RCNL = *(USHORT*)"\r\n";
 
 
 void ScoreServerHandle(const _HttpRes &res, _Con s){
-
-
+	
 
 	/*std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
 	const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
@@ -1106,15 +1104,15 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		sData.countMiss = Safe_atoi(ScoreData[score_CountMiss].c_str());
 		sData.Score = Safe_stoul(ScoreData[score_totalScore]);
 		sData.MaxCombo = Safe_atoi(ScoreData[score_maxCombo].c_str());
-		sData.FullCombo = (ScoreData[score_Perfect] == "0") ? 0 : 1;
+		sData.FullCombo = (ScoreData[score_Perfect] == "True") ? 1 : 0;
 		sData.GameMode = Safe_atoi(ScoreData[score_playMode].c_str());
 		sData.Mods = Safe_atoi(ScoreData[score_Mods].c_str());
 		//Score Data is ready to read.
 
-		if (sData.UserName.size() > 0)
+		if (sData.UserName.size() > 0 && sData.UserName[sData.UserName.size()] == ' ')
 			sData.UserName.pop_back();//Pops off supporter client check.
 
-		_User* u = GetUserFromName(sData.UserName);
+		_User *const u = GetUserFromName(sData.UserName);
 
 		if (!u || !u->choToken){
 			//They might still be logging in. Just abort the connection to let their client (hopefully) attempt again.
@@ -1126,9 +1124,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		if (!MD5CMP(u->Password, &pass[0]) || u->Username != sData.UserName){
 			AddStringToVector(Body, "error: pass");
 			goto SENDDATA;
-		}
-
-		
+		}		
 				
 		if (!FailTime && !Quit){
 
@@ -1238,6 +1234,7 @@ enum RankingType
 
 std::string urlDecode(const std::string &SRC) {
 	std::string ret;
+	ret.reserve(SRC.size());
 	int i, ii;
 	for (i = 0; i<SRC.length(); i++) {
 		if (SRC[i] == '%') {
@@ -1318,16 +1315,14 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	const DWORD TotalScores = (LeaderBoard) ? LeaderBoard->ScoreCache.size() : 0;
 	
 	std::string Response = (NeedUpdate) ? "1" : std::to_string(BeatData->RankStatus);
-	Response += "|false";//server osz
-	Response += "|" + std::to_string(BeatData->BeatmapID);//beatmap id
-	Response += "|" + std::to_string(BeatData->SetID);;//set id
-	Response += "|" + std::to_string(TotalScores);//total records
-	Response += "\n0";//offset
-	Response += "\n" + BeatData->DisplayTitle;//song name
-	Response += "\n" + std::to_string(BeatData->Rating);//rating
-
-	Response += "\n";//Personal best
-	
+	Response += "|false"//server osz
+				"|" + std::to_string(BeatData->BeatmapID)//beatmap id
+			  + "|" + std::to_string(BeatData->SetID)//set id
+	          + "|" + std::to_string(TotalScores)//total records
+			  + "\n0"//offset
+				"\n" + BeatData->DisplayTitle//song name
+			  + "\n" + std::to_string(BeatData->Rating) + "\n";//rating
+	//Personal best
 	if (!NeedUpdate && BeatData->RankStatus >= RANKED && LeaderBoard){
 		DWORD Rank = LeaderBoard->GetRankByUID(u->UserID);
 
@@ -1379,23 +1374,22 @@ void osu_getScores(const _HttpRes &http, _Con s){
 					continue;
 
 				Rank++;
-				Response += "\n" + std::to_string(lScore->ScoreID);//online id
-				Response += "|" + GetUsernameFromCache(lScore->UserID);//player name
-				Response += "|" + std::to_string((Mode >= 4) ? int(lScore->pp + 0.5f) : lScore->Score);//total score
-				Response += "|" + std::to_string(lScore->MaxCombo);//max combo
-				Response += "|" + std::to_string(lScore->count50);//count 50
-				Response += "|" + std::to_string(lScore->count100);//count 100
-				Response += "|" + std::to_string(lScore->count300);//count 300
-				Response += "|" + std::to_string(lScore->countMiss);//count miss
-				Response += "|" + std::to_string(lScore->countKatu);//count katu
-				Response += "|" + std::to_string(lScore->countGeki);//count geki
-				if (lScore->FullCombo)
-					Response += "|1"; else Response += "|0";//perfect
-				Response += "|" + std::to_string(lScore->Mods);//mods
-				Response += "|" + std::to_string(lScore->UserID);//userid
-				Response += "|" + std::to_string(Rank);//online rank
-				Response += "|" + std::to_string(lScore->Time);//date
-				Response += "|1";//online replay
+				Response += "\n" + std::to_string(lScore->ScoreID)//online id
+				         + "|" + GetUsernameFromCache(lScore->UserID)//player name
+				         + "|" + std::to_string((Mode >= 4) ? int(lScore->pp + 0.5f) : lScore->Score)//total score
+						 + "|" + std::to_string(lScore->MaxCombo)//max combo
+						 + "|" + std::to_string(lScore->count50)//count 50
+						 + "|" + std::to_string(lScore->count100)//count 100
+						 + "|" + std::to_string(lScore->count300)//count 300
+						 + "|" + std::to_string(lScore->countMiss)//count miss
+						 + "|" + std::to_string(lScore->countKatu)//count katu
+						 + "|" + std::to_string(lScore->countGeki)//count geki
+						 + std::string((lScore->FullCombo) ? "|1" : "|0")
+						 + "|" + std::to_string(lScore->Mods)//mods
+						 + "|" + std::to_string(lScore->UserID)//userid
+						 + "|" + std::to_string(Rank)//online rank
+						 + "|" + std::to_string(lScore->Time)//date
+						 + "|1";//online replay
 			}
 
 			LeaderBoard->ScoreLock.unlock_shared();
@@ -1411,14 +1405,6 @@ __forceinline const bool SafeStartCMP(const std::vector<byte> &b, const std::str
 	return (memcmp(&b[0], &Check[0], Check.size()) == 0);
 }
 
-int WeakStringToInt(const std::string &s){
-	int Return = 0;
-
-	for (DWORD i = 0; i < s.size(); i++)
-		*(byte*)(size_t(&Return) + (i % 4)) += s[i];
-
-	return Return;
-}
 
 struct _UpdateCache{
 	int Stream;
@@ -1638,23 +1624,14 @@ void HandleAria(_Con s){
 
 	const char* mName = "Aria";
 
-	DWORD TimeOut = 2500;
-	DWORD MPL = MAX_PACKET_LENGTH;
-
 	_HttpRes res;
 
-	setsockopt(s.s, SOL_SOCKET, SO_RCVTIMEO, (char*)&TimeOut, 4);
-	setsockopt(s.s, SOL_SOCKET, SO_SNDTIMEO, (char*)&TimeOut, 4);
-	setsockopt(s.s, SOL_SOCKET, SO_RCVBUF, (char*)&MPL, 4);
-	bool Suc = s.RecvData(res);	
-
-	bool DontCloseConnection = 0;
-
-	if (!Suc){
+	if (!s.RecvData(res)){
 		s.close();
 		return LogError("Connection Lost", mName);
 	}
 
+	bool DontCloseConnection = 0;
 	if (SafeStartCMP(res.Host, "/web/osu-submit-modular-selector.php")){
 			ScoreServerHandle(res, s);
 			printf("Score Done\n");

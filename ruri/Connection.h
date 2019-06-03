@@ -171,7 +171,6 @@ struct _Con{
 				}
 			}
 
-
 		}
 		
 		return 1;
