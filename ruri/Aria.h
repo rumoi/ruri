@@ -1109,7 +1109,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		sData.Mods = Safe_atoi(ScoreData[score_Mods].c_str());
 		//Score Data is ready to read.
 
-		if (sData.UserName.size() > 0 && sData.UserName[sData.UserName.size()] == ' ')
+		if (sData.UserName.size() && sData.UserName[sData.UserName.size()-1] == ' ')
 			sData.UserName.pop_back();//Pops off supporter client check.
 
 		_User *const u = GetUserFromName(sData.UserName);
