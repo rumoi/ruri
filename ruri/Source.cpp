@@ -258,6 +258,8 @@ WSADATA wsData;
 #include <vector>
 #include <string>
 
+#define FastVByteAlloc(x)[&](){const char* a = x; const std::vector<byte> b(a,a + sizeof(a)); return b;}()
+
 const std::string BOT_NAME = "ruri";
 const std::string FAKEUSER_NAME((const char*)new char[8]{-30,-128,-115,95,-30,-128,-115,0});
 
@@ -519,12 +521,20 @@ struct _BanchoPacket {
 		AddVector(Bytes, Data);
 		return Bytes;
 	}
+	const DWORD GetSize()const {
+		return 7 + Data.size();
+	}
+	void GetBytes(std::vector<byte> &Bytes, const bool Reserve = 1){
+		if(Reserve)
+			Bytes.reserve(Bytes.size() + 7 + Data.size());
 
-	void GetBytes(std::vector<byte> &Bytes){
-		Bytes.reserve(Bytes.size() + 7 + Data.size());
-		AddShort(Bytes, Type);
-		Bytes.push_back(Compression);
-		AddInt(Bytes, Data.size());
+		byte D[7];
+		
+		*(USHORT*)D = Type;
+		D[2] = Compression;
+		*(DWORD*)(D + 3) = Data.size();
+
+		AddMem(Bytes, D, 7);
 		AddVector(Bytes, Data);
 	}
 
@@ -665,15 +675,10 @@ __forceinline std::string MenuClickButton(const std::string Command, const std::
 }
 
 
-__inline void AddStringToVector(std::vector<byte> &v, const std::string s){
+__forceinline void AddStringToVector(std::vector<byte> &v, const std::string &s){
 	if (s.size() == 0)return;
 	v.resize(v.size() + s.size());
 	memcpy(&v[v.size() - s.size()], &s[0], s.size());
-}
-__inline void AddVectorToString(std::string s, const std::vector<byte> &v) {
-	if (v.size() == 0)return;
-	s.resize(v.size() + s.size());
-	memcpy(&s[s.size() - v.size()], &v[0], v.size());
 }
 
 #include "Connection.h"
@@ -773,6 +778,9 @@ bool StringCompareStart(const std::string &a, const std::string b) {
 }
 
 #include "Achievement.h"
+
+
+#define ROVIV(ou,in) ou.reserve([&](){DWORD S = ou.size(); for (DWORD i = 0; i < in.size(); i++)S += in[i].GetSize(); return S; }());
 
 struct _User {
 
@@ -956,18 +964,24 @@ struct _User {
 	void doQue(_Con s){
 
 		if (Que.size() == 0 && dQue.size() == 0){
-		FORCEPACKET:
-			s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, Empty_Byte));
+		FEEDALIVE:
+			s.SendData(ConstructResponse(200, Empty_Headers, Empty_Byte));
 			return;
 		}
 
-		std::vector<_HttpHeader> Headers = std::vector<_HttpHeader>();
 		std::vector<byte> SendBytes;
 
 		qLock.lock();
 
-		for (DWORD i = 0; i < Que.size(); i++)
-			Que[i].GetBytes(SendBytes);
+		if (Que.size()){
+						
+			ROVIV(SendBytes,Que)
+
+			for (DWORD i = 0; i < Que.size(); i++)
+				Que[i].GetBytes(SendBytes,0);
+
+			Que.clear();
+		}
 
 		if (dQue.size() != 0){
 
@@ -989,19 +1003,14 @@ struct _User {
 				}else break;
 			}
 		}
-
-		Que.clear();
 		qLock.unlock();
 
-		if (SendBytes.size() == 0)
-			goto FORCEPACKET;
+		if (SendBytes.size() == 0)goto FEEDALIVE;
 
-		if (SendToken){
-			Headers.push_back(_HttpHeader("cho-token", std::to_string(choToken).c_str()));
-			SendToken = 0;
-		}
-
-		s.SendData(ConstructResponse("HTTP/1.0 200 OK", Headers, SendBytes));
+		if (SendToken)
+			s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", std::to_string(choToken).c_str()) }, SendBytes));
+		else
+			s.SendData(ConstructResponse(200, Empty_Headers, SendBytes));
 	}
 
 }; _User User[MAX_USER_COUNT];
@@ -1152,7 +1161,7 @@ namespace bPacket {
 
 namespace bPacket {
 
-	__forceinline _BanchoPacket Notification(const char *Mes) {
+	__forceinline _BanchoPacket Notification(const std::string &Mes) {
 
 		_BanchoPacket b(OPac::server_notification);
 
@@ -1476,7 +1485,7 @@ void RenderHTMLPage(_Con s, _HttpRes &res) {
 
 	Headers.push_back(_HttpHeader("Content-Type", "text/html; charset=utf-8"));
 
-	s.SendData(ConstructResponse("HTTP/1.0 405 Method Not Allowed", Headers, Body));
+	s.SendData(ConstructResponse(405, Headers, Body));
 }
 
 int GenerateChoToken(){
@@ -3278,7 +3287,7 @@ void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 		_BanchoPacket rC(OPac::server_restart);
 		AddInt(rC.Data, 1);//Restart Time
 
-		s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, rC.GetBytes()));
+		s.SendData(ConstructResponse(200, Empty_Headers, rC.GetBytes()));
 		printf("Request relogin\n");
 		return;
 	}
@@ -3515,7 +3524,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 				_BanchoPacket eLog(OPac::server_userID);
 				AddInt(eLog.Data, Login_Failed);
 
-				s.SendData(ConstructResponse("HTTP/1.0 200 OK", Headers, eLog.GetBytes()));
+				s.SendData(ConstructResponse(200, Headers, eLog.GetBytes()));
 				return;
 			}
 		SERVERFULL:
@@ -3529,7 +3538,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 
 				AddVector(loginResp, bPacket::Notification("Server is currenly full").GetBytes());
 
-				s.SendData(ConstructResponse("HTTP/1.0 200 OK", Headers, loginResp));
+				s.SendData(ConstructResponse(200, Headers, loginResp));
 
 				return;
 			}
@@ -3765,7 +3774,7 @@ void HandlePacket(_Con s){
 	if (UserAgent[0] == '0') {
 		LogMessage("No user agent set.");
 
-		s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers,bPacket::Notification("If there is anything that seems wrong make sure to contact rumoi.").GetBytes()));
+		s.SendData(ConstructResponse(200, Empty_Headers,bPacket::Notification("If there is anything that seems wrong make sure to contact rumoi.").GetBytes()));
 		s.close();
 		return;
 	}

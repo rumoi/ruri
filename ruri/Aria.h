@@ -854,7 +854,7 @@ bool CharCompareStart(const char*a,const char* b){
 	return 1;
 }
 
-bool bVecCompareStart(const std::vector<byte> &a, const std::string b) {
+bool bVecCompareStart(const std::vector<byte> &a, const std::string &b) {
 
 	if (a.size() < b.size())return 0;
 
@@ -887,18 +887,17 @@ void SendAria404(_Con s){
 	std::vector<byte> Body;
 	AddStringToVector(Body, "<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/570910676428652544/Kanzaki.png\"><br><b>404</b> - Aria does not know this page.</HTML>");
 
-	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, Body));
+	s.SendData(ConstructResponse(200, Empty_Headers, Body));
 	s.close();
 }
 
 void TryScoreAgain(_Con s){
-	s.SendData(ConstructResponse("HTTP/1.0 408 Request Timeout", Empty_Headers, Empty_Byte));
+	s.SendData(ConstructResponse(408, Empty_Headers, Empty_Byte));
 	s.close();
 }
 void ScoreFailed(_Con s){
-	std::vector<byte> Body;
-	AddStringToVector(Body, "error: no");
-	s.SendData(ConstructResponse("HTTP/1.0 408 Request Timeout", Empty_Headers, Body));
+
+	s.SendData(ConstructResponse(408, Empty_Headers, FastVByteAlloc("error: no")));
 	s.close();
 }
 
@@ -953,9 +952,6 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 	//LogMessage("Start reading score.", mName);
 
-	std::vector<_HttpHeader> Headers;
-	std::vector<byte> Body;
-
 	int FailTime = INT_MIN;
 	int Quit = -1;
 
@@ -974,6 +970,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		return SendAria404(s);//AddStringToVector(Body, "<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/570910676428652544/Kanzaki.png\"><br>Aria does not know this page.</HTML>");
 	else{
 		//TODO: maybe make this not gross test code?
+		#pragma region Cancer
 		for (DWORD i = 0; i < RawScoreData.size(); i++){
 
 			if (FailTime == INT_MIN && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"ft\"")){					
@@ -1069,6 +1066,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				ReplayFile = std::string(RawScoreData[i].begin() + 107, RawScoreData[i].end() - 2);
 			}*/
 		}
+		#pragma endregion
 
 		if (!iv.size() || !clienthash.size() || !osuver.size() || !score.size() || pass.size() != 32){//something very important is missing.
 				LogError("Failed score.","Aria");
@@ -1122,8 +1120,8 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		}
 		const DWORD UserID = u->UserID;
 		if (!MD5CMP(u->Password, &pass[0]) || u->Username != sData.UserName){
-			AddStringToVector(Body, "error: pass");
-			goto SENDDATA;
+			s.SendData(ConstructResponse(200, Empty_Headers, FastVByteAlloc("error: pass")));
+			return;
 		}		
 				
 		if (!FailTime && !Quit){
@@ -1189,7 +1187,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				else Charts += "\n";
 			}
 			
-			s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Charts.begin(), Charts.end())));
+			s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Charts.begin(), Charts.end())));
 			s.close();
 
 			if((u->privileges & UserPublic) && NewBest && UpdateUserStatsFromDB(&AriaSQL[s.ID], UserID, lGameMode, u->Stats[lGameMode]))
@@ -1204,8 +1202,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			return;
 		}
 
-		AddStringToVector(Body, "error: no");
-		s.SendData(ConstructResponse("HTTP/1.0 200 OK", Headers, Body));
+		s.SendData(ConstructResponse(200, Empty_Headers, FastVByteAlloc("error: no")));
 		s.close();
 
 		const std::string TableName = (sData.Mods & Relax) ? "scores_relax" : "scores";
@@ -1217,9 +1214,6 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 		return;
 	}
-
-	SENDDATA:
-		s.SendData(ConstructResponse("HTTP/1.0 200 OK", Headers, Body));
 
 }
 
@@ -1303,7 +1297,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 
 		std::string BeatmapFailed = std::to_string(Status) + "|0";
 
-		s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(BeatmapFailed.begin(), BeatmapFailed.end())));
+		s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(BeatmapFailed.begin(), BeatmapFailed.end())));
 		return s.close();
 	}
 
@@ -1396,7 +1390,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 		}
 	}
 
-	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Response.begin(),Response.end())));
+	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Response.begin(),Response.end())));
 	s.close();
 }
 
@@ -1480,7 +1474,7 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s) {
 		if (UpdateCache[i].Stream == Stream){
 
 			if (UpdateCache[i].LastTime + 3600000 > clock()){
-				s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers,UpdateCache[i].Cache));
+				s.SendData(ConstructResponse(200, Empty_Headers,UpdateCache[i].Cache));
 				return s.close();
 			}
 
@@ -1492,7 +1486,7 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s) {
 
 	std::string res = GetOsuPage(URL);
 	UnChunk(res);
-	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(res.begin(), res.end())));
+	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(res.begin(), res.end())));
 	s.close();
 
 	_UpdateCache c;
@@ -1527,7 +1521,7 @@ void Handle_SearchSet(const _HttpRes http, _Con s){
 	if (!Res.size())
 		return s.close();
 
-	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
+	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
 	return s.close();
 }
 void Handle_DirectSearch(const _HttpRes http, _Con s) {
@@ -1553,12 +1547,12 @@ void Handle_DirectSearch(const _HttpRes http, _Con s) {
 
 		std::string MirrorFailure = "1\n | |Could not contact the mirror|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0";
 
-		s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(MirrorFailure.begin(), MirrorFailure.end())));
+		s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(MirrorFailure.begin(), MirrorFailure.end())));
 
 		return s.close();
 	}
 
-	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
+	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
 
 	return s.close();
 }
@@ -1611,11 +1605,11 @@ void DownloadOSZ(const _HttpRes http, _Con s){
 	UnChunk(Res);
 
 	if (Res.size() < 100){
-		s.SendData(ConstructResponse("HTTP/1.0 404 Not Found", Empty_Headers, Empty_Byte));
+		s.SendData(ConstructResponse(404, Empty_Headers, Empty_Byte));
 		return s.close();
 	}
 	
-	s.SendData(ConstructResponse("HTTP/1.0 200 OK", Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
+	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
 	
 	return s.close();
 }

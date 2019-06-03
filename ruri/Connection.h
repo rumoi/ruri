@@ -64,16 +64,21 @@ struct _HttpRes {
 };
 
 
-std::string ConstructResponse(std::string Response, const std::vector<_HttpHeader> &Headers,const std::vector<byte> &Body){
+const std::string ConstructResponse(const DWORD Code, const std::vector<_HttpHeader> &Headers,const std::vector<byte> &Body){
 
-	std::string Return = Response + MNL;
+	std::string Return = [=]() {
+
+		if(Code == 200)return "HTTP/1.0 200 OK" MNL;
+		if (Code == 404)return "HTTP/1.0 404 Not Found" MNL;
+		if (Code == 405)return "HTTP/1.0 405 Method Not Allowed" MNL;
+		if (Code == 408)return "HTTP/1.0 408 Request Timeout" MNL;
+		
+		return "HTTP/1.0 200 OK" MNL;
+	}();
+
+	for (DWORD i = 0; i < Headers.size(); i++)
+		Return += std::string(Headers[i].Text) + ": " + Headers[i].Value + MNL;//TODO: replace headers with std::string?
 	
-	for (DWORD i = 0; i < Headers.size(); i++){
-		Return += Headers[i].Text;
-		Return += ": ";
-		Return += Headers[i].Value;
-		Return += MNL;
-	}
 
 	Return += "Content-Length: " + std::to_string(Body.size()) + MNL + "Connection: close" + DMNL;
 
@@ -176,7 +181,7 @@ struct _Con{
 		return 1;
 	}
 
-	bool SendData(std::string Data) {;
+	bool SendData(const std::string &Data) {;
 		if (!s)return 0;
 
 		DWORD Count = 0;
