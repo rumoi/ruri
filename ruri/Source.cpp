@@ -1517,7 +1517,7 @@ __forceinline std::string ReadUleb(size_t &O, const size_t Max) {
 	return "";
 }
 
-__forceinline void Event_client_channelJoin(_User *tP,const byte* Packet, const DWORD Size){
+void Event_client_channelJoin(_User *tP,const byte* Packet, const DWORD Size){
 
 	if (Size <= 2)
 		return;
@@ -1544,7 +1544,7 @@ __forceinline void Event_client_channelJoin(_User *tP,const byte* Packet, const 
 	tP->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess, ChannelName.c_str()));
 
 }
-__forceinline void Event_client_channelPart(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_channelPart(_User *tP, const byte* Packet, const DWORD Size){
 
 	if (Size <= 2)return;
 
@@ -1559,7 +1559,7 @@ __forceinline void Event_client_channelPart(_User *tP, const byte* Packet, const
 	c->PartChannel(tP);
 }
 
-__forceinline void Event_client_userStatsRequest(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_userStatsRequest(_User *tP, const byte* Packet, const DWORD Size){
 
 	if (Size <= 2)return;
 
@@ -1583,7 +1583,7 @@ __forceinline void Event_client_userStatsRequest(_User *tP, const byte* Packet, 
 	tP->qLock.unlock();
 
 }
-__forceinline void Event_client_changeAction(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_changeAction(_User *tP, const byte* Packet, const DWORD Size){
 	if (Size < 12)return;
 
 	size_t O = (size_t)&Packet[0];
@@ -2099,7 +2099,7 @@ WITHMODS:
 	ezpp_free(ez);
 }
 
-__forceinline void Event_client_sendPrivateMessage(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_sendPrivateMessage(_User *tP, const byte* Packet, const DWORD Size){
 
 	if (Size < 7)return;
 
@@ -2127,7 +2127,7 @@ __forceinline void Event_client_sendPrivateMessage(_User *tP, const byte* Packet
 
 }
 
-__forceinline void Event_client_sendPublicMessage(_User *tP, const byte* Packet, const DWORD Size) {
+void Event_client_sendPublicMessage(_User *tP, const byte* Packet, const DWORD Size) {
 
 	if (Size < 7)return;
 
@@ -2219,7 +2219,7 @@ __forceinline void Event_client_sendPublicMessage(_User *tP, const byte* Packet,
 	c->SendPublicMessage(tP, b);
 }
 
-__forceinline void Event_client_startSpectating(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_startSpectating(_User *tP, const byte* Packet, const DWORD Size){
 
 	if (Size < 4)return;
 
@@ -2286,7 +2286,7 @@ struct _ReplayFrame {
 	byte bt;
 };
 
-__forceinline void Event_client_spectateFrames(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_spectateFrames(_User *tP, const byte* Packet, const DWORD Size){
 
 	/*if (tP->SuspectedCheater){
 
@@ -2428,7 +2428,7 @@ __forceinline void ReadMatchData(_Match *m, const byte* Packet,const DWORD Size,
 	m->Seed = *(DWORD*)O;
 }
 
-__forceinline void Event_client_createMatch(_User *tP, const byte* Packet, const DWORD Size) {
+void Event_client_createMatch(_User *tP, const byte* Packet, const DWORD Size) {
 
 	if (tP->CurrentMatchID){//already in a match?
 		//Might want to kick them from the old one
@@ -2474,7 +2474,7 @@ __forceinline void SendMatchList(_User *tP, const bool New) {
 	}
 }
 
-__forceinline void Event_client_partMatch(_User *tP){
+void Event_client_partMatch(_User *tP){
 	if (!tP->CurrentMatchID)return;
 	_Match *m = getMatchFromID(tP->CurrentMatchID);
 	if (!m)return;
@@ -2484,7 +2484,7 @@ __forceinline void Event_client_partMatch(_User *tP){
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchChangeSlot(_User *tP, const byte* Packet, const DWORD Size) {
+void Event_client_matchChangeSlot(_User *tP, const byte* Packet, const DWORD Size) {
 
 
 	if (Size < 4)return;
@@ -2522,7 +2522,7 @@ __forceinline void Event_client_matchChangeSlot(_User *tP, const byte* Packet, c
 
 }
 
-__forceinline void Event_client_joinLobby(_User *tP){
+void Event_client_joinLobby(_User *tP){
 
 	_Match *m = getMatchFromID(tP->CurrentMatchID);
 
@@ -2539,7 +2539,7 @@ __forceinline void Event_client_joinLobby(_User *tP){
 	}
 }
 
-__forceinline void Event_client_matchChangeSettings(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_matchChangeSettings(_User *tP, const byte* Packet, const DWORD Size){
 
 	if (!tP->CurrentMatchID)return;
 
@@ -2611,7 +2611,7 @@ __forceinline void Event_client_matchChangeSettings(_User *tP, const byte* Packe
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchLock(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_matchLock(_User *tP, const byte* Packet, const DWORD Size){
 
 	if (Size != 4)return;
 
@@ -2641,7 +2641,7 @@ __forceinline void Event_client_matchLock(_User *tP, const byte* Packet, const D
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchChangeMods(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_matchChangeMods(_User *tP, const byte* Packet, const DWORD Size){
 
 	if (Size != 4)return;
 
@@ -2689,7 +2689,7 @@ __forceinline void Event_client_matchChangeMods(_User *tP, const byte* Packet, c
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_joinMatch(_User *tP, const byte* Packet, const DWORD Size) {
+void Event_client_joinMatch(_User *tP, const byte* Packet, const DWORD Size) {
 
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size + 1;
@@ -2791,7 +2791,7 @@ __forceinline void Event_client_joinMatch(_User *tP, const byte* Packet, const D
 	else tP->inLobby = 0;
 }
 
-__forceinline void Event_client_matchChangeTeam(_User *tP) {
+void Event_client_matchChangeTeam(_User *tP) {
 
 	if (!tP->CurrentMatchID)return;
 	
@@ -2814,7 +2814,7 @@ __forceinline void Event_client_matchChangeTeam(_User *tP) {
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchNoBeatmap(_User *tP) {
+void Event_client_matchNoBeatmap(_User *tP) {
 
 	if (!tP->CurrentMatchID)return;
 
@@ -2835,7 +2835,7 @@ __forceinline void Event_client_matchNoBeatmap(_User *tP) {
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchHasBeatmap(_User *tP){
+void Event_client_matchHasBeatmap(_User *tP){
 
 	if (!tP->CurrentMatchID)return;
 
@@ -2859,7 +2859,7 @@ __forceinline void Event_client_matchHasBeatmap(_User *tP){
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchTransferHost(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_matchTransferHost(_User *tP, const byte* Packet, const DWORD Size){
 
 	if (Size != 4)return;
 
@@ -2888,7 +2888,7 @@ __forceinline void Event_client_matchTransferHost(_User *tP, const byte* Packet,
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchReady(_User *tP) {
+void Event_client_matchReady(_User *tP) {
 
 	if (!tP->CurrentMatchID)return;//not in a match currently
 
@@ -2913,7 +2913,7 @@ __forceinline void Event_client_matchReady(_User *tP) {
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchNotReady(_User *tP){
+void Event_client_matchNotReady(_User *tP){
 
 	if (!tP->CurrentMatchID)return;//not in a match currently
 
@@ -2938,7 +2938,7 @@ __forceinline void Event_client_matchNotReady(_User *tP){
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchStart(_User *tP) {
+void Event_client_matchStart(_User *tP) {
 
 	if (!tP->CurrentMatchID)return;//not in a match currently
 
@@ -2971,7 +2971,7 @@ __forceinline void Event_client_matchStart(_User *tP) {
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchLoadComplete(_User *tP) {
+void Event_client_matchLoadComplete(_User *tP) {
 
 	if (!tP->CurrentMatchID)return;//not in a match currently
 
@@ -3008,7 +3008,7 @@ __forceinline void Event_client_matchLoadComplete(_User *tP) {
 	m->Lock.unlock();
 }
 
-__forceinline void event_client_matchScoreUpdate(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_matchScoreUpdate(_User *tP, const byte* Packet, const DWORD Size){
 
 	if (Size < 10)return;
 	if (!tP->CurrentMatchID)return;//not in a match currently
@@ -3038,7 +3038,7 @@ __forceinline void event_client_matchScoreUpdate(_User *tP, const byte* Packet, 
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchComplete(_User *tP) {
+void Event_client_matchComplete(_User *tP) {
 
 	if (!tP->CurrentMatchID)return;//not in a match currently
 
@@ -3078,7 +3078,7 @@ __forceinline void Event_client_matchComplete(_User *tP) {
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchFailed(_User *tP) {
+void Event_client_matchFailed(_User *tP) {
 
 	if (!tP->CurrentMatchID)return;//not in a match currently
 
@@ -3098,7 +3098,7 @@ __forceinline void Event_client_matchFailed(_User *tP) {
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_matchSkipRequest(_User* tP) {
+void Event_client_matchSkipRequest(_User* tP) {
 	const USHORT MID = tP->CurrentMatchID;
 	if (!MID)return;//not in a match currently
 
@@ -3130,7 +3130,7 @@ __forceinline void Event_client_matchSkipRequest(_User* tP) {
 	m->Lock.unlock();
 }
 
-__forceinline void Event_client_invite(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_invite(_User *tP, const byte* Packet, const DWORD Size){
 
 	if (Size != 4)
 		return;
@@ -3247,6 +3247,10 @@ void IngameMenu(_User* u, _Con s){
 
 }*/
 
+void Event_client_requestStatusUpdate(_User *const tP){
+	tP->addQue(bPacket::UserStats(tP));
+}
+
 void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 
 	_User *tP = GetUserFromToken(choToken);
@@ -3285,7 +3289,7 @@ void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 			break;
 
 		case OPac::client_requestStatusUpdate:
-			tP->addQue(bPacket::UserStats(tP));
+			Event_client_requestStatusUpdate(tP);
 			break;
 
 		case OPac::client_changeAction:
@@ -3401,7 +3405,7 @@ void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 			break;
 
 		case client_matchScoreUpdate:
-			event_client_matchScoreUpdate(tP, Packet, PacketSize);
+			Event_client_matchScoreUpdate(tP, Packet, PacketSize);
 			break;
 		case client_matchComplete:
 			Event_client_matchComplete(tP);
@@ -3420,6 +3424,7 @@ void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 			printf("PacketID:%i | Length:%i\n", PacketID, PacketSize);
 			break;
 		}
+
 	}
 
 	SendMatchList(tP, 0);//Sends multiplayer data if they are in the lobby.
@@ -3909,7 +3914,7 @@ void receiveConnections(){
 	hint.sin_addr.S_un.S_addr = INADDR_ANY;
 
 	::bind(listening, (sockaddr*)&hint, sizeof(hint));
-	listen(listening, SOMAXCONN);
+	::listen(listening, SOMAXCONN);
 
 	sockaddr_in client;
 
@@ -3919,7 +3924,6 @@ void receiveConnections(){
 	setsockopt(listening, SOL_SOCKET, SO_RCVTIMEO, (char*)&Time, 4);
 	setsockopt(listening, SOL_SOCKET, SO_SNDTIMEO, (char*)&Time, 4);
 	setsockopt(listening, SOL_SOCKET, SO_RCVBUF, (char*)&MPL, 4);
-
 
 	DWORD ID = 0;
 
