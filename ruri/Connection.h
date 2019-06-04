@@ -66,7 +66,7 @@ struct _HttpRes {
 
 const std::string ConstructResponse(const DWORD Code, const std::vector<_HttpHeader> &Headers,const std::vector<byte> &Body){
 
-	std::string Return = [=]() {
+	std::string Return = [=]{
 
 		if(Code == 200)return "HTTP/1.0 200 OK" MNL;
 		if (Code == 404)return "HTTP/1.0 404 Not Found" MNL;

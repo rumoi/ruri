@@ -632,11 +632,9 @@ TryMap:
 	}else if(FirstTime){
 
 		//The server does not have the data we need. We need to ask the osu API for all current maps in the set ID and add them to our own database.
-
-		std::string ApiRes = GetOsuPage(osu_API_BEATMAP + "s=" + std::to_string(SetID));
+		const std::string &ApiRes = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "s=" + std::to_string(SetID));
 
 		if (ApiRes.size() != 0){
-			UnChunk(ApiRes);
 
 			DWORD RemovedMapsCount = SQL->ExecuteUPDATE("DELETE FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID));
 
@@ -646,6 +644,7 @@ TryMap:
 			}
 
 			auto BeatmapData = JsonListSplit(ApiRes);
+
 			if (BeatmapData.size() != 0){
 
 				for (DWORD i = 0; i < BeatmapData.size(); i++){
@@ -884,10 +883,7 @@ __forceinline std::string GetParam(const std::string &s, const std::string param
 
 void SendAria404(_Con s){
 
-	std::vector<byte> Body;
-	AddStringToVector(Body, "<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/570910676428652544/Kanzaki.png\"><br><b>404</b> - Aria does not know this page.</HTML>");
-
-	s.SendData(ConstructResponse(200, Empty_Headers, Body));
+	s.SendData(ConstructResponse(200, Empty_Headers, FastVByteAlloc("<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/570910676428652544/Kanzaki.png\"><br><b>404</b> - Aria does not know this page.</HTML>")));
 	s.close();
 }
 
@@ -967,7 +963,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 	auto RawScoreData = Explode(&res.Body[0], res.Body.size(), "-------------------------------28947758029299\r\n");
 
 	if (RawScoreData.size() < 10)
-		return SendAria404(s);//AddStringToVector(Body, "<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/570910676428652544/Kanzaki.png\"><br>Aria does not know this page.</HTML>");
+		return SendAria404(s);
 	else{
 		//TODO: maybe make this not gross test code?
 		#pragma region Cancer
@@ -1410,53 +1406,6 @@ struct _UpdateCache{
 	}
 }; std::vector<_UpdateCache> UpdateCache;
 
-
-std::string GetMirrorResponse(std::string Input, const USHORT Port = MIRROR_PORT) {
-
-	SOCKET Socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-
-	SOCKADDR_IN SockAddr;
-	SockAddr.sin_port = htons(Port);
-	SockAddr.sin_family = AF_INET;
-	SockAddr.sin_addr.s_addr = inet_addr(MIRROR_IP);
-	if (connect(Socket, (SOCKADDR*)(&SockAddr), sizeof(SockAddr)) != 0) {
-		printf("Could not connect to the mirror\n");
-		closesocket(Socket);
-		return "";
-	}
-
-	Input = "GET /" + Input + " HTTP/1.1\r\nHost: osu.ppy.sh\r\nConnection: close\r\n\r\n";//Might want to performance scope this...
-	
-	if (send(Socket, &Input[0], Input.size(), 0) == SOCKET_ERROR){
-		printf("Mirror send error\n");
-		closesocket(Socket);
-		return "";
-	}
-	char buffer[1400];
-	int nDataLength;
-	std::string Return = "";
-
-	do {
-
-		nDataLength = recv(Socket, buffer, 1400, 0);
-
-		if (nDataLength == SOCKET_ERROR) {
-
-			closesocket(Socket);
-			return "";
-		}
-
-		if (nDataLength) {
-			Return.resize(Return.size() + nDataLength);
-			memcpy(&Return[Return.size() - nDataLength], buffer, nDataLength);
-		}
-
-	} while (nDataLength);
-
-	closesocket(Socket);
-	return Return;
-}
-
 void osu_checkUpdates(const std::vector<byte> &Req,_Con s) {
 
 	if (!SafeStartCMP(Req, "/web/check-updates.php?action=check") && !SafeStartCMP(Req, "/web/check-updates.php?action=path"))
@@ -1483,9 +1432,8 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s) {
 		}
 
 	}
+	const std::string &res = GET_WEB_CHUNKED("old.ppy.sh",URL);
 
-	std::string res = GetOsuPage(URL);
-	UnChunk(res);
 	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(res.begin(), res.end())));
 	s.close();
 
@@ -1514,9 +1462,9 @@ void Handle_SearchSet(const _HttpRes http, _Con s){
 	if (!Start)
 		return s.close();
 
-	std::string Res = GetMirrorResponse("api/set?" + std::string(http.Host.begin() + Start, http.Host.end()));
+	std::string Res;// GetMirrorResponse("api/set?" + std::string(http.Host.begin() + Start, http.Host.end()));
 
-	UnChunk(Res);
+	//UnChunk(Res);
 
 	if (!Res.size())
 		return s.close();
@@ -1539,9 +1487,9 @@ void Handle_DirectSearch(const _HttpRes http, _Con s) {
 	if (!Start)
 		return s.close();
 
-	std::string Res = GetMirrorResponse("api/search?" + std::string(http.Host.begin() + Start, http.Host.end()));
+	std::string Res;// GetMirrorResponse("api/search?" + std::string(http.Host.begin() + Start, http.Host.end()));
 
-	UnChunk(Res);
+	//UnChunk(Res);
 
 	if (Res.size() == 0){
 
@@ -1600,9 +1548,9 @@ void DownloadOSZ(const _HttpRes http, _Con s){
 	const std::string URL(http.Host.begin(), http.Host.end());
 	const DWORD DataOff = URL.find('?');
 
-	std::string Res = GetMirrorResponse((DataOff == std::string::npos) ? URL : URL.substr(0, DataOff));
+	std::string Res;// = GetMirrorResponse((DataOff == std::string::npos) ? URL : URL.substr(0, DataOff));
 
-	UnChunk(Res);
+	//UnChunk(Res);
 
 	if (Res.size() < 100){
 		s.SendData(ConstructResponse(404, Empty_Headers, Empty_Byte));

@@ -128,7 +128,7 @@ const int PING_TIMEOUT_OSU = 50000;
 const bool USER_TEST = 0;
 //const bool LOW_LATENCY = 0;
 
-const int MAX_PACKET_LENGTH = 1403 << 1;
+const int MAX_PACKET_LENGTH = 2816;
 
 enum OPac {
 	NULL_PACKET = 1000,
@@ -258,10 +258,10 @@ WSADATA wsData;
 #include <vector>
 #include <string>
 
-#define FastVByteAlloc(x)[&](){const char* a = x; const std::vector<byte> b(a,a + sizeof(a)); return b;}()
+#define FastVByteAlloc(x)[&]{const char* a = x; const std::vector<byte> b(a,a + sizeof(a)); return b;}()
 
 const std::string BOT_NAME = "ruri";
-const std::string FAKEUSER_NAME((const char*)new char[8]{-30,-128,-115,95,-30,-128,-115,0});
+const std::string FAKEUSER_NAME([](){const char a[] = { -30,-128,-115,95,-30,-128,-115,0 }; return (char*)a;}());
 
 #include <time.h>
 #include <thread>
@@ -691,18 +691,13 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 
 	if (GameMode >= 8)return 0;
 	const DWORD RawGameMode = GameMode;
-	std::string ScoreTableName = "scores";
-	std::string StatsTableName = "users_stats";
+	const std::string ScoreTableName = (GameMode >= 4) ? "scores_relax" : "scores";
+	const std::string StatsTableName = (GameMode >= 4) ? "rx_stats" : "users_stats";
 	
-	std::string AccColName[] = {"avg_accuracy_std","avg_accuracy_taiko","avg_accuracy_ctb","avg_accuracy_mania"};
-	std::string ppColName[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
+	const std::string AccColName[] = {"avg_accuracy_std","avg_accuracy_taiko","avg_accuracy_ctb","avg_accuracy_mania"};
+	const std::string ppColName[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
 
-	if (GameMode >= 4) {
-		ScoreTableName = "scores_relax";
-		StatsTableName = "rx_stats";
-		GameMode -= 4;
-	}
-
+	GameMode = GameMode % 4;
 
 	sql::ResultSet *res = SQL->ExecuteQuery("SELECT accuracy,pp FROM " + ScoreTableName + " WHERE userid = " + std::to_string(UserID) + " AND play_mode = " + std::to_string(GameMode) + " AND completed = 3 AND pp > 0 ORDER BY pp DESC LIMIT 100");
 	DWORD Count = 0;
@@ -719,8 +714,8 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 
 	const double ACC = (TotalAcc / double((Count > 50) ? 50 : Count));
 	
-	float acc = ACC / 100.f;
-	int pp = (int)round(TotalPP);
+	const float acc = ACC / 100.f;
+	const int pp = (int)round(TotalPP);
 
 	if (acc != stats.Acc || pp != stats.pp){
 
@@ -780,7 +775,7 @@ bool StringCompareStart(const std::string &a, const std::string b) {
 #include "Achievement.h"
 
 
-#define ROVIV(ou,in) ou.reserve([&](){DWORD S = ou.size(); for (DWORD i = 0; i < in.size(); i++)S += in[i].GetSize(); return S; }());
+#define ROVIV(ou,in) ou.reserve([&]{DWORD S = ou.size(); for (DWORD i = 0; i < in.size(); i++)S += in[i].GetSize(); return S; }());
 
 struct _User {
 
@@ -1062,8 +1057,6 @@ _User* GetUserFromID(DWORD ID) {
 			return &User[i];
 		}
 
-	printf("Failed to get userID %i\n", ID);
-
 	return 0;
 }
 _User* GetUserFromToken(DWORD Token) {
@@ -1081,7 +1074,7 @@ _User* GetUserFromName(const std::string &Name, const bool Force = 0){
 
 	if (Name.size() == 0)return 0;
 
-	for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
+	for (DWORD i = 0; i < MAX_USER_COUNT; i++){
 		if (User[i].choToken == 0 && !Force)continue;
 		
 		if (Name == User[i].Username)
@@ -1091,7 +1084,6 @@ _User* GetUserFromName(const std::string &Name, const bool Force = 0){
 	return 0;
 }
 _User* GetUserFromNameSafe(const std::string &Name, const bool Force = 0) {
-	//TODO: fix this
 
 	if (Name.size() == 0)return 0;
 
@@ -1116,19 +1108,14 @@ DWORD GetIDFromName(const std::string &Name) {
 	return 0;
 }
 
-__inline byte GetUserType(const DWORD Priv){
 
-	if (Priv & Privileges::AdminDev)//dev
-		return UserType::Peppy;
-	else if (Priv & Privileges::AdminBanUsers)//admin
-		return UserType::Friend;
-	else if (Priv & (Privileges::AdminChatMod | Privileges::AdminManageBeatmaps | Privileges::AdminQAT))//chat mod
-		return UserType::BAT;
-	else if (Priv & (Privileges::Premium | Privileges::UserDonor))//supporter/premium
-		return UserType::Supporter;
-
-	return UserType::Normal;
-}
+#define GetUserType(x) [=]{ \
+			if (x & Privileges::AdminDev)return (byte)UserType::Peppy; \
+			if (x & Privileges::AdminBanUsers)return (byte)UserType::Friend; \
+			if (x & (Privileges::AdminChatMod | Privileges::AdminManageBeatmaps | Privileges::AdminQAT))return (byte)UserType::BAT; \
+			if (x & (Privileges::Premium | Privileges::UserDonor))return (byte)UserType::Supporter; \
+			return (byte)UserType::Normal; \
+		}()
 
 
 namespace bPacket {
@@ -1147,6 +1134,8 @@ namespace bPacket {
 	__forceinline _BanchoPacket BotMessage(const std::string &Target, const std::string &message, const std::string &Name = BOT_NAME, const DWORD ID = 999) {
 
 		_BanchoPacket b(OPac::server_sendMessage);
+
+		b.Data.reserve(10 + Name.size() + message.size() + Target.size());
 
 		AddString(b.Data, Name);
 		AddString(b.Data, message);
@@ -1334,6 +1323,7 @@ namespace bPacket {
 		}
 
 		_User *tP = GetUserFromID(UserID);
+
 		if (!tP || !tP->choToken || (!(tP->privileges & UserPublic) && UserID != AskerID))return bPacket::GenericInt32(OPac::server_userLogout,UserID);
 
 		_BanchoPacket b(OPac::server_userStats);
@@ -1471,21 +1461,16 @@ void Event_client_cantSpectate(_User *tP) {
 DWORD COUNT_REQUESTS = 0;
 DWORD COUNT_MULTIPLAYER = 0;
 
-void RenderHTMLPage(_Con s, _HttpRes &res) {
-	std::vector<_HttpHeader> Headers;
+void RenderHTMLPage(_Con s, _HttpRes &res){
+
 	std::vector<byte> Body;
 
-	std::string Response = //"<iframe src=\"https://classic.minecraft.net\" style=\"position:fixed; top:0; left:0; bottom:0; right:0; width:100%; height:100%; border:none; margin:0; padding:0; overflow:hidden; z-index:999999;\"></iframe>";
-		"<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/567292020104888320/unknown.png\">"
+	AddStringToVector(Body, "<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/567292020104888320/unknown.png\">"
 		"<br>ruri uptime : " + std::to_string(double(clock()) / 86400000.) + " days. With " + std::to_string(COUNT_REQUESTS) + " connections handled."
-		"<br>"+ std::to_string(COUNT_MULTIPLAYER) + " currently active multiplayer games.";
-	Response += "</HTML>";
+		"<br>"+ std::to_string(COUNT_MULTIPLAYER) + " currently active multiplayer games.</HTML>");
 
-	AddStringToVector(Body, Response);
+	s.SendData(ConstructResponse(405, {_HttpHeader("Content-Type", "text/html; charset=utf-8")}, Body));
 
-	Headers.push_back(_HttpHeader("Content-Type", "text/html; charset=utf-8"));
-
-	s.SendData(ConstructResponse(405, Headers, Body));
 }
 
 int GenerateChoToken(){
@@ -1629,56 +1614,50 @@ __forceinline void Event_client_changeAction(_User *tP, const byte* Packet, cons
 	tP->addQue(bPacket::UserStats(tP));
 }
 
-
 #include "BotCommands.h"
 #include "Match.h"
 
+__forceinline int CharHexToDecimal(const char c) {
 
-std::string GetOsuPage(std::string Input){
+	if (c >= '0' && c <= '9')return c - '0';
 
-	SOCKET Socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	SOCKADDR_IN SockAddr;
-	struct hostent *host;
-	host = gethostbyname("old.ppy.sh");
-	SockAddr.sin_port = htons(80);
-	SockAddr.sin_family = AF_INET;
-	SockAddr.sin_addr.s_addr = *((unsigned long*)host->h_addr);
+	if (c >= 'A' && c <= 'F')return 10 + (c - 'A');
 
-	if (connect(Socket, (SOCKADDR*)(&SockAddr), sizeof(SockAddr)) != 0) {
-		printf("WARNING: peppy might have blocked our IP\n");
-		closesocket(Socket);
-		return "";
-	}
+	if (c >= 'a' && c <= 'f')return 10 + (c - 'a');
 
-	Input = "GET /" + Input + " HTTP/1.1\r\nHost: old.ppy.sh\r\nConnection: close\r\n\r\n";
-
-	if (send(Socket, &Input[0], Input.size(), 0) == SOCKET_ERROR) {
-		closesocket(Socket);
-		return "";
-	}
-
-	char buffer[1400];
-	int nDataLength;
-	std::string Return = "";
-
-	do{
-		nDataLength = recv(Socket, buffer, 1400, 0);
-
-		if (nDataLength == SOCKET_ERROR){
-			closesocket(Socket);
-			return "";
-		}
-
-		if (nDataLength){
-			Return.resize(Return.size() + nDataLength);
-			memcpy(&Return[Return.size() - nDataLength], buffer, nDataLength);
-		}
-
-	} while (nDataLength);
-
-	closesocket(Socket);
-	return Return;
+	return 0;
 }
+
+#define GET_WEB(HostName, Page) [&]{\
+	SOCKET Socket_WEB = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);if (!Socket_WEB)return std::string("");\
+	SOCKADDR_IN SockAddr_WEB;SockAddr_WEB.sin_family = AF_INET;SockAddr_WEB.sin_port = htons(80);SockAddr_WEB.sin_addr.s_addr = *((unsigned long*)gethostbyname(HostName)->h_addr);\
+	if (connect(Socket_WEB, (SOCKADDR*)(&SockAddr_WEB), sizeof(SockAddr_WEB))){closesocket(Socket_WEB);return std::string("");}\
+	const std::string pData = "GET /" + Page + " HTTP/1.1\r\nHost: " HostName "\r\nConnection: close\r\n\r\n";\
+	if (send(Socket_WEB, (char*)&pData[0],pData.size(), 0) == SOCKET_ERROR) {closesocket(Socket_WEB);return std::string("");}\
+	int tSize = 0;std::string Return_WEB(MAX_PACKET_LENGTH,'\0');\
+	while(1){const int rByte = recv(Socket_WEB, &Return_WEB[tSize], MAX_PACKET_LENGTH, 0);if (!rByte)break;Return_WEB.resize(Return_WEB.size() + rByte);tSize += rByte;}closesocket(Socket_WEB);\
+	Return_WEB.resize(tSize);\
+	return Return_WEB;}()
+
+#define HTTP_UNCHUNKER [](std::string &rp){												\
+		if (rp.size() == 0)return rp;																								\
+		std::string p; p.reserve(rp.size());																						\
+		DWORD Start = rp.find("\r\n\r\n");																							\
+		if (Start == std::string::npos) { rp.clear();  return rp; }																	\
+		for (DWORD i = Start + 4; i < rp.size(); i++) {																				\
+			Start = i;while (*(USHORT*)&rp[i] != *(USHORT*)"\r\n")i++;																\
+			DWORD ChunkSize = 0;																									\
+			for (DWORD z = Start; z < i; z++){ChunkSize = ChunkSize << 4;ChunkSize += CharHexToDecimal(rp[z]);}						\
+			if (ChunkSize == 0)break; i += 2;																						\
+			if (ChunkSize + i > rp.size()) { rp.clear();  return rp; };																\
+			p.resize(p.size() + ChunkSize);memcpy(&p[p.size() - ChunkSize], &rp[i], ChunkSize);										\
+			i += ChunkSize + 1;																										\
+		}																															\
+		rp = std::move(p);																											\
+		return rp;}
+
+#define GET_WEB_CHUNKED(Chunk_Host, Chunk_Page)[&]{auto uChunk = HTTP_UNCHUNKER; return uChunk(GET_WEB(Chunk_Host, Chunk_Page));}()
+
 
 #include <fstream>
 
@@ -1718,38 +1697,39 @@ __forceinline bool WriteAllBytes(const std::string &filename, const void* data, 
 	return 1;
 }
 
+/*
+std::string UnChunk(std::string ps) {
 
-__forceinline int CharHexToDecimal(const char c){
+	auto uChunk = [](std::string &rp){ \
+		if (rp.size() == 0)return rp; \
+		std::string p; p.reserve(rp.size()); \
+		DWORD Start = rp.find("\r\n\r\n"); \
+		if (Start == std::string::npos) { rp.clear();  return rp; } \
+		for (DWORD i = Start + 4; i < rp.size(); i++) { \
+			Start = i;while (*(USHORT*)&rp[i] != *(USHORT*)"\r\n")i++; \
+			DWORD ChunkSize = 0; \
+			for (DWORD z = Start; z < i; z++){ChunkSize = ChunkSize << 4;ChunkSize += CharHexToDecimal(rp[z]);} \
+			if (ChunkSize == 0)break; i += 2; \
+			if (ChunkSize + i > rp.size()) { rp.clear();  return rp; }; \
+			p.resize(p.size() + ChunkSize);memcpy(&p[p.size() - ChunkSize], &rp[i], ChunkSize); \
+			i += ChunkSize + 1; \
+		} \
+		rp = std::move(p); \
+		return rp;}; \
+	uChunk(GET_WEB(Chunk_Host, Chunk_Page));
 
-	if (c >= '0' && c <= '9')
-		return c - '0';
+	if (S.size() == 0)return "";
 
-	if (c >= 'A' && c <= 'F')
-		return 10 + (c - 'A');
-
-	if (c >= 'a' && c <= 'f')
-		return 10 + (c - 'a');
-
-	return 0;
-}
-
-void UnChunk(std::string &S) {
-
-	if (S.size() == 0)return;
-	
-	const byte NewLine[] = {'\r','\n'};
-
-	std::string Ret;
-	Ret.reserve(S.size());
+	std::string Ret;Ret.reserve(S.size());
 
 	DWORD Start = S.find("\r\n\r\n");
 
-	if (Start == std::string::npos)return S.clear();
+	if (Start == std::string::npos)return std::string("");
 	
 	for (DWORD i = Start + 4; i < S.size(); i++){
 		//Read header hex
 		Start = i;
-		while (*(USHORT*)&S[i] != *(USHORT*)NewLine)
+		while (*(USHORT*)&S[i] != *(USHORT*)"\r\n")
 			i++;
 
 		DWORD ChunkSize = 0;
@@ -1773,7 +1753,7 @@ void UnChunk(std::string &S) {
 
 	S = std::string();
 	S = Ret;
-}
+}*/
 
 int getSetID_fHash(const std::string &H, _SQLCon* c){//Could combine getbeatmapid and getsetid into one
 
@@ -1792,9 +1772,9 @@ int getSetID_fHash(const std::string &H, _SQLCon* c){//Could combine getbeatmapi
 		if (res)
 			delete res;
 	}	
+	const std::string &BeatmapData = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "h=" + H);
 
-	std::string BeatmapData = GetOsuPage(osu_API_BEATMAP + "h=" + H);
-	UnChunk(BeatmapData);
+
 
 	if (BeatmapData.size() <= 25)return 0;
 
@@ -1835,9 +1815,7 @@ int getBeatmapID_fHash(std::string &H, _SQLCon* c) {
 			delete res;
 
 	}
-
-	std::string BeatmapData = GetOsuPage(osu_API_BEATMAP + "h=" + H);
-	UnChunk(BeatmapData);
+	const std::string &BeatmapData = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "h=" + H);
 
 	if (BeatmapData.size() <= 25)return 0;
 
@@ -1864,9 +1842,7 @@ bool DownloadMapFromOsu(const int ID){
 	if (ID < 0 || ID > 6000000)
 		return 0;
 
-	std::string bFile = GetOsuPage("osu/" + std::to_string(ID));
-
-	UnChunk(bFile);
+	const std::string &bFile = GET_WEB_CHUNKED("old.ppy.sh", std::string("osu/" + std::to_string(ID)));
 
 	if (bFile.size() == 0 || bFile.find("[HitObjects]") == std::string::npos)return 0;
 
@@ -1910,7 +1886,7 @@ std::string RoundTo2(const float Input) {
 
 	_itoa(int(Input * 100.f), s, 10);
 
-	return std::string([&]() {
+	return std::string([&]{
 		if (s[0] == '0')return s;
 		AddDeci(s, 2)
 		AddDeci(s, 3)
@@ -2097,7 +2073,7 @@ WITHMODS:
 	if (!ez)
 		return;
 
-	tP->addQue(bPacket::BotMessage(tP->Username, [&](){
+	tP->addQue(bPacket::BotMessage(tP->Username, [&]{
 		ezpp_set_mods(ez, Mods);
 		ezpp_set_accuracy_percent(ez, (Acc == 0.f) ? 95.f : Acc);
 
@@ -2133,6 +2109,7 @@ __forceinline void Event_client_sendPrivateMessage(_User *tP, const byte* Packet
 	const std::string Sender = ReadUleb(O, End);
 	const std::string Message = ReadUleb(O, End);
 	const std::string Target = ReadUleb(O, End);
+
 	if (O + 4 > End)return;
 	const int ID = *(int*)O;
 
@@ -2160,6 +2137,7 @@ __forceinline void Event_client_sendPublicMessage(_User *tP, const byte* Packet,
 	const std::string Sender = ReadUleb(O, End);
 	const std::string Message = ReadUleb(O, End);
 	const std::string Target = ReadUleb(O, End);
+
 	if (O + 4 > End)return;
 	const int ID = *(int*)O;
 
@@ -2168,12 +2146,12 @@ __forceinline void Event_client_sendPublicMessage(_User *tP, const byte* Packet,
 	_Channel *c = 0;
 	
 	if (Target == "#multiplayer"){
-		USHORT MultiID = tP->CurrentMatchID;
+		const USHORT MultiID = tP->CurrentMatchID;
 		if (MultiID){
 			_Match *m = getMatchFromID(MultiID);
 			if (m){
 				DWORD C = 0;
-				std::string s = ProcessCommandMultiPlayer(tP, Message,C, m);
+				const std::string s = ProcessCommandMultiPlayer(tP, Message,C, m);
 
 				if (s.size() == 0){
 					m->Lock.lock();
@@ -2181,14 +2159,12 @@ __forceinline void Event_client_sendPublicMessage(_User *tP, const byte* Packet,
 					m->Lock.unlock();
 				}else{
 
-					if (C)
-						tP->addQue(bPacket::BotMessage("#multiplayer", s));
+					if (C)tP->addQue(bPacket::BotMessage("#multiplayer", s));
 					else{
 						m->Lock.lock();
 						m->sendUpdate(bPacket::BotMessage("#multiplayer", s), 0);
 						m->Lock.unlock();
 					}
-
 				}
 			}
 		}
@@ -2207,9 +2183,7 @@ __forceinline void Event_client_sendPublicMessage(_User *tP, const byte* Packet,
 
 				_User *s = SpecHost->Spectators[i];
 
-				if (s && s != tP)
-					s->addQue(b);
-
+				if (s && s != tP)s->addQue(b);
 			}
 			if (SpecHost != tP)
 				SpecHost->addQue(b);
@@ -2251,10 +2225,9 @@ __forceinline void Event_client_startSpectating(_User *tP, const byte* Packet, c
 
 	const DWORD ID = *(DWORD*)&Packet[0];
 
-	if (ID < 1000){
-		tP->addQue(bPacket::Notification("What are you doing spectating bots?"));
-		return;
-	}
+	if (ID < 1000)	
+		return tP->addQue(bPacket::Notification("What are you doing spectating bots?"));
+	
 
 	_User *SpecTarget = GetUserFromID(ID);
 
@@ -2489,8 +2462,7 @@ __forceinline void Event_client_createMatch(_User *tP, const byte* Packet, const
 __forceinline void SendMatchList(_User *tP, const bool New) {
 
 	if(!tP->inLobby)return;
-
-
+	
 	for (DWORD i = 0; i < MAX_MULTI_COUNT; i++){
 
 		if (Match[i].PlayerCount && !Match[i].Tournament)
@@ -2723,6 +2695,7 @@ __forceinline void Event_client_joinMatch(_User *tP, const byte* Packet, const D
 	const size_t End = O + Size + 1;
 	
 	if (O + 4 > End)return;
+
 	const USHORT MatchID = USHORT(*(DWORD*)O); O += 4;
 	const std::string Password = ReadUleb(O,End);
 
@@ -2854,11 +2827,10 @@ __forceinline void Event_client_matchNoBeatmap(_User *tP) {
 	for (DWORD i = 0; i < 16; i++){
 		if (m->Slot[i].User == tP){
 			m->Slot[i].SlotStatus = SlotStatus::NoMap;
+			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
 			break;
 		}
 	}
-
-	m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
 
 	m->Lock.unlock();
 }
@@ -2875,13 +2847,14 @@ __forceinline void Event_client_matchHasBeatmap(_User *tP){
 
 	for (DWORD i = 0; i < 16; i++){
 		if (m->Slot[i].User == tP){
-			if(m->Slot[i].SlotStatus = SlotStatus::NoMap)
+			if (m->Slot[i].SlotStatus = SlotStatus::NoMap) {
 				m->Slot[i].SlotStatus = SlotStatus::NotReady;
-			break;
+				m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+			}break;
 		}
 	}
 
-	m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+	
 
 	m->Lock.unlock();
 }
@@ -3188,11 +3161,6 @@ __forceinline void Event_client_invite(_User *tP, const byte* Packet, const DWOR
 	Target->addQue(b);
 }
 
-__forceinline void PacketLengthWrong(const USHORT Type, const DWORD Size){
-	printf("Packet ID %i was wrong length %i\n", Type, Size);
-}
-
-
 __forceinline void debug_LogOutUser(_User *tP){
 
 	const DWORD UID = tP->UserID;
@@ -3211,6 +3179,7 @@ __forceinline void debug_LogOutUser(_User *tP){
 
 #define BANCHO_THREAD_COUNT 4
 _SQLCon SQL_BanchoThread[BANCHO_THREAD_COUNT];
+
 /*
 void IngameMenu(_User* u, _Con s){
 
@@ -3356,11 +3325,10 @@ void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 			Event_client_stopSpectating(tP);
 			break;
 		case OPac::client_cantSpectate:
-			if (PacketSize != 0)PacketLengthWrong(PacketID, PacketSize);
 			Event_client_cantSpectate(tP);
 			break;
 
-		case OPac::client_spectateFrames://always safe
+		case OPac::client_spectateFrames:
 			Event_client_spectateFrames(tP,Packet,PacketSize);
 			break;
 
@@ -3447,7 +3415,7 @@ void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 		case client_invite:
 			Event_client_invite(tP, Packet, PacketSize);
 			break;
-
+		//68 is beatmap data and 79 is meant to be for a stats update
 		default:
 			printf("PacketID:%i | Length:%i\n", PacketID, PacketSize);
 			break;
@@ -4005,7 +3973,7 @@ std::string ExtractConfigValue(const std::vector<byte> &Input){
 
 
 int main(){
-
+	
 	std::vector<byte> ConfigBytes;
 
 	if (!ReadAllBytes("config.ini", ConfigBytes)) {
@@ -4029,7 +3997,6 @@ int main(){
 			BEATMAP_PATH = ExtractConfigValue(Config[i]);
 		else if (SafeStartCMP(Config[i], "ReplayPath"))
 			REPLAY_PATH = ExtractConfigValue(Config[i]);
-
 	}
 
 	
