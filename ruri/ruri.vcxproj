@@ -180,6 +180,7 @@
     <ClInclude Include="Match.h" />
     <ClInclude Include="oppai.h" />
     <ClInclude Include="BCrypt\ow-crypt.h" />
+    <ClInclude Include="pp.h" />
     <ClInclude Include="SQL.h" />
     <ClInclude Include="BCrypt\winbcrypt.h" />
   </ItemGroup>

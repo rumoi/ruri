@@ -258,7 +258,7 @@ WSADATA wsData;
 #include <vector>
 #include <string>
 
-#define FastVByteAlloc(x)[&]{const char* a = x; const std::vector<byte> b(a,a + sizeof(a)); return b;}()
+#define FastVByteAlloc(x)[&]{const char* a = x; const std::vector<byte> b(a,a + strlen(a) + 1); return b;}()
 
 const std::string BOT_NAME = "ruri";
 const std::string FAKEUSER_NAME([](){const char a[] = { -30,-128,-115,95,-30,-128,-115,0 }; return (char*)a;}());
@@ -1482,7 +1482,8 @@ int GenerateChoToken(){
 	TokenPointer[0] = BR::GetRand(0, 255);
 	TokenPointer[1] = BR::GetRand(1, 255);//never get that one in 4 billion chance of these all getting 0...
 	TokenPointer[2] = BR::GetRand(0, 255);
-RETRY:
+
+	RETRY:
 	TokenPointer[3] = BR::GetRand(0, 255);
 
 	for (DWORD i = 0; i < MAX_USER_COUNT; i++)
@@ -1856,6 +1857,7 @@ bool DownloadMapFromOsu(const int ID){
 
 
 #include "oppai.h"
+#include "pp.h"
 
 bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID){
 
@@ -2068,6 +2070,9 @@ void BotMessaged(_User *tP, std::string Message){
 	}
 
 WITHMODS:
+
+	printf("%i\n",new_pp(BEATMAP_PATH + std::to_string(mapID) + ".osu"));
+
 	ezpp_t ez = ezpp_new();
 
 	if (!ez)
@@ -3974,10 +3979,8 @@ std::string ExtractConfigValue(const std::vector<byte> &Input){
 	return std::string(Input.begin() + Start, Input.begin() + End);
 }
 
-
-
 int main(){
-	
+
 	std::vector<byte> ConfigBytes;
 
 	if (!ReadAllBytes("config.ini", ConfigBytes)) {
