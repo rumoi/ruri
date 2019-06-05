@@ -1,5 +1,7 @@
 #pragma once
 
+#include "osuRandom.h"
+
 #define LOAD_FILE(Filename)													\
 	[&]{																	\
 		std::ifstream file(Filename, std::ios::binary | std::ios::ate);		\
@@ -14,8 +16,7 @@
 		rVec[rVec.size()-1] = 0;											\
 																			\
 		return rVec;														\
-	}()																		\
-
+	}()																		
 
 
 #define FindNext(memstart, memend, needle)									\
@@ -35,7 +36,8 @@
 			else memstart++;												\
 		}
 
-#define _READDOUBLE(s) [=](const char* sP){					\
+
+#define _READDOUBLE(s) [](const char* sP){					\
 				if (!sP)return 0.;							\
 				const bool Negative = (*sP == '-');			\
 				if (Negative)sP++;							\
@@ -61,7 +63,48 @@
 			}(s)
 
 
-#define _READINT32(s) [=](const char* sP){					\
+#define _READDOUBLE_FAST(s) [](const char* sP){											\
+	if (!sP)return 0.;																	\
+	const bool Negative = (*sP == '-');													\
+	if (Negative)sP++;																	\
+																						\
+	DWORD p1 = 0;																		\
+	while (*sP >= '0' && *sP <= '9'){													\
+		p1 = (p1 * 10) + (*sP - '0');													\
+		sP++;																			\
+	}																					\
+																						\
+	if (*sP != '.')																		\
+		return (Negative) ? -double(p1) : double(p1);									\
+																						\
+	sP++;																				\
+	DWORD p2 = 0;																		\
+	byte c = 0;																			\
+	while (c != 5 && *sP >= '0' && *sP <= '9'){											\
+		p2 = (p2 * 10) + (*sP - '0');													\
+		sP++;																			\
+		c++;																			\
+	}																					\
+																						\
+	if(c != 5){																			\
+		switch(c){																		\
+		case 1:p2 *= 10000;break;														\
+		case 2:p2 *= 1000;break;														\
+		case 3:p2 *= 100;break;															\
+		case 4:p2 *= 10; break;															\
+		case 0:																			\
+		default:break;																	\
+		}																				\
+																						\
+	}																					\
+																						\
+	const double r = (p1 == 0 && p2 == 0) ? 0. : double(p1) + (double(p2) * 0.00001);	\
+																						\
+	return (Negative) ? -r : r;}(s)
+
+
+
+#define _READINT32(s) [](const char* sP){					\
 				if(!sP)return 0;							\
 				const bool Negative = (*sP == '-');			\
 				if(Negative)sP++;							\
@@ -80,6 +123,7 @@
 #define PPFAIL_NOBEATMAP 1
 #define PPFAIL_HEADERFAIL 2
 #define PPFAIL_TIMINGFAIL 3
+#define PPFAIL_NONOTES 4
 
 
 struct _TimingBPM {
@@ -118,9 +162,10 @@ enum HitObjectType
 
 int new_pp(const std::string &Input) {
 
-	const std::vector<byte> &RawMap = LOAD_FILE(Input);
 
 	std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
+
+	const std::vector<byte> &RawMap = LOAD_FILE(Input);
 
 	if (RawMap.size() <= 17 || memcmp(&RawMap[0], "osu file format v", 17))
 		return PPFAIL_NOBEATMAP;
@@ -160,7 +205,7 @@ int new_pp(const std::string &Input) {
 	{
 		const char* DiffRead = DiffStart;
 
-#define DIFFREAD(name)  FindNext(DiffRead, TimingStart, "\n"#name":"); name = _READDOUBLE(DiffRead); DiffRead = DiffStart;	
+		#define DIFFREAD(name)  FindNext(DiffRead, TimingStart, "\n"#name":"); name = _READDOUBLE_FAST(DiffRead); DiffRead = DiffStart;	
 
 		DIFFREAD(HPDrainRate);
 		DIFFREAD(CircleSize);
@@ -173,7 +218,7 @@ int new_pp(const std::string &Input) {
 			ApproachRate = OverallDifficulty;
 	}
 
-	TimingStart += 2;//This assumes the file has the windows return carriage. It slightly malforming the first timing point does not matter anyway as it will be set to the lowest possible value anyway.
+	TimingStart += 2;//This assumes the file has the windows return carriage. It slightly malforming the first timing point does not matter as it will be set to the lowest possible value anyway.
 
 	std::vector<_TimingBPM> TimingPoints;
 	TimingPoints.reserve(128);
@@ -255,9 +300,10 @@ int new_pp(const std::string &Input) {
 
 				if (Count == 0)
 					raw.y = _READINT32(i);
-				else if (Count == 1)
+				else if (Count == 1) {
 					raw.startTime = _READINT32(i);
-				else if (Count == 2)
+					raw.endTime = raw.startTime;
+				}else if (Count == 2)
 					raw.Type = byte(_READINT32(i));
 				else if (Count == 3) {
 					raw.Sound = byte(_READINT32(i));
@@ -267,20 +313,21 @@ int new_pp(const std::string &Input) {
 						raw.MultiData.reserve(16);
 						raw.MultiType = *i;
 						i++;
-						for (const char* &z = i; z < HitObjectEnd; z++) {
+						for (; i < HitObjectEnd; i++) {
 
-							if (*z == ',') { z--; break; }
+							if (*i == ',') { i--; break; }
 
-							if (*z == '|') {
-								z++;
+							if (*i == '|') {
+								i++;
 
-								int x = _READINT32(z);
+								const int x = _READINT32(i);
 								int y = INT_MIN;
 
-								const char* sr = z;
+								const char* sr = i;
 
 								while (HitObjectEnd - 1 > sr) {
 									if (*sr == ':') {
+										sr++;
 										y = _READINT32(sr);
 										break;
 									}sr++;
@@ -299,7 +346,7 @@ int new_pp(const std::string &Input) {
 				}
 				else if (Count == 5)
 					raw.repeatCount = byte(CLAMP(_READINT32(i), 0, 255));
-				else if (Count == 6)
+				else if (Count == 6 && raw.Type & Hit_Slider)
 					raw.Length = _READDOUBLE(i);
 				else break;
 
@@ -310,12 +357,28 @@ int new_pp(const std::string &Input) {
 		if (Count > 3)
 			RawBeatData.push_back(raw);
 
-
 		HitObjectStart = HitObjectEnd;
 	}
+	if (!RawBeatData.size())
+		return PPFAIL_NONOTES;
+
 	const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+	
 
+	for (DWORD i = 0; i < RawBeatData.size(); i++) {
+		
+		if (RawBeatData[i].Type & Hit_Slider){
 
-	printf("Time: %f\nnNoteCount: %llu\n", double(double(TTime) * .000001), RawBeatData.size());
+			for (DWORD z = 0; z < RawBeatData[i].MultiData.size(); z++) {
+
+				printf("%i> x:%i | y:%i\n", i, RawBeatData[i].MultiData[z].x, RawBeatData[i].MultiData[z].y);
+
+			}
+
+		}
+
+	}
+	printf("entireTime: %f\n", double(double(TTime) * .000001));
+	//printf("Time: %f\nnNoteCount: %llu\n", double(double(TTime) * .000001), RawBeatData.size());
 	return 0;
 }

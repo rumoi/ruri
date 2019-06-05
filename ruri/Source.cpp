@@ -521,7 +521,7 @@ struct _BanchoPacket {
 		AddVector(Bytes, Data);
 		return Bytes;
 	}
-	const DWORD GetSize()const {
+	const size_t GetSize()const {
 		return 7 + Data.size();
 	}
 	void GetBytes(std::vector<byte> &Bytes, const bool Reserve = 1){
@@ -2071,7 +2071,9 @@ void BotMessaged(_User *tP, std::string Message){
 
 WITHMODS:
 
-	printf("%i\n",new_pp(BEATMAP_PATH + std::to_string(mapID) + ".osu"));
+	const int temp = new_pp(BEATMAP_PATH + std::to_string(mapID) + ".osu");
+	printf("%i\n", temp);
+
 
 	ezpp_t ez = ezpp_new();
 
