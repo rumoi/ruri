@@ -524,18 +524,28 @@ struct _BanchoPacket {
 	const size_t GetSize()const {
 		return 7 + Data.size();
 	}
-	void GetBytes(std::vector<byte> &Bytes, const bool Reserve = 1){
-		if(Reserve)
-			Bytes.reserve(Bytes.size() + 7 + Data.size());
+	void GetBytes(std::vector<byte> &Bytes) const{
 
+		Bytes.reserve(Bytes.size() + 7 + Data.size());
 		byte D[7];
 		
 		*(USHORT*)D = Type;
 		D[2] = Compression;
 		*(DWORD*)(D + 3) = Data.size();
-
 		AddMem(Bytes, D, 7);
 		AddVector(Bytes, Data);
+	}
+	void GetBytesRaw(byte* &D) const{
+		
+		const DWORD DataSize = Data.size();
+		*(USHORT*)(D) = Type;
+		*(byte*)(D + 2) = Compression;
+		*(DWORD*)(D + 3) = DataSize;
+
+		if (DataSize)
+			memcpy(D + 7, &Data[0], DataSize);
+
+		D += 7 + DataSize;
 	}
 
 	_BanchoPacket() {
@@ -774,9 +784,6 @@ bool StringCompareStart(const std::string &a, const std::string b) {
 
 #include "Achievement.h"
 
-
-#define ROVIV(ou,in) ou.reserve([&]{DWORD S = ou.size(); for (DWORD i = 0; i < in.size(); i++)S += in[i].GetSize(); return S; }());
-
 struct _User {
 
 	DWORD choToken;
@@ -969,11 +976,18 @@ struct _User {
 		qLock.lock();
 
 		if (Que.size()){
-						
-			ROVIV(SendBytes,Que)
+					
+			SendBytes.resize([&](){
+				size_t S = 0;
+				for (DWORD i = 0; i < Que.size(); i++)
+					S += Que[i].GetSize();
+				return S;
+			}());
+
+			byte* SBPointer = (byte*)&SendBytes[0];
 
 			for (DWORD i = 0; i < Que.size(); i++)
-				Que[i].GetBytes(SendBytes,0);
+				Que[i].GetBytesRaw(SBPointer);
 
 			Que.clear();
 		}
@@ -1857,7 +1871,6 @@ bool DownloadMapFromOsu(const int ID){
 
 
 #include "oppai.h"
-#include "pp.h"
 
 bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID){
 
@@ -2071,23 +2084,19 @@ void BotMessaged(_User *tP, std::string Message){
 
 WITHMODS:
 
-	const int temp = new_pp(BEATMAP_PATH + std::to_string(mapID) + ".osu");
-	printf("%i\n", temp);
-
-
 	ezpp_t ez = ezpp_new();
 
 	if (!ez)
 		return;
 
-	tP->addQue(bPacket::BotMessage(tP->Username, [&]{
+	tP->addQue(bPacket::BotMessage(tP->Username, [&]()->std::string{
 		ezpp_set_mods(ez, Mods);
 		ezpp_set_accuracy_percent(ez, (Acc == 0.f) ? 95.f : Acc);
 
 		if (Combo)ezpp_set_combo(ez, Combo);
 
 		if (!OppaiCheckMapDownload(ez, mapID))
-			return std::string("Sorry. I failed to get that map.");
+			return "Sorry. I failed to get that map.";
 
 		tP->LastSentBeatmap = mapID;
 

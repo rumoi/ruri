@@ -89,10 +89,22 @@
     <ClInclude Include="Achievement.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="pp.h">
+    <ClInclude Include="pp\pp_base.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="osuRandom.h">
+    <ClInclude Include="pp\pp_mania.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="pp\pp_osu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="pp\pp_ctb.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="pp\pp_taiko.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="pp\osuRandom.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

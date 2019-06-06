@@ -4,18 +4,18 @@ namespace oRand
 
 	const double REAL_UNIT_INT = 1.0 / (INT_MAX + 1.0);
 	const double REAL_UNIT_UINT = 1.0 / (UINT_MAX + 1.0);
-	const DWORD Wi = 273326509;
-	const DWORD Yi = 842502087, Zi = 3579807591;
+	const DWORD Wi = 273326509, Yi = 842502087, Zi = 3579807591;
 
 }
 
-struct osuRandomInstance {
+struct osuRandomInstance{
+
 	DWORD w;
 	DWORD bitBuffer;
 	int bitBufferIdx;
 	DWORD x, y, z;
 
-	osuRandomInstance(const int seed) {
+	osuRandomInstance(const int seed){
 		x = (DWORD)seed;
 		y = oRand::Yi;
 		z = oRand::Zi;
@@ -23,7 +23,7 @@ struct osuRandomInstance {
 		bitBufferIdx = 32;
 	}
 
-	void Reinitialise(const int seed) {
+	void Reinitialise(const int seed){
 		x = (DWORD)seed;
 		y = oRand::Yi;
 		z = oRand::Zi;
@@ -85,4 +85,4 @@ struct osuRandomInstance {
 	}()
 
 
-#define oR_SkipRandom(r,c)for(int ufdihsh = 0; ufdihsh < c; ufdihsh++)oR_NextBool(r);
+#define oR_SkipRandom(r,c){}{}

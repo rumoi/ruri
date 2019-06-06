@@ -180,8 +180,12 @@
     <ClInclude Include="Match.h" />
     <ClInclude Include="oppai.h" />
     <ClInclude Include="BCrypt\ow-crypt.h" />
-    <ClInclude Include="osuRandom.h" />
-    <ClInclude Include="pp.h" />
+    <ClInclude Include="pp\osuRandom.h" />
+    <ClInclude Include="pp\pp_base.h" />
+    <ClInclude Include="pp\pp_ctb.h" />
+    <ClInclude Include="pp\pp_mania.h" />
+    <ClInclude Include="pp\pp_osu.h" />
+    <ClInclude Include="pp\pp_taiko.h" />
     <ClInclude Include="SQL.h" />
     <ClInclude Include="BCrypt\winbcrypt.h" />
   </ItemGroup>

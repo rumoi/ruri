@@ -68,7 +68,7 @@
 	const bool Negative = (*sP == '-');													\
 	if (Negative)sP++;																	\
 																						\
-	DWORD p1 = 0;																		\
+	int p1 = 0;																			\
 	while (*sP >= '0' && *sP <= '9'){													\
 		p1 = (p1 * 10) + (*sP - '0');													\
 		sP++;																			\
@@ -78,7 +78,7 @@
 		return (Negative) ? -double(p1) : double(p1);									\
 																						\
 	sP++;																				\
-	DWORD p2 = 0;																		\
+	int p2 = 0;																			\
 	byte c = 0;																			\
 	while (c != 5 && *sP >= '0' && *sP <= '9'){											\
 		p2 = (p2 * 10) + (*sP - '0');													\
@@ -101,7 +101,6 @@
 	const double r = (p1 == 0 && p2 == 0) ? 0. : double(p1) + (double(p2) * 0.00001);	\
 																						\
 	return (Negative) ? -r : r;}(s)
-
 
 
 #define _READINT32(s) [](const char* sP){					\
@@ -137,17 +136,44 @@ struct vec2_i {
 	int x, y;
 };
 
+/*
+#define _READ_BFLOAT(s)\
+	[](const char* sP)->byte{\
+		int p1 = 0;\
+		int p2 = 0;\
+		while (*sP >= '0' && *sP <= '9'){\
+			p1 = (p1 * 10) + (*sP - '0');\
+			sP++;\
+		}\
+		if (*sP == '.') {\
+			sP++;\
+			if(*sP > '0' && *sP <= '9')\
+				p2 = (*sP - '0');\
+		}\
+		p1 = CLAMP(p1, 0, 10);\
+		p2 = CLAMP(p2, 0, 9);\
+		return byte(p1) + byte(p2 << 3);\
+	}(s)
+#define UNPACK_BFLOAT(s)[&](){return float(s & 15) + float((s & (15 << 3)) >> 3) * 0.1f;}()
+*/
 struct _MapHeaders{
-	float HPDrainRate, CircleSize, OverallDifficulty, SliderMultiplier, SliderTickRate, ApproachRate;
-	byte MapVersion;
-	byte MapMode;
+	float CircleSize, OverallDifficulty, ApproachRate;
+	byte MapVersion, MapMode;
+	double SliderMultiplier, SliderTickRate;
 };
 
 struct _RawBeatmapObject {
-	int x, y, startTime,endTime;
+	short x, y;
+	int startTime,endTime;
 	byte Type, Sound, MultiType, repeatCount;//WARNING: Might want to change repeat count to a larger size if need be.
 	double Length;
 	std::vector<vec2_i> MultiData;
+};
+
+struct _RawBeatmap {
+	_MapHeaders Headers;
+	std::vector<_TimingBPM> TimingPoints;
+	std::vector<_RawBeatmapObject> Notes;
 };
 
 enum HitObjectType
@@ -160,7 +186,16 @@ enum HitObjectType
 };
 
 
-int new_pp(const std::string &Input) {
+#include "pp_osu.h"
+#include "pp_taiko.h"
+#include "pp_ctb.h"
+#include "pp_mania.h"
+
+
+#define conP(s)s&const
+
+
+int pp_getRawMapData(const std::string &Input, _RawBeatmap &Output){
 
 
 	std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
@@ -175,10 +210,17 @@ int new_pp(const std::string &Input) {
 
 	const char* CO = Start + 17;;
 
-	byte MapVersion = 0;
-	byte MapMode = 0;
 
-	float HPDrainRate, CircleSize, OverallDifficulty, SliderMultiplier, SliderTickRate, ApproachRate;
+	conP(_MapHeaders) Headers = Output.Headers;
+
+	conP(byte) MapVersion = Headers.MapVersion;
+	conP(byte) MapMode = Headers.MapMode;
+
+	conP(float) CircleSize = Headers.CircleSize;
+	conP(float) OverallDifficulty = Headers.OverallDifficulty;
+	conP(float) ApproachRate = Headers.ApproachRate;
+	conP(double) SliderMultiplier = Headers.SliderMultiplier;
+	conP(double) SliderTickRate = Headers.SliderTickRate;
 
 	while (CO != End && *CO >= '0' && *CO <= '9') {
 		MapVersion *= 10;
@@ -189,7 +231,8 @@ int new_pp(const std::string &Input) {
 	const char* RevertCO = CO;
 
 	FindNext(CO, End, "\nMode: ");
-	if (!CO)CO = RevertCO;
+
+	if (!CO)CO = RevertCO;//I did not check but I assume old maps (07) would not have a mode.
 	else MapMode = *CO - '0';
 
 	const char* DiffStart = CO;
@@ -205,24 +248,24 @@ int new_pp(const std::string &Input) {
 	{
 		const char* DiffRead = DiffStart;
 
-		#define DIFFREAD(name)  FindNext(DiffRead, TimingStart, "\n"#name":"); name = _READDOUBLE_FAST(DiffRead); DiffRead = DiffStart;	
+		//#define DIFFREAD(name) FindNext(DiffRead, TimingStart, "\n"#name":"); name = _READ_BFLOAT(DiffRead); DiffRead = DiffStart
+		#define DIFFREAD(name) FindNext(DiffRead, TimingStart, "\n"#name":"); name = _READDOUBLE(DiffRead); DiffRead = DiffStart	
 
-		DIFFREAD(HPDrainRate);
 		DIFFREAD(CircleSize);
 		DIFFREAD(OverallDifficulty);
+		DIFFREAD(ApproachRate);
 		DIFFREAD(SliderMultiplier);
 		DIFFREAD(SliderTickRate);
-		DIFFREAD(ApproachRate);
-
-		if (ApproachRate = 0.f)
+		
+		if (ApproachRate == 0.f)//I know this could cause issues if the ar is just truly set to 0. But who cares.
 			ApproachRate = OverallDifficulty;
 	}
 
 	TimingStart += 2;//This assumes the file has the windows return carriage. It slightly malforming the first timing point does not matter as it will be set to the lowest possible value anyway.
 
-	std::vector<_TimingBPM> TimingPoints;
+	std::vector<_TimingBPM> &TimingPoints = Output.TimingPoints;
 	TimingPoints.reserve(128);
-
+	
 	double LastRealBPM = 10.;
 	double LastMultiplier = 0.;
 
@@ -275,12 +318,10 @@ int new_pp(const std::string &Input) {
 
 	HitObjectStart += 2;
 
-
-	std::vector<_RawBeatmapObject> RawBeatData;
+	std::vector<_RawBeatmapObject> &RawBeatData = Output.Notes;
 	RawBeatData.reserve(1024);
 
-	while (1) {
-
+	while (1){
 		const char* HitObjectEnd = HitObjectStart;
 
 		FindNext(HitObjectEnd, End, "\n");
@@ -309,7 +350,7 @@ int new_pp(const std::string &Input) {
 					raw.Sound = byte(_READINT32(i));
 				}
 				else if (Count == 4) {
-					if (raw.Type & Hit_Slider) {
+					if (MapMode != 3 && raw.Type & Hit_Slider) {
 						raw.MultiData.reserve(16);
 						raw.MultiType = *i;
 						i++;
@@ -340,7 +381,7 @@ int new_pp(const std::string &Input) {
 						Count++;
 						break;
 					}
-					else if (raw.Type & Hit_Spinner)
+					else if (MapMode == 3 || raw.Type & Hit_Spinner)
 						raw.endTime = _READINT32(i);
 
 				}
@@ -354,8 +395,7 @@ int new_pp(const std::string &Input) {
 			}
 		}
 
-		if (Count > 3)
-			RawBeatData.push_back(raw);
+		if (Count > 3)RawBeatData.push_back(raw);
 
 		HitObjectStart = HitObjectEnd;
 	}
@@ -364,21 +404,7 @@ int new_pp(const std::string &Input) {
 
 	const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
 	
-
-	for (DWORD i = 0; i < RawBeatData.size(); i++) {
-		
-		if (RawBeatData[i].Type & Hit_Slider){
-
-			for (DWORD z = 0; z < RawBeatData[i].MultiData.size(); z++) {
-
-				printf("%i> x:%i | y:%i\n", i, RawBeatData[i].MultiData[z].x, RawBeatData[i].MultiData[z].y);
-
-			}
-
-		}
-
-	}
-	printf("entireTime: %f\n", double(double(TTime) * .000001));
+	printf("Time: %f\n", double(double(TTime) * .000001));
 	//printf("Time: %f\nnNoteCount: %llu\n", double(double(TTime) * .000001), RawBeatData.size());
 	return 0;
 }
