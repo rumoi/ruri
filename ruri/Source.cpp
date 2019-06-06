@@ -418,8 +418,8 @@ namespace BR {
 	int GetRand(int min = 0, int max = INT_MAX) {
 		return std::uniform_int_distribution<int>{min, max}(mersenneTwister);
 	}
-	DWORD UGetRand(DWORD min = 0, DWORD max = DWORD(-1)) {
-		return std::uniform_int_distribution<DWORD>{min, max}(mersenneTwister);
+	uint64_t GetRand64(uint64_t min = 0, uint64_t max = uint64_t(-1)) {
+		return std::uniform_int_distribution<uint64_t>{min, max}(mersenneTwister);
 	}
 
 	double GetRandD(double min, double max) {
@@ -2151,7 +2151,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* Packet, const DWORD S
 	const size_t End = O + Size + 1;
 
 	const std::string Sender = ReadUleb(O, End);
-	const std::string Message = ReadUleb(O, End);
+	const std::string Message = TRIMSTRING(ReadUleb(O, End));
 	const std::string Target = ReadUleb(O, End);
 
 	if (O + 4 > End)return;

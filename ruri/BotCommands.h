@@ -1,9 +1,50 @@
 #pragma once
 
 
-namespace BOT_COMMANDS {
-	__forceinline std::string Roll(_User* u, const DWORD Max){return u->Username + " rolled " + std::to_string(BR::UGetRand(0, (Max) ? Max : 100));}
-}
+
+
+
+
+#define Roll(u,input)\
+	[&](const uint64_t Max)->const std::string{\
+		return u->Username + " rolled " + std::to_string(BR::GetRand64(0, (Max) ? Max : 100));\
+	}(input)
+
+#define StringToUInt64(s)\
+	[&]()->uint64_t{\
+		uint64_t ret = 0;\
+		for(DWORD i=0;i<s.size();i++){\
+			if(s[i] < '0' || s[i] > '9')\
+				continue;\
+			uint64_t N = (ret * 10) + (s[i] - '0');\
+			if(N < ret ||(i == 0 && s[i] == '-'))return uint64_t(-1);\
+			ret = N;\
+		}\
+		return ret;\
+	}()
+
+#define TRIMSTRING(str)\
+	[](std::string &s)->std::string{\
+		if(!s.size())return s;\
+		for(DWORD ii = s.size()-1;ii>0;ii--){\
+			if(s[ii] != ' ')break;\
+			s.pop_back();\
+		}\
+		if(s[0] != ' ')return s;\
+		DWORD Start = 0;\
+		for(DWORD ii=0;ii<s.size();ii++)\
+			if (s[ii] != ' ') {\
+				Start=ii;\
+				break;\
+			}\
+		if(Start == 0){s.resize(0);return s;}\
+		const DWORD nSize = s.size() - Start;\
+		memcpy(&s[0],&s[Start],nSize);s.resize(nSize);\
+		return s;\
+	}(str)
+
+
+
 
 __forceinline DWORD Safe_stoul(const std::string &Input){
 
@@ -129,9 +170,7 @@ std::string CFGExploit(const std::string &Target,std::string &NewCFGLine){
 	return "Done.";
 }
 
-
-
-std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PermSeeResponse){
+const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PermSeeResponse){
 
 	const DWORD Priv = u->privileges;
 
@@ -141,14 +180,8 @@ std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PermSeeRe
 
 	const auto Split = Explode(Command, ' ');
 
-	/*
-	if (Split[0] == "!help") {
-		PermSeeResponse = 1;
-		return "!roll {Number} - Rolls a number between 0 to the given number.If no number is given it defaults to 100\n!last - Shows the last map you played to the current channel.";
-	}*/
-
 	if (Split[0] == "!roll")
-		return BOT_COMMANDS::Roll(u, (Split.size() > 1) ? Safe_stoul(Split[1]) : 100);
+		return Roll(u, (Split.size() > 1) ? StringToUInt64(Split[1]) : 100);
 
 	if (Split[0] == "!fetus"){
 
