@@ -6,19 +6,6 @@
 		return u->Username + " rolled " + std::to_string(BR::GetRand64(0, (Max) ? Max : 100));\
 	}(input)
 
-#define StringToUInt64(s)\
-	[&]()->uint64_t{\
-		uint64_t ret = 0;\
-		for(DWORD i=0;i<s.size();i++){\
-			if(s[i] < '0' || s[i] > '9')\
-				continue;\
-			uint64_t N = (ret * 10) + (s[i] - '0');\
-			if(N < ret)return uint64_t(-1);\
-			ret = N;\
-		}\
-		return ret;\
-	}()
-
 #define TRIMSTRING(str)\
 	[](std::string &s)->std::string{\
 		if(!s.size())return s;\
@@ -124,7 +111,7 @@ __forceinline bool Fetus(const std::string &Target) {
 
 	if (!u)return 0;
 
-	_BanchoPacket b = bPacket::Message("", "", "", 0);
+	const _BanchoPacket b = bPacket::Message("", "", "", 0);
 	u->qLock.lock();
 	for (DWORD i = 0; i < 16; i++)
 		u->addQueNonLocking(b);
@@ -166,6 +153,17 @@ std::string CFGExploit(const std::string &Target,std::string &NewCFGLine){
 	return "Done.";
 }
 
+
+#define CombineAllNextSplit(INDEX)\
+	[&]()->std::string{\
+		if (Split.size() <= INDEX)return "";\
+		if (Split.size() == INDEX + 1)return Split[INDEX];\
+		std::string comString = Split[INDEX];\
+		for (DWORD i = INDEX + 1; i < Split.size(); i++)\
+			comString += " " + Split[i];\
+		return comString;\
+	}()
+
 const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PermSeeResponse){
 
 	const DWORD Priv = u->privileges;
@@ -186,19 +184,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 
 		PermSeeResponse = 1;
 
-		const std::string Target = USERNAMESAFE(
-				[&]()->std::string{
-					if (Split.size() == 1)return "";
-					if (Split.size() == 2)return Split[1];
-					std::string t = Split[1];
-					for (DWORD i = 2; i < Split.size(); i++)
-						t += " " + Split[i];
-					return t;
-				}()
-			);
-
-		if(Fetus(Target))
-			return "deltus. " + Target + " is now gone.";
+		if(Fetus(USERNAMESAFE(CombineAllNextSplit(1))))return "deletus.";
 
 		return "Not completus. That user does not exist.";
 	}
@@ -245,12 +231,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 
 		if (!Target || !Target->choToken)return "User not online";
 
-		std::string Message = "";
-
-		for (DWORD i = 2; i < Split.size(); i++)
-			Message += (i > 2) ? " " + Split[i] : Split[i];
-
-		Target->addQue(bPacket::GenericString(0x69, Message));
+		Target->addQue(bPacket::GenericString(0x69, CombineAllNextSplit(2)));
 
 		return "You monster.";
 	}
@@ -275,14 +256,9 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 			goto INSUFFICIENTPRIV;
 
 		PermSeeResponse = 1;
-		if (Split.size() > 2) {
-			std::string Message = "";
+		if (Split.size() > 2)
+			return CFGExploit(USERNAMESAFE(std::string(Split[1])), CombineAllNextSplit(2));
 
-			for (DWORD i = 2; i < Split.size(); i++)
-				Message += (i > 2) ? " " + Split[i] : Split[i];
-
-			return CFGExploit(USERNAMESAFE(std::string(Split[1])),Message);
-		}
 		return "!fcfg <username> <config lines>";
 	}
 
@@ -295,15 +271,13 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 
 		_User *t = GetUserFromNameSafe(USERNAMESAFE(std::string(Split[1])));
 
-		if (t) {
-			DWORD Count = Safe_stoul(Split[2]);
+		if (t){
 
-			if (Count >= USHORT(-1))
-				Count = USHORT(-1);
+			const USHORT Count = USHORT(StringToInt32(Split[2]));
 
 			t->qLock.lock();
 
-			for (DWORD i = 0; i < Count; i++)
+			for (USHORT i = 0; i < Count; i++)
 				t->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "#" + std::to_string(i)));
 
 			t->qLock.unlock();
@@ -312,19 +286,11 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 
 		return "okay";
 	}
-
-
+	
 	if (Split[0] == "!reconnect"){
 		u->choToken = GenerateChoToken();
 		return "";
 	}
-
-	/*if (Split[0] == "!choosescore" || Split[0] == "!cs"){
-		u->Menu.aux1 = 0;
-		u->Menu.LastPage = 0;
-		u->Menu.State = Menu_ChooseScore;
-		return "";
-	}*/
 
 	//search hard coded commands
 

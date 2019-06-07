@@ -176,7 +176,7 @@
     <ClInclude Include="Base64.h" />
     <ClInclude Include="BCrypt\bcrypt.h" />
     <ClInclude Include="BCrypt\BCrypt.hpp" />
-    <ClInclude Include="BotCommands.h" />
+    <ClInclude Include="Commands.h" />
     <ClInclude Include="Channel.h" />
     <ClInclude Include="Connection.h" />
     <ClInclude Include="BCrypt\crypt.h" />

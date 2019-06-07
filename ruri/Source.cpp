@@ -260,10 +260,11 @@ WSADATA wsData;
 
 #define FastVByteAlloc(x)[&]{const char*const a = x; const std::vector<byte> b(a,a + strlen(a) + 1); return b;}()
 
-#define MemToInt32(LOC,LEN)\
-	[](const size_t mem, const DWORD size)->int{\
+
+#define MemToData(TYPE, LOC,LEN)\
+	[](const size_t mem, const DWORD size)->TYPE{\
 		if(!mem || !size)return 0;\
-		int ret = 0;\
+		TYPE ret = 0;\
 		const char*const c = (char*)mem;\
 		for(DWORD i=0;i<size;i++){\
 			if(c[i] < '0' || c[i] > '9')\
@@ -271,7 +272,13 @@ WSADATA wsData;
 			ret = (ret * 10) + (c[i] - '0');\
 		}\
 		return (c[0] != '-') ? ret : -ret;\
-	}(LOC,LEN)
+	}((size_t)LOC,LEN)
+
+#define MemToInt32(LOC,LEN)MemToData(int, LOC, LEN)
+#define MemToUInt64(LOC,LEN)MemToData(uint64_t, LOC, LEN)
+
+#define StringToInt32(s) MemToInt32(&s[0],s.size())
+#define StringToUInt64(s) MemToUInt64(&s[0],s.size())
 
 const std::string BOT_NAME = "ruri";
 const std::string FAKEUSER_NAME = []{const char a[] = { -30,-128,-115,95,-30,-128,-115,0 }; return std::string(a); }();
@@ -297,6 +304,28 @@ int WeakStringToInt(const std::string &s) {
 
 	return *(int*)&Return[0];
 }
+
+struct _Timer{
+
+	const char*const Name;
+	DWORD Count;
+	std::chrono::steady_clock::time_point sTime;
+	
+	_Timer(const char*const Name) :Name(Name) { Count = 0; };
+
+	void Start(){
+		sTime = std::chrono::steady_clock::now();
+	}
+	void Stop(const DWORD Num = 0){
+
+
+		const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+		printf(KYEL "%s%i> " KRESET "%fms\n",Name, (!Num) ? Count : Num, double(double(TTime) / 1000000.0));
+		if(!Num)Count++;
+		Start();
+	}
+
+};
 
 std::vector<std::string> UsernameCache;
 
@@ -434,15 +463,6 @@ namespace BR {
 	uint64_t GetRand64(uint64_t min = 0, uint64_t max = uint64_t(-1)) {
 		return std::uniform_int_distribution<uint64_t>{min, max}(mersenneTwister);
 	}
-
-	double GetRandD(double min, double max) {
-		return std::uniform_real_distribution<double>{min, max}(mersenneTwister);
-	}
-
-	__inline int GetRand_NormalDis(const int mean, const int standardDeviation) {
-		return int(std::normal_distribution<double>(mean, standardDeviation)(mersenneTwister));
-	}
-
 };
 
 
@@ -794,7 +814,7 @@ struct _Menu {
 
 struct _User {
 
-	DWORD choToken;
+	uint64_t choToken;
 	DWORD UserID;
 	DWORD privileges;
 
@@ -973,14 +993,14 @@ struct _User {
 
 	void doQue(_Con s){
 
+		_Timer Timer("doQue");
+
 		if (Que.size() == 0 && dQue.size() == 0){
 		FEEDALIVE:
 			s.SendData(ConstructResponse(200, Empty_Headers, Empty_Byte));
 			return;
 		}
-
 		std::vector<byte> SendBytes;
-
 		qLock.lock();
 
 		if (Que.size()){
@@ -1023,7 +1043,6 @@ struct _User {
 		qLock.unlock();
 
 		if (SendBytes.size() == 0)goto FEEDALIVE;
-
 		if (SendToken)
 			s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", std::to_string(choToken).c_str()) }, SendBytes));
 		else
@@ -1081,7 +1100,7 @@ _User* GetUserFromID(DWORD ID) {
 
 	return 0;
 }
-_User* GetUserFromToken(DWORD Token) {
+_User* GetUserFromToken(const uint64_t Token) {
 
 	if (Token == 0)return 0;
 
@@ -1495,23 +1514,12 @@ void RenderHTMLPage(_Con s, _HttpRes &res){
 
 }
 
-int GenerateChoToken(){
-
-	DWORD Token = 0;
-
-	byte* TokenPointer = (byte*)&Token;
-
-	TokenPointer[0] = BR::GetRand(0, 255);
-	TokenPointer[1] = BR::GetRand(1, 255);//never get that one in 4 billion chance of these all getting 0...
-	TokenPointer[2] = BR::GetRand(0, 255);
-
-	RETRY:
-	TokenPointer[3] = BR::GetRand(0, 255);
-
+uint64_t GenerateChoToken(){
+	/*
 	for (DWORD i = 0; i < MAX_USER_COUNT; i++)
-		if (Token == User[i].choToken)goto RETRY;
+		if (Token == User[i].choToken)goto RETRY;*///One in 18 quintillion lol... I think I will take my bets that this will never collide.
 
-	return Token;
+	return BR::GetRand64();
 }
 __forceinline std::string ReadUleb(size_t &O, const size_t Max) {
 
@@ -1540,7 +1548,7 @@ __forceinline std::string ReadUleb(size_t &O, const size_t Max) {
 	return "";
 }
 
-void Event_client_channelJoin(_User *tP,const byte* Packet, const DWORD Size){
+void Event_client_channelJoin(_User *tP,const byte* const Packet, const DWORD Size){
 
 	if (Size <= 2)
 		return;
@@ -1567,7 +1575,7 @@ void Event_client_channelJoin(_User *tP,const byte* Packet, const DWORD Size){
 	tP->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess, ChannelName.c_str()));
 
 }
-void Event_client_channelPart(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_channelPart(_User *tP, const byte* const Packet, const DWORD Size){
 
 	if (Size <= 2)return;
 
@@ -1582,7 +1590,7 @@ void Event_client_channelPart(_User *tP, const byte* Packet, const DWORD Size){
 	c->PartChannel(tP);
 }
 
-void Event_client_userStatsRequest(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_userStatsRequest(_User *tP, const byte* const Packet, const DWORD Size){
 
 	if (Size <= 2)return;
 
@@ -1606,11 +1614,11 @@ void Event_client_userStatsRequest(_User *tP, const byte* Packet, const DWORD Si
 	tP->qLock.unlock();
 
 }
-void Event_client_changeAction(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD Size){
 	if (Size < 12)return;
 
 	size_t O = (size_t)&Packet[0];
-	size_t End = O + Size + 1;
+	const size_t End = O + Size + 1;
 
 	const byte n_actionID = *(byte*)O; O++;
 	const std::string n_ActionText = ReadUleb(O, End);
@@ -1637,7 +1645,7 @@ void Event_client_changeAction(_User *tP, const byte* Packet, const DWORD Size){
 	tP->addQue(bPacket::UserStats(tP));
 }
 
-#include "BotCommands.h"
+#include "Commands.h"
 #include "Match.h"
 
 __forceinline int CharHexToDecimal(const char c) {
@@ -2123,7 +2131,7 @@ WITHMODS:
 	ezpp_free(ez);
 }
 
-void Event_client_sendPrivateMessage(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const DWORD Size){
 
 	if (Size < 7)return;
 
@@ -2151,7 +2159,7 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* Packet, const DWORD 
 
 }
 
-void Event_client_sendPublicMessage(_User *tP, const byte* Packet, const DWORD Size) {
+void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const DWORD Size) {
 
 	if (Size < 7)return;
 
@@ -2243,7 +2251,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* Packet, const DWORD S
 	c->SendPublicMessage(tP, b);
 }
 
-void Event_client_startSpectating(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWORD Size){
 
 	if (Size < 4)return;
 
@@ -2310,7 +2318,7 @@ struct _ReplayFrame {
 	byte bt;
 };
 
-void Event_client_spectateFrames(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_spectateFrames(_User *tP, const byte* const Packet, const DWORD Size){
 
 	/*if (tP->SuspectedCheater){
 
@@ -2389,7 +2397,7 @@ void Event_client_spectateFrames(_User *tP, const byte* Packet, const DWORD Size
 	tP->SpecLock.unlock();
 }
 
-__forceinline void ReadMatchData(_Match *m, const byte* Packet,const DWORD Size, bool Safe = 0){
+__forceinline void ReadMatchData(_Match *m, const byte* const Packet,const DWORD Size, bool Safe = 0){
 
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size + 1;
@@ -2452,7 +2460,7 @@ __forceinline void ReadMatchData(_Match *m, const byte* Packet,const DWORD Size,
 	m->Seed = *(DWORD*)O;
 }
 
-void Event_client_createMatch(_User *tP, const byte* Packet, const DWORD Size) {
+void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD Size) {
 
 	if (tP->CurrentMatchID){//already in a match?
 		//Might want to kick them from the old one
@@ -2508,7 +2516,7 @@ void Event_client_partMatch(_User *tP){
 	m->Lock.unlock();
 }
 
-void Event_client_matchChangeSlot(_User *tP, const byte* Packet, const DWORD Size) {
+void Event_client_matchChangeSlot(_User *tP, const byte* const Packet, const DWORD Size) {
 
 
 	if (Size < 4)return;
@@ -2563,7 +2571,7 @@ void Event_client_joinLobby(_User *tP){
 	}
 }
 
-void Event_client_matchChangeSettings(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_matchChangeSettings(_User *tP, const byte* const Packet, const DWORD Size){
 
 	if (!tP->CurrentMatchID)return;
 
@@ -2635,7 +2643,7 @@ void Event_client_matchChangeSettings(_User *tP, const byte* Packet, const DWORD
 	m->Lock.unlock();
 }
 
-void Event_client_matchLock(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_matchLock(_User *tP, const byte* const Packet, const DWORD Size){
 
 	if (Size != 4)return;
 
@@ -2665,7 +2673,7 @@ void Event_client_matchLock(_User *tP, const byte* Packet, const DWORD Size){
 	m->Lock.unlock();
 }
 
-void Event_client_matchChangeMods(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_matchChangeMods(_User *tP, const byte* const Packet, const DWORD Size){
 
 	if (Size != 4)return;
 
@@ -2713,7 +2721,7 @@ void Event_client_matchChangeMods(_User *tP, const byte* Packet, const DWORD Siz
 	m->Lock.unlock();
 }
 
-void Event_client_joinMatch(_User *tP, const byte* Packet, const DWORD Size) {
+void Event_client_joinMatch(_User *tP, const byte* const Packet, const DWORD Size) {
 
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size + 1;
@@ -2883,7 +2891,7 @@ void Event_client_matchHasBeatmap(_User *tP){
 	m->Lock.unlock();
 }
 
-void Event_client_matchTransferHost(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_matchTransferHost(_User *tP, const byte* const Packet, const DWORD Size){
 
 	if (Size != 4)return;
 
@@ -3032,7 +3040,7 @@ void Event_client_matchLoadComplete(_User *tP) {
 	m->Lock.unlock();
 }
 
-void Event_client_matchScoreUpdate(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_matchScoreUpdate(_User *tP, const byte* const Packet, const DWORD Size){
 
 	if (Size < 10)return;
 	if (!tP->CurrentMatchID)return;//not in a match currently
@@ -3154,7 +3162,7 @@ void Event_client_matchSkipRequest(_User* tP) {
 	m->Lock.unlock();
 }
 
-void Event_client_invite(_User *tP, const byte* Packet, const DWORD Size){
+void Event_client_invite(_User *tP, const byte* const Packet, const DWORD Size){
 
 	if (Size != 4)
 		return;
@@ -3275,7 +3283,7 @@ void Event_client_requestStatusUpdate(_User *const tP){
 	tP->addQue(bPacket::UserStats(tP));
 }
 
-void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
+void DoBanchoPacket(_Con s,const uint64_t choToken,std::vector<byte> &PacketBundle){
 
 	_User *tP = GetUserFromToken(choToken);
 
@@ -3295,20 +3303,24 @@ void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 
 	while (In <= PacketBundle.size() - 7){
 
-		const USHORT PacketID = *(USHORT*)&PacketBundle[In]; In += 3;
-		const DWORD PacketSize = *(DWORD*)&PacketBundle[In]; In += 4;
+		const USHORT PacketID = *(USHORT*)&PacketBundle[In];
+		const DWORD PacketSize = *(DWORD*)&PacketBundle[In + 3];
+
+		In += 7;
 
 		if (In + PacketSize > PacketBundle.size()) {
-			printf("%s> PACKET OUT OF RANGE\n	%i|%i|%i\n", tP->Username.c_str(), PacketID, (In + PacketSize), PacketBundle.size());
-			tP->doQue(s);
+			printf("%s> Out of range packet %i|%i|%llu\n", tP->Username.c_str(), PacketID, (In + PacketSize), PacketBundle.size());
+			//tP->doQue(s);
 			return;
 		}
 
-		const byte* Packet = (byte*)&PacketBundle[In];
+		const byte* const Packet = (byte*)&PacketBundle[In];
 		In += PacketSize;
 
 		switch (PacketID){
-
+			
+		case 68://68 is beatmap data and 79 is meant to be for a stats update
+		case 79:
 		case OPac::client_pong:
 			break;
 
@@ -3443,7 +3455,6 @@ void DoBanchoPacket(_Con s,const int choToken,std::vector<byte> &PacketBundle){
 		case client_invite:
 			Event_client_invite(tP, Packet, PacketSize);
 			break;
-		//68 is beatmap data and 79 is meant to be for a stats update
 		default:
 			printf("PacketID:%i | Length:%i\n", PacketID, PacketSize);
 			break;
@@ -3513,7 +3524,7 @@ void BanchoIncorrectLogin(_Con s){
 }
 
 
-void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
+void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 	if (res.Body.size() <= 1){
 		printf("Empty packet! (%s)\n",(char*)&res.Host[0]);
@@ -3778,7 +3789,9 @@ void HandlePacket(_Con s){
 
 	const std::string UserAgent = res.GetHeaderValue("User-Agent");
 
-	int choToken = Safe_atoui(res.GetHeaderValue("osu-token").c_str());
+	const std::string RawToken = res.GetHeaderValue("osu-token");
+
+	const uint64_t choToken = StringToUInt64(res.GetHeaderValue("osu-token"));
 
 	if (!UserAgent.size()) {
 		LogMessage("No user agent set.");
