@@ -868,7 +868,6 @@ void TryScoreAgain(_Con s){
 	s.close();
 }
 void ScoreFailed(_Con s){
-
 	s.SendData(ConstructResponse(408, Empty_Headers, FastVByteAlloc("error: no")));
 	s.close();
 }
@@ -896,7 +895,7 @@ _Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
 	if (s.MaxCombo >= 2000)
 		*Gen += AchGeneral::Combo2000;
 
-	int StarCount = min((int)floor(StarDiff), 8);
+	int StarCount = min(int(StarDiff), 8);
 
 	while (StarCount > 0){
 		if (s.FullCombo)
@@ -956,7 +955,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 	else{
 		
 		bool FirstScoreParam = 1;
-		for (DWORD i = 0; i < RawScoreData.size(); i++) {
+		for (DWORD i = 0; i < RawScoreData.size(); i++){
 
 			if (!MEM_CMP_START(RawScoreData[i], "Content-Disposition: form-data; name=\""))
 				continue;

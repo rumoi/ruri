@@ -150,10 +150,9 @@
       <DebugInformationFormat>None</DebugInformationFormat>
       <AssemblerOutput>NoListing</AssemblerOutput>
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
-      <StringPooling>
-      </StringPooling>
+      <StringPooling>true</StringPooling>
       <ExceptionHandling>Sync</ExceptionHandling>
-      <BufferSecurityCheck>true</BufferSecurityCheck>
+      <BufferSecurityCheck>false</BufferSecurityCheck>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
