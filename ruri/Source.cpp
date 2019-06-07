@@ -3789,8 +3789,6 @@ void HandlePacket(_Con s){
 
 	const std::string UserAgent = res.GetHeaderValue("User-Agent");
 
-	const std::string RawToken = res.GetHeaderValue("osu-token");
-
 	const uint64_t choToken = StringToUInt64(res.GetHeaderValue("osu-token"));
 
 	if (!UserAgent.size()) {
