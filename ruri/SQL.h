@@ -17,18 +17,31 @@ __forceinline void PrepareSQLString(char* s){
 		O++;
 	}
 }
+
+
+#define REMOVEQUOTES(STR)[](std::string &const s)->const std::string{\
+		const size_t l = s.size();\
+		for(size_t i = 0; i < l ; i++)\
+			if(s[i] == '\'')\
+				s[i] = '_';\
+		return s;\
+}(STR)
+
+#define USERNAMESAFE(STR)[](std::string &const s)->const std::string{\
+		const size_t l = s.size();\
+		for(size_t i = 0; i < l ; i++){\
+			if(s[i] == ' ')s[i] = '_';\
+			else if (s[i] >= 'A' && s[i] <= 'Z')\
+				s[i] += 'a' - 'A';\
+		}\
+		return s;\
+}(STR)
+
+
 __forceinline void PrepareSQLString(std::string &s){
 	for (DWORD i = 0; i < s.size(); i++)
 		if (s[i] == '\"' || s[i] == '\'')
 			s[i] = '_';
-}
-
-__forceinline void UserNameSafe(std::string &s){
-	for (DWORD i = 0; i < s.size(); i++)
-		if (s[i] == '\"' || s[i] == '\'' || s[i] == ' ')
-			s[i] = '_';
-		else if (s[i] >= 'A' && s[i] <= 'Z')
-			s[i] += 'a' - 'A';
 }
 
 std::string SQL_Password;

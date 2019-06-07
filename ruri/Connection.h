@@ -6,59 +6,26 @@
 
 
 struct _HttpHeader{
-	char Text[64];
-	char Value[64];
 
-	_HttpHeader(){
-		ZeroMemory(Text, 64);
-		ZeroMemory(Value, 64);
-	}
-	void Clear(){
-		ZeroMemory(Text, 64);
-		ZeroMemory(Value, 64);
-	}
+	const std::string Text;
+	const std::string Value;
 
-	_HttpHeader(const char* t, const char* v){
-		const int tRS = strlen(t);
-		const int vRS = strlen(v);
 
-		memcpy(Text, t, tRS + 1);
-		memcpy(Value, v, vRS + 1);
-	}
+	_HttpHeader(const std::string &Text,const std::string &Value): Text(Text),Value(Value){};
 
 };
 struct _HttpRes {
-	_HttpHeader H[32];//32 should be more than enough
 	std::vector<byte> Body;
 	std::vector<byte> Host;
+	std::vector<_HttpHeader> Headers;
 
-	DWORD GetHeaderOffset(const char* v, const char I = 0)const{
-		for (DWORD i = 0; i < 32; i++){
+	const std::string GetHeaderValue(const std::string Name){
 
-			if (H[i].Text[0] == 0)break;
+		for (DWORD i = 0; i < Headers.size(); i++)
+			if (Headers[i].Text == Name)
+				return Headers[i].Value;
 
-			if (I) {
-				if (!_strcmpi(v, H[i].Text))return i;
-			}else if (!strcmp(v, H[i].Text))return i;
-		}
-		return INT_MAX;
-	}
-
-	char* GetHeaderValue(const char* v, const char I = 0)const{
-		DWORD O = GetHeaderOffset(v, I);
-
-		if (O == INT_MAX)return "0";
-
-		return (char*)H[O].Value;
-	}
-
-	void AddHeader(char* t, char* v){
-		for (DWORD i = 0; i < 32; i++){
-			if (H[i].Text[0] == 0){
-				H[i] = _HttpHeader(t, v);
-				return;
-			}
-		}
+		return "";
 	}
 
 };
@@ -102,6 +69,8 @@ struct _Con{
 
 		res = _HttpRes();
 
+		res.Headers.reserve(32);
+
 		DWORD pSize = 0;
 		std::vector<byte> p;
 		p.reserve(USHORT(-1));
@@ -116,21 +85,18 @@ struct _Con{
 
 		} while (pLength == MAX_PACKET_LENGTH);
 
-		
-
 		if (pSize == 0)return 0;
 
-		auto temp = Explode(&p[0], pSize, '\r');
-
+		const auto temp = EXPLODE(VEC(byte),&p[0], pSize, '\r');
+		
 		if (!temp.size() || !temp[0].size())return 0;
 
 		{
-			auto PageName = Explode(&temp[0][0], temp[0].size(), ' ');
-			if (PageName.size() > 1){
-				res.Host = PageName[1];
-			}
+			const auto PageName = EXPLODE_VEC(VEC(byte), temp[0], ' ');
 
-
+			if (PageName.size() > 1)
+				res.Host = std::move(PageName[1]);
+			
 		}
 
 		int CurrentOffset = 1;
@@ -143,24 +109,16 @@ struct _Con{
 				if (temp[i].size() <= 1)
 					break;
 
-				auto Head = Explode(&temp[i][1], temp[i].size()-1, ':', 1);
+				const auto Head = EXPLODE(std::string,&temp[i][1],temp[i].size()-1,':');
 
-				if (Head.size() != 2)continue;
+				if (Head.size() < 2 || !Head[0].size() || Head[1].size() <= 1)continue;
 
-				if (Head[0].size() >= 64)Head[0].resize(63);
-				if (Head[1].size() >= 64)Head[1].resize(63);
-
-				Head[0].push_back(0);
-				Head[1].push_back(0);
-
-				res.AddHeader((char*)&Head[0][0], (char*)&Head[1][1]);
-
+				res.Headers.push_back(_HttpHeader(std::move(Head[0]), std::move(Head[1].substr(1,Head[1].size()-1))));
 			}
 		}
 
 		{//Body
-
-
+			
 			bool FirstBody = 1;
 
 			for (DWORD i = CurrentOffset + 1; i < temp.size(); i++){
@@ -188,15 +146,15 @@ struct _Con{
 		const DWORD Size = Data.size();
 		while (Count < Data.size()){
 
-			int ReadSize = Size - Count;
+			int SendSize = Size - Count;
 
-			if (ReadSize > MAX_PACKET_LENGTH)ReadSize = MAX_PACKET_LENGTH;
+			if (SendSize > MAX_PACKET_LENGTH)SendSize = MAX_PACKET_LENGTH;
 
-			if (send(s, (char*)&Data[Count], ReadSize, 0) == SOCKET_ERROR) {
+			if (send(s, (char*)&Data[Count], SendSize, 0) == SOCKET_ERROR) {
 				return 0;
 			}
 
-			Count += ReadSize;
+			Count += SendSize;
 
 		}
 		return 1;

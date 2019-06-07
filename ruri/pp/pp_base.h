@@ -102,21 +102,6 @@
 																						\
 	return (Negative) ? -r : r;}(s)
 
-
-#define _READINT32(s) [](const char* sP){					\
-				if(!sP)return 0;							\
-				const bool Negative = (*sP == '-');			\
-				if(Negative)sP++;							\
-															\
-				int r = 0;									\
-															\
-				while(*sP >= '0' && *sP <= '9'){			\
-					r = (r * 10) + (*sP - '0');				\
-					sP++;									\
-				}											\
-				return (Negative) ? -r : r;					\
-			}(s)
-
 #define CLAMP(v,minv,maxv) min(max(v,minv),maxv)
 
 #define PPFAIL_NOBEATMAP 1

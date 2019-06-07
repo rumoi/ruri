@@ -444,7 +444,7 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWOR
 
 	const DWORD Priv = u->privileges;
 
-	const auto Split = Explode(Command, ' ');
+	const auto Split = EXPLODE_VEC(std::string, Command, ' ');
 
 	if (Split[0] == "!mp"){
 

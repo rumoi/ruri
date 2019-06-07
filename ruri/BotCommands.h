@@ -1,10 +1,6 @@
 #pragma once
 
 
-
-
-
-
 #define Roll(u,input)\
 	[&](const uint64_t Max)->const std::string{\
 		return u->Username + " rolled " + std::to_string(BR::GetRand64(0, (Max) ? Max : 100));\
@@ -17,7 +13,7 @@
 			if(s[i] < '0' || s[i] > '9')\
 				continue;\
 			uint64_t N = (ret * 10) + (s[i] - '0');\
-			if(N < ret ||(i == 0 && s[i] == '-'))return uint64_t(-1);\
+			if(N < ret)return uint64_t(-1);\
 			ret = N;\
 		}\
 		return ret;\
@@ -176,9 +172,10 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 
 	PermSeeResponse = 0;
 	
-	if (Command.size() == 0 || Command[0] != '!')return "";
+	if (Command.size() == 0 || Command[0] != '!')
+		return "";
 
-	const auto Split = Explode(Command, ' ');
+	const auto Split = EXPLODE_VEC(std::string, Command, ' ');
 
 	if (Split[0] == "!roll")
 		return Roll(u, (Split.size() > 1) ? StringToUInt64(Split[1]) : 100);
@@ -189,17 +186,21 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 
 		PermSeeResponse = 1;
 
-		std::string Target = "";
-
-		for (DWORD i = 1; i < Split.size(); i++)
-			Target += (i > 1) ? " " + Split[i] : Split[i];
-
-		UserNameSafe(Target);
+		const std::string Target = USERNAMESAFE(
+				[&]()->std::string{
+					if (Split.size() == 1)return "";
+					if (Split.size() == 2)return Split[1];
+					std::string t = Split[1];
+					for (DWORD i = 2; i < Split.size(); i++)
+						t += " " + Split[i];
+					return t;
+				}()
+			);
 
 		if(Fetus(Target))
 			return "deltus. " + Target + " is now gone.";
 
-		return "not completus. That user does not exist.";
+		return "Not completus. That user does not exist.";
 	}
 	if (Split[0] == "!alert"){
 
@@ -280,10 +281,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 			for (DWORD i = 2; i < Split.size(); i++)
 				Message += (i > 2) ? " " + Split[i] : Split[i];
 
-			std::string T = Split[1];
-
-			UserNameSafe(T);
-			return CFGExploit(T,Message);
+			return CFGExploit(USERNAMESAFE(std::string(Split[1])),Message);
 		}
 		return "!fcfg <username> <config lines>";
 	}
@@ -294,12 +292,8 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 			goto INSUFFICIENTPRIV;
 
 		PermSeeResponse = 1;
-		
-		std::string T = Split[1];
 
-		UserNameSafe(T);
-
-		_User *t = GetUserFromNameSafe(T);
+		_User *t = GetUserFromNameSafe(USERNAMESAFE(std::string(Split[1])));
 
 		if (t) {
 			DWORD Count = Safe_stoul(Split[2]);

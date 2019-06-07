@@ -390,7 +390,7 @@ struct _BeatmapData{
 
 	bool AddScore(const DWORD Mode, _ScoreCache &s, _SQLCon *Con, std::string* Ret) {
 
-		if (RankStatus < 2)return 0;
+		if (RankStatus < 2 || s.pp == 0.f)return 0;
 
 		_LeaderBoardCache *L = GetLeaderBoard(Mode, Con);
 
@@ -839,30 +839,6 @@ enum scoreOffset {
 	Score_Version
 };
 
-bool CharCompareStart(const char*a,const char* b){
-
-	if (!a[0])return 0;
-
-	DWORD Off = 0;
-
-	while (a[Off] && b[Off]){
-		if (a[Off] != b[Off])
-			return 0;
-		Off++;
-	}
-	return 1;
-}
-
-bool bVecCompareStart(const std::vector<byte> &a, const std::string &b) {
-
-	if (a.size() < b.size())return 0;
-
-	for (DWORD i = 0; i < b.size(); i++)
-		if (a[i] != b[i])return 0;
-	
-	return 1;
-}
-
 __forceinline std::string GetParam(const std::string &s, const std::string param) {
 
 	DWORD Off = s.find(param);
@@ -933,8 +909,21 @@ _Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
 	return Ret;
 }
 
+#define MEM_CMP_START(VECT, STR)\
+	[&]()->bool{\
+		const char*const rS = STR;\
+		const size_t rS_Size = sizeof(rS) - 1;\
+		const size_t VECTSIZE = VECT.size();\
+		if(rS_Size > VECTSIZE)return 0;\
+\
+		for(size_t ii=0; ii < rS_Size;ii++)\
+			if(rS[ii] != VECT[ii])return 0;\
+\
+		return 1;\
+	}()
 
 const USHORT RCNL = *(USHORT*)"\r\n";
+
 
 
 void ScoreServerHandle(const _HttpRes &res, _Con s){
@@ -960,109 +949,73 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				Image,//Used if osu thinks the person is flash light cheating.
 				iv,ReplayFile;
 
-	auto RawScoreData = Explode(&res.Body[0], res.Body.size(), "-------------------------------28947758029299\r\n");
+	const auto RawScoreData = EXPLODE_MULTI(std::string, &res.Body[0], res.Body.size(), "-------------------------------28947758029299\r\n");
 
 	if (RawScoreData.size() < 10)
 		return SendAria404(s);
 	else{
-		//TODO: maybe make this not gross test code?
-		#pragma region Cancer
-		for (DWORD i = 0; i < RawScoreData.size(); i++){
+		
+		bool FirstScoreParam = 1;
+		for (DWORD i = 0; i < RawScoreData.size(); i++) {
 
-			if (FailTime == INT_MIN && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"ft\"")){					
-					std::vector<byte> t;
-					t.reserve(8);
-					for (DWORD z = 41; z < RawScoreData[i].size(); z++)
-						if (RawScoreData[i][z] >= '0' && RawScoreData[i][z] <= '9')
-							t.push_back(RawScoreData[i][z]);
+			if (!MEM_CMP_START(RawScoreData[i], "Content-Disposition: form-data; name=\""))
+				continue;
 
-					t.push_back(0);
+			const char* End = &RawScoreData[i][38];
+			const char* Start = &RawScoreData[i][38];
+			const size_t DataSize = RawScoreData[i].size() - 39;
 
-					FailTime = Safe_atoi((char*)&t[0]);
+			if (DataSize == size_t(-1) || !DataSize)
+				continue;
 
-					continue;
+			bool QuickExit = 0;
+
+			while (1) {
+				End++;
+				if (*End == '"')break;
+				if (size_t(End - Start) >= DataSize) {
+					QuickExit = 1;
+					break;
 				}
-			if (Quit == -1 && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"x\"")){
-					std::vector<byte> t;
-					t.reserve(8);
-					for (DWORD z = 40; z < RawScoreData[i].size(); z++)
-						if (RawScoreData[i][z] >= '0' && RawScoreData[i][z] <= '9')
-							t.push_back(RawScoreData[i][z]);
+			}if (QuickExit)continue;
 
-					t.push_back(0);
+			const std::string Name(Start, End);
 
-					Quit = Safe_atoi((char*)&t[0]);
-					continue;
-			}
-			if (!iv.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"iv\"")){
-					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
+			Start = End + 5;
+			End = &RawScoreData[i][RawScoreData[i].size() - 2];
+			if (Start >= End)continue;
 
-					if (Chunk.size() != 4)continue;
+			if (Name == "ft")
+				FailTime = MemToInt32((size_t)Start, DWORD(End - Start));
+			else if (Name == "x")
+				Quit = MemToInt32((size_t)Start, DWORD(End - Start));
+			else if (Name == "iv")
+				iv = std::string(Start, End);
+			else if (Name == "score"){
+				if(FirstScoreParam)
+					score = std::string(Start, End);
+				else {
+					Start += 58;
+					if (Start >= End)continue;
+					ReplayFile = std::string(Start, End);
+				}
+				FirstScoreParam = 0;
+			}else if (Name == "bmk")
+				bmk = std::string(Start, End);
+			else if (Name == "c1")
+				c1 = std::string(Start, End);
+			else if (Name == "bmk")
+				bmk = std::string(Start, End);
+			else if (Name == "pass")
+				pass = std::string(Start, End);
+			else if (Name == "osuver")
+				osuver = std::string(Start, End);
+			else if (Name == "s")
+				clienthash = std::string(Start, End);
+			else if (Name == "i")
+				Image = std::string(Start, End);
 
-					iv = std::string(Chunk[2].begin(), Chunk[2].end());
-					continue;
-			}
-			if (!score.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"score\"")) {
-					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
-
-					if (Chunk.size() != 4)continue;
-
-					score = std::string(Chunk[2].begin(), Chunk[2].end());
-					continue;
-			}
-			if (!bmk.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"bmk\"")) {
-					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
-
-					if (Chunk.size() != 4)continue;
-
-					bmk = std::string(Chunk[2].begin(), Chunk[2].end());
-					continue;
-			}
-			if (!c1.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"c1\"")) {
-					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
-
-					if (Chunk.size() != 4)continue;
-
-					c1 = std::string(Chunk[2].begin(), Chunk[2].end());
-					continue;
-			}
-			if (!pass.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"pass\"")) {
-					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
-
-					if (Chunk.size() != 4)continue;
-
-					pass = std::string(Chunk[2].begin(), Chunk[2].end());
-					continue;
-			}
-			if (!osuver.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"osuver\"")) {
-					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
-
-					if (Chunk.size() != 4)continue;
-
-					osuver = std::string(Chunk[2].begin(), Chunk[2].end());
-					continue;
-			}
-			if (!clienthash.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"s\"")) {
-					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
-
-					if (Chunk.size() != 4)continue;
-
-					clienthash = std::string(Chunk[2].begin(), Chunk[2].end());
-					continue;
-			}
-			if (!Image.size() && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"i\"")) {
-					auto Chunk = Explode(&RawScoreData[i][0], RawScoreData[i].size(), "\r\n");
-
-					if (Chunk.size() != 4)continue;
-
-					Image = std::string(Chunk[2].begin(), Chunk[2].end());
-					continue;
-			}
-			/*if (!ReplayFile.size() && RawScoreData[i].size() > 150 && bVecCompareStart(RawScoreData[i], "Content-Disposition: form-data; name=\"score\"; filename=\"score\"")) {//Content-Disposition: form-data; name=\"score\"; filename=\"score\"
-				ReplayFile = std::string(RawScoreData[i].begin() + 107, RawScoreData[i].end() - 2);
-			}*/
 		}
-		#pragma endregion
 
 		if (!iv.size() || !clienthash.size() || !osuver.size() || !score.size() || pass.size() != 32){//something very important is missing.
 				LogError("Failed score.","Aria");
@@ -1079,7 +1032,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		const std::string Key = "osu!-scoreburgr---------" + osuver;
 
 		_Score sData;
-		auto ScoreData = Explode(unAesString(base64_decode(score), Key, iv),':');
+		const auto ScoreData = EXPLODE_VEC(std::string, unAesString(base64_decode(score), Key, iv),':');
 
 		if (ScoreData.size() != 18){
 			const std::string Error = "Score sent with wrong ScoreData length (" + std::to_string(ScoreData.size()) + ")\0";
@@ -1121,7 +1074,6 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		}		
 				
 		if (!FailTime && !Quit){
-
 			byte lGameMode = sData.GameMode;
 
 			if (sData.Mods & Relax)lGameMode += 4;
@@ -1136,7 +1088,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			}
 			float PP = 0.f;
 			float MapStars = 0.f;
-			if (BD->RankStatus >= RANKED){
+			if (u->privileges & UserPublic && BD->RankStatus >= RANKED){
 				ezpp_t ez = ezpp_new();
 
 				if (!ez) {
@@ -1166,7 +1118,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				"|beatmapPasscount: 1"
 				"|approvedDate: 0\n";
 
-			if (ClientScoreUpdate.size() != 0) {
+			if (ClientScoreUpdate.size() != 0){
 				Charts += "chartId: beatmap"
 					"|chartUrl: https://osu.ppy.sh/b/" + std::to_string(BD->BeatmapID) +
 					"|chartName: Beatmap Ranking" + ClientScoreUpdate;
@@ -1186,7 +1138,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Charts.begin(), Charts.end())));
 			s.close();
 
-			if((u->privileges & UserPublic) && NewBest && UpdateUserStatsFromDB(&AriaSQL[s.ID], UserID, lGameMode, u->Stats[lGameMode]))
+			if(NewBest && UpdateUserStatsFromDB(&AriaSQL[s.ID], UserID, lGameMode, u->Stats[lGameMode]))
 				u->addQue(bPacket::UserStats(u));
 
 			if (NewBest && sc.ScoreID && ReplayFile.size()){
@@ -1194,7 +1146,6 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				//The only time having raw data would be nice is when someone changes their username. But is it really that big of an issue. Could leave the name as the userid and only resolve that (with the name cache) on fetch.
 				WriteAllBytes(REPLAY_PATH +std::to_string(sc.ScoreID) + ".osr", ReplayFile);
 			}
-
 			return;
 		}
 
@@ -1413,8 +1364,7 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s) {
 
 	const std::string URL(Req.begin() + 1,Req.end());
 	int CacheOffset = -1;
-
-
+	
 	const int Stream = WeakStringToInt(GetParam(URL, "stream="));
 
 
@@ -1575,8 +1525,14 @@ void HandleAria(_Con s){
 
 	bool DontCloseConnection = 0;
 	if (SafeStartCMP(res.Host, "/web/osu-submit-modular-selector.php")){
-			ScoreServerHandle(res, s);
-			printf("Score Done\n");
+
+		const int sTime = clock();
+
+		ScoreServerHandle(res, s);
+
+		const unsigned long long Time = clock() - sTime;
+
+		printf("Score Done in %ims\n", Time);
 
 	}else if (SafeStartCMP(res.Host, "/web/check-updates.php"))
 		osu_checkUpdates(res.Host, s);

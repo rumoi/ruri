@@ -83,10 +83,10 @@ struct _Channel{
 		for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
 			if (ConnectedUsers[i] == u){
 				NotIn = 0;
-				ChannelCount++;
 				break;
 			}
 		}
+
 		if (NotIn) {
 
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
@@ -111,18 +111,17 @@ struct _Channel{
 			}
 
 		}
-
 		Lock.unlock();
-
 	}
+
 	void PartChannel(_User* u, const DWORD Offset = 0){
 
 		Lock.lock();
 
-		if (Offset && ConnectedUsers[Offset] == u) {
+		if (Offset && ConnectedUsers[Offset] == u){
 			ConnectedUsers[Offset] = 0;
 			ChannelCount--;
-		}else {
+		}else{
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++)
 				if (ConnectedUsers[i] == u) {
 					ConnectedUsers[i] = 0;
@@ -131,45 +130,47 @@ struct _Channel{
 				}
 		}
 		Lock.unlock();
-
 	}
 
-
 	void SendPublicMessage(_User* Sender, const _BanchoPacket b){
-
-		if (WriteLevel > GetMaxPerm(Sender->privileges))return;
+		
+		if (!ChannelCount || WriteLevel > GetMaxPerm(Sender->privileges))return;
 
 		for (DWORD i = 0; i < MAX_USER_COUNT; i++){
 
 			_User *u = ConnectedUsers[i];
 
 			if (!u || u == Sender)continue;
-			if (!u->choToken) {
+
+			if (!u->choToken){
 				PartChannel(u,i);
 				continue;
 			}
 
-			ConnectedUsers[i]->addQue(b);
-
+			u->addQue(b);
 		}
 
 	}
-	void Bot_SendMessage(const std::string &Name, const DWORD UserID, const std::string &message) {
 
-		const _BanchoPacket b = bPacket::Message(Name, ChannelName, message, 999);
+	void Bot_SendMessage(const std::string &message) {
 
-		for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
+		if (!ChannelCount)return;
+
+		const _BanchoPacket b = bPacket::Message(BOT_NAME, ChannelName, message, 999);
+
+		for (DWORD i = 0; i < MAX_USER_COUNT; i++){
 
 			_User *u = ConnectedUsers[i];
 
-			if (!u || !u->choToken)continue;
-			if (!u->choToken) {
+			if (!u || !u->choToken)
+				continue;
+
+			if (!u->choToken){
 				PartChannel(u);
 				continue;
 			}
 
-			ConnectedUsers[i]->addQue(b);
-
+			u->addQue(b);
 		}
 
 	}

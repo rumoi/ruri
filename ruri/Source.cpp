@@ -258,10 +258,23 @@ WSADATA wsData;
 #include <vector>
 #include <string>
 
-#define FastVByteAlloc(x)[&]{const char* a = x; const std::vector<byte> b(a,a + strlen(a) + 1); return b;}()
+#define FastVByteAlloc(x)[&]{const char*const a = x; const std::vector<byte> b(a,a + strlen(a) + 1); return b;}()
+
+#define MemToInt32(LOC,LEN)\
+	[](const size_t mem, const DWORD size)->int{\
+		if(!mem || !size)return 0;\
+		int ret = 0;\
+		const char*const c = (char*)mem;\
+		for(DWORD i=0;i<size;i++){\
+			if(c[i] < '0' || c[i] > '9')\
+				continue;\
+			ret = (ret * 10) + (c[i] - '0');\
+		}\
+		return (c[0] != '-') ? ret : -ret;\
+	}(LOC,LEN)
 
 const std::string BOT_NAME = "ruri";
-const std::string FAKEUSER_NAME([](){const char a[] = { -30,-128,-115,95,-30,-128,-115,0 }; return (char*)a;}());
+const std::string FAKEUSER_NAME = []{const char a[] = { -30,-128,-115,95,-30,-128,-115,0 }; return std::string(a); }();
 
 #include <time.h>
 #include <thread>
@@ -465,7 +478,7 @@ __forceinline void AddShort(std::vector<byte> &v, const short Value) {
 	v.resize(v.size() + 2);
 	*(short*)&v[v.size() - 2] = Value;
 }
-__forceinline void AddVector(std::vector<byte> &v, const std::vector<byte> Value) {
+__forceinline void AddVector(std::vector<byte> &v, const std::vector<byte> &Value) {
 	if (Value.size() == 0)return;
 	v.resize(v.size() + Value.size());
 	memcpy(&v[v.size() - Value.size()],&Value[0],Value.size());
@@ -513,12 +526,19 @@ struct _BanchoPacket {
 	byte Compression;
 	std::vector<byte> Data;
 
-	std::vector<byte> GetBytes(){
-		std::vector<byte> Bytes;
-		AddShort(Bytes, Type);
-		Bytes.push_back(Compression);
-		AddInt(Bytes, Data.size());
-		AddVector(Bytes, Data);
+	std::vector<byte> GetBytes() const{
+		const DWORD DataSize = Data.size();
+		std::vector<byte> Bytes(7 + DataSize);
+
+		byte* D = &Bytes[0];
+		
+		*(USHORT*)(D) = Type;
+		*(byte*)(D + 2) = Compression;
+		*(DWORD*)(D + 3) = DataSize;
+
+		if (DataSize)
+			memcpy(D + 7, &Data[0], DataSize);
+
 		return Bytes;
 	}
 	const size_t GetSize()const {
@@ -552,9 +572,19 @@ struct _BanchoPacket {
 		Type = 0;
 		Compression = 0;
 	}
-	_BanchoPacket(short ID) {
+	_BanchoPacket(const short ID) {
 		Type = ID;
 		Compression = 0;
+	}
+	_BanchoPacket(const short ID, const std::vector<byte> &v) {
+		Type = ID;
+		Compression = 0;
+		Data = v;
+	}
+	_BanchoPacket(const short ID, const DWORD vSize) {
+		Type = ID;
+		Compression = 0;
+		Data.resize(vSize);
 	}
 };
 const _BanchoPacket erPacket(NULL_PACKET);
@@ -611,72 +641,61 @@ public:
 
 };
 
-std::vector<std::vector<byte>> Explode(const void *p,const DWORD Size, const char D, const int MAX = INT_MAX){
+#define VEC(s) std::vector<s>
 
-	std::vector<std::vector<byte>> Output;
-	std::vector<byte> t;
-	t.reserve(Size);
+#define EXPLODE(TYPE,DATA,LEN,DELMNT)[](const char*const d,const size_t Size)->VEC(TYPE){\
+	VEC(TYPE) Output;\
+	if(!d || !Size)\
+		return Output;\
+	const char* Start = d;\
+	for(size_t i = 0; i< Size;i++){\
+		if(d[i] == DELMNT){\
+			Output.push_back(TYPE(Start,d + i));\
+			Start = d + i + 1;\
+		}\
+	}\
+	if(Start != d + Size)\
+		Output.push_back(TYPE(Start,d + Size));\
+	return Output;\
+	}((const char*const)DATA,LEN)
 
-	const char* in = (char*)p;
+#define EXPLODE_MULTI(TYPE,DATA,LEN,DELMNT)[](const char*const d,const size_t Size)->VEC(TYPE){\
+	VEC(TYPE) Output;\
+	if(!d || !Size)\
+		return Output;\
+	const char* Deli = DELMNT;\
+	const size_t DeliSize = strlen(Deli);\
+	const char* Start = d;\
+	for(size_t i = 0; i< Size - (DeliSize - 1);i++){\
+		for(size_t z = 0; z < DeliSize; z++){\
+			if(d[i + z] != Deli[z])break;\
+			if(z != DeliSize - 1)continue;\
+			Output.push_back(TYPE(Start,d + i));\
+			i += DeliSize - 1;\
+			Start = d + i + 1;\
+		}\
+	}\
+	if(Start != d + Size)\
+		Output.push_back(TYPE(Start,d + Size));\
+	return Output;\
+	}((const char*const)DATA,LEN)
 
-	int c = 0;
-	for (DWORD i = 0; i < Size; i++) {
-		if (MAX > c && in[i] == D) {
-			Output.push_back(t);
-			t.clear();
-			c++;
-		}
-		else t.push_back(in[i]);
 
-	}
-	Output.push_back(t);
+#define EXPLODE_VEC(TYPE, VECT,DELMNT)EXPLODE(TYPE,&VECT[0],VECT.size(),DELMNT)
 
-	return Output;
-}
-std::vector<std::vector<byte>> Explode(const void *p, const DWORD Size, const std::string delim) {
-
-	std::vector<std::vector<byte>> Output;
-	std::vector<byte> t;
-	t.reserve(Size);
-	const DWORD dSize = delim.size();
-	
-	const char* in = (char*)p;
-
-	for (DWORD i = 0; i < Size; i++){
-
-		if (i + dSize > Size) {
-			t.push_back(in[i]);
-			continue;
-		}
-		if (!memcmp(&in[i], &delim[0], dSize)){
-			Output.push_back(t);
-			t.clear();
-			i += dSize - 1;
-		}else t.push_back(in[i]);
-	}
-	Output.push_back(t);
-
-	return Output;
-}
-
-__forceinline std::vector<std::string> Explode(const std::string &Input, const char Delimiter) {
-
-	std::vector<std::string> Output;
-
-	std::string TempString;
-
-	for (DWORD i = 0; i < Input.size(); i++) {
-		if (Input[i] == Delimiter) {
-			Output.push_back(TempString);
-			TempString.clear();
-		}
-		else TempString += Input[i];
-
-	}
-	Output.push_back(TempString);
-
-	return Output;
-}
+#define _READINT32(s) [](const char* sP){					\
+				if(!sP)return 0;							\
+				const bool Negative = (*sP == '-');			\
+				if(Negative)sP++;							\
+															\
+				int r = 0;									\
+															\
+				while(*sP >= '0' && *sP <= '9'){			\
+					r = (r * 10) + (*sP - '0');				\
+					sP++;									\
+				}											\
+				return (Negative) ? -r : r;					\
+			}(s)
 
 #define MD5CMP(x,y) (memcmp(x,y,32) == 0)
 
@@ -770,17 +789,6 @@ struct _Menu {
 		ForceReDraw = 0;
 	}
 };
-
-bool StringCompareStart(const std::string &a, const std::string b) {
-
-	if (a.size() < b.size())return 0;
-
-	for (DWORD i = 0; i < b.size(); i++)
-		if (a[i] != b[i])return 0;
-
-
-	return 1;
-}
 
 #include "Achievement.h"
 
@@ -1928,9 +1936,9 @@ float ezpp_NewAcc(ezpp_t ez, const float Acc) {
 	return ezpp_pp(ez);
 }
 
-void BotMessaged(_User *tP, std::string Message){
+void BotMessaged(_User *tP, const std::string &const Message){
 
-	auto BotMessage = Explode(Message, ' ');
+	auto BotMessage = EXPLODE_VEC(std::string, Message, ' ');
 
 	int mapID = 0;
 	int Mods = 0;
@@ -2219,12 +2227,12 @@ void Event_client_sendPublicMessage(_User *tP, const byte* Packet, const DWORD S
 	if (Message[0] == '!'){
 
 		DWORD notVisible = 0;
-		const std::string Res = ProcessCommand(tP, Message, notVisible);
+		const std::string Res = ProcessCommand(tP, std::move(Message), notVisible);
 
 		if (Res.size()){
 			if (notVisible){
-				tP->addQue(bPacket::BotMessage(c->ChannelName.c_str(), Res.c_str()));
-			}else c->Bot_SendMessage(BOT_NAME, 999, Res);
+				tP->addQue(bPacket::BotMessage(c->ChannelName, std::move(Res)));
+			}else c->Bot_SendMessage(std::move(Res));
 		}
 
 		return;
@@ -3488,6 +3496,23 @@ __forceinline byte getCountryNum(const char *isoCode){
 	return 0;
 }
 
+const std::vector<byte> PACKET_INCORRECTLOGIN = []{return _BanchoPacket(OPac::server_userID, {0xff,0xff,0xff,0xff}).GetBytes();}();
+const std::vector<byte> PACKET_SERVERFULL = [] {
+	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, { 0xff,0xff,0xff,0xff }).GetBytes();
+	AddVector(packet, bPacket::Notification("Server is currenly full").GetBytes());
+	return packet;
+}();
+const std::vector<byte> PACKET_CLIENTOUTOFDATE = [] {
+	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, { 0xff,0xff,0xff,0xff }).GetBytes();
+	AddVector(packet, bPacket::Notification("Your client is out of date!\nPlease update it.").GetBytes());
+	return packet;
+}();
+
+void BanchoIncorrectLogin(_Con s){
+	s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", "0") }, PACKET_INCORRECTLOGIN));
+}
+
+
 void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 
 	if (res.Body.size() <= 1){
@@ -3496,86 +3521,71 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 	}
 
 	if (!choToken){//No token sent - Assume its the login request which only ever comes in once
+
 		std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
-		res.Body.pop_back();
 
-		auto LoginData = Explode(&res.Body[0], res.Body.size(), '\n');
+		res.Body.pop_back();//Pops trailing new line
 
-		if (LoginData.size() != 3){
+		const auto LoginData = EXPLODE_VEC(std::string,res.Body, '\n');
 
-		INCORRECTLOGIN:
-			{
-				LogError("Incorrect login");
+		if (LoginData.size() != 3)
+			return BanchoIncorrectLogin(s);
 
-				std::vector<_HttpHeader> Headers;
-				Headers.push_back(_HttpHeader("cho-token", "0"));
+		std::string Username = REMOVEQUOTES(std::string(LoginData[0]));
+		const std::string Username_Safe = USERNAMESAFE(std::string(Username.begin(),Username.end()));
+		const std::string cPassword = REMOVEQUOTES(std::string(LoginData[1]));
+		const auto ClientData = EXPLODE_VEC(std::string,LoginData[2],'|');
 
-				_BanchoPacket eLog(OPac::server_userID);
-				AddInt(eLog.Data, Login_Failed);
+		if (ClientData.size() != 5 || Username.size() > MAX_USERNAME_LENGTH || cPassword.size() != 32)
+			return BanchoIncorrectLogin(s);
 
-				s.SendData(ConstructResponse(200, Headers, eLog.GetBytes()));
-				return;
-			}
-		SERVERFULL:
-			{
-				LogError("Server Full");
+		{
+			const bool VersionFailed = [&]{
 
-				std::vector<_HttpHeader> Headers;
-				Headers.push_back(_HttpHeader("cho-token", "0"));
+				if (ClientData[0].size() < 4)return 1;
 
-				std::vector<byte> loginResp = _BanchoPacket(OPac::server_userID).GetBytes();
+				for (size_t i = (size_t)&ClientData[0][0]; i < (size_t)&ClientData[0][ClientData[0].size() - 4]; i++)
 
-				AddVector(loginResp, bPacket::Notification("Server is currenly full").GetBytes());
+					if (*(USHORT*)i == *(USHORT*)"20" && ((*(byte*)(i + 2) - '0') * 10) + (*(byte*)(i + 3) - '0') >= 19)
+						return 0;
 
-				s.SendData(ConstructResponse(200, Headers, loginResp));
+				return 1;
+			}();
 
-				return;
-			}
+			if(VersionFailed)
+				return (void)s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", "0") }, PACKET_CLIENTOUTOFDATE));
 		}
 
-		LoginData[1].push_back(0);//Password
-		LoginData[2].push_back(0);//HWID
-
-		std::string Username(LoginData[0].begin(), LoginData[0].end());
-		char* Password = (char*)&LoginData[1][0];
-		
-		if(Username.size() > MAX_USERNAME_LENGTH || strlen(Password) != 32)goto INCORRECTLOGIN;
-
-		PrepareSQLString(Username);
-		std::string Username_Safe = Username;
-		UserNameSafe(Username_Safe);
-
-		PrepareSQLString(Password);
-
-
-		_User* u = GetUserFromName(Username,1);
+		_User* u = GetUserFromNameSafe(Username_Safe,1);
 
 		int UserID = 0;
 		int Priv = 0;
-		if (u && u->Password[0] != 0 && MD5CMP(u->Password,Password)){
+		if (u && u->Password[0] != 0 && MD5CMP(u->Password, &cPassword[0])){
 			UserID = u->UserID;
 			Priv = u->privileges;//TODO make this able to be updated.
 			goto LOGGEDIN;
 		}
 
 		{
-			_SQLCon *con = &SQL_BanchoThread[s.ID];
+			_SQLCon *const con = &SQL_BanchoThread[s.ID];
 
 			sql::ResultSet *res = con->ExecuteQuery("SELECT id, password_md5, username, privileges FROM users WHERE username_safe = '" + Username_Safe + "' LIMIT 1");
 
-			if (!res || !res->next())goto INCORRECTLOGIN;
-
-			if(!u)u = GetPlayerSlot(Username);
-			if (!u)
-				goto SERVERFULL;
+			if (!res || !res->next()){
+				if (res)delete res;
+				return BanchoIncorrectLogin(s);
+			}
 
 			UserID = res->getInt(1);
 
 			std::string Password_Hash = res->getString(2);
-
-
-			if (bcrypt_checkpw(Password, Password_Hash.c_str()) != 0)
-				goto INCORRECTLOGIN;//Might want to add a brute force lock out
+			
+			if (bcrypt_checkpw(cPassword.c_str(), Password_Hash.c_str()) != 0){
+				if (res)delete res;
+				return BanchoIncorrectLogin(s);//Might want to add a brute force lock out
+			}
+			if (!u)u = GetPlayerSlot(Username);
+			if (!u)goto SERVERFULL;
 
 			Username = res->getString(3);//get the database captialization for consistencies sake
 			Priv = res->getInt(4);
@@ -3611,8 +3621,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 
 			res = con->ExecuteQuery("SELECT user2 FROM users_relationships WHERE user1 = " + std::to_string(UserID) + " LIMIT 256");
 			DWORD fCount = 0;
-			while (res && res->next()) {
-				if (fCount >= 256)break;
+			while (res && res->next()){
 				u->Friends[fCount] = res->getInt(1);
 				fCount++;
 			}
@@ -3621,7 +3630,9 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 			//Todo HWID
 		}
 	LOGGEDIN:
-		printf("%s Logged in\n", Username.c_str());
+
+		//chan_DevLog.Bot_SendMessage(Username);
+
 		{
 
 			if (!u){
@@ -3634,6 +3645,8 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 			u->privileges = Priv;
 
 			u->choToken = GenerateChoToken();
+
+			u->timeOffset = MemToInt32((size_t)&ClientData[1][0], ClientData[1].size());
 
 			u->qLock.lock();
 
@@ -3650,12 +3663,12 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 
 			u->Username = Username;
 			u->Username_Safe = Username_Safe;
-			memcpy(u->Password, Password, 32);
+			memcpy(u->Password, &cPassword[0], 32);
 
 			u->addQueNonLocking(bPacket::Notification("Welcome to ruri."));
 			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_silenceEnd, 0));
 			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_userID, UserID));
-			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_protocolVersion, 19));
+			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_protocolVersion, CHO_VERSION));
 			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_supporterGMT, Supporter));
 			u->addQueNonLocking(bPacket::UserPanel(u));
 			u->addQueNonLocking(bPacket::UserStats(u));
@@ -3712,6 +3725,13 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const int choToken) {
 	}
 	else DoBanchoPacket(s,choToken,res.Body);
 
+
+
+	return;
+
+SERVERFULL:
+	LogError("Server Full");
+	return (void)s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", "0") }, PACKET_SERVERFULL));
 }
 
 
@@ -3756,19 +3776,18 @@ void HandlePacket(_Con s){
 	}
 
 
-	char *UserAgent = res.GetHeaderValue("User-Agent",1);
+	const std::string UserAgent = res.GetHeaderValue("User-Agent");
 
-	int choToken = Safe_atoui(res.GetHeaderValue("osu-token"));
+	int choToken = Safe_atoui(res.GetHeaderValue("osu-token").c_str());
 
-	if (UserAgent[0] == '0') {
+	if (!UserAgent.size()) {
 		LogMessage("No user agent set.");
 
 		s.SendData(ConstructResponse(200, Empty_Headers,bPacket::Notification("If there is anything that seems wrong make sure to contact rumoi.").GetBytes()));
 		s.close();
 		return;
 	}
-
-	if (strcmp(UserAgent,"osu!") && !choToken){//If it is not found
+	if (UserAgent != "osu!" && !choToken){//If it is not found
 		RenderHTMLPage(s,res);
 		LogMessage("HTML page served");
 		s.close();
@@ -3776,6 +3795,7 @@ void HandlePacket(_Con s){
 	}
 
 	HandleBanchoPacket(s, res, choToken);
+
 	s.close();
 }
 
@@ -3855,7 +3875,7 @@ std::vector<_Con> BanchoConnectionQue[BANCHO_THREAD_COUNT];
 void BanchoWork(const DWORD ID){
 	while(1){
 
-		DWORD Count = 0;
+		size_t Count = 0;
 		_Con* Req = 0;
 
 		Count = BanchoConnectionQue[ID].size();
@@ -3999,7 +4019,7 @@ int main(){
 		return 0;
 	}
 	
-	auto Config = Explode(&ConfigBytes[0], ConfigBytes.size(), '\n');
+	auto Config = EXPLODE_VEC(VEC(byte),ConfigBytes, '\n');
 
 	for (DWORD i = 0; i < Config.size(); i++){
 
