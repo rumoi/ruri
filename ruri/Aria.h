@@ -205,7 +205,7 @@ struct _LeaderBoardCache{
 		bool Done = 0;
 		bool NewTop = 0;
 
-		PrepareSQLString(MD5);
+		REMOVEQUOTES(MD5);
 
 		const std::string TableName = (s.Mods & Relax) ? "scores_relax" : "scores";
 
@@ -649,12 +649,10 @@ TryMap:
 
 				for (DWORD i = 0; i < BeatmapData.size(); i++){
 
-					std::string MD5 = GetJsonValue(BeatmapData[i], "file_md5");
+					const std::string MD5 = REMOVEQUOTES(GetJsonValue(BeatmapData[i], "file_md5"));
 
 					if (MD5.size() == 32){
 
-						PrepareSQLString(MD5);//you never know...
-						
 						float diff_size = 0.f;
 						float diff_overall = 0.f;
 						float diff_approach = 0.f;
@@ -908,19 +906,6 @@ _Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
 	return Ret;
 }
 
-#define MEM_CMP_START(VECT, STR)\
-	[&]()->bool{\
-		const char*const rS = STR;\
-		const size_t rS_Size = sizeof(rS) - 1;\
-		const size_t VECTSIZE = VECT.size();\
-		if(rS_Size > VECTSIZE)return 0;\
-\
-		for(size_t ii=0; ii < rS_Size;ii++)\
-			if(rS[ii] != VECT[ii])return 0;\
-\
-		return 1;\
-	}()
-
 const USHORT RCNL = *(USHORT*)"\r\n";
 
 
@@ -985,9 +970,9 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			if (Start >= End)continue;
 
 			if (Name == "ft")
-				FailTime = MemToInt32((size_t)Start, DWORD(End - Start));
+				FailTime = MemToInt32(Start, DWORD(End - Start));
 			else if (Name == "x")
-				Quit = MemToInt32((size_t)Start, DWORD(End - Start));
+				Quit = MemToInt32(Start, DWORD(End - Start));
 			else if (Name == "iv")
 				iv = std::string(Start, End);
 			else if (Name == "score"){
@@ -1039,20 +1024,21 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			return ScoreFailed(s);
 		}
 
-		sData.BeatmapHash = ScoreData[scoreOffset::score_FileCheckSum];
-		PrepareSQLString(sData.BeatmapHash);
+		
+
+		sData.BeatmapHash = REMOVEQUOTES(std::string(ScoreData[scoreOffset::score_FileCheckSum]));
 		sData.UserName = ScoreData[scoreOffset::score_PlayerName];
-		sData.count300 = Safe_atoi(ScoreData[score_Count300].c_str());
-		sData.count100 = Safe_atoi(ScoreData[score_Count100].c_str());
-		sData.count50 = Safe_atoi(ScoreData[score_Count50].c_str());
-		sData.countGeki = Safe_atoi(ScoreData[score_CountGeki].c_str());
-		sData.countKatu = Safe_atoi(ScoreData[score_CountKatu].c_str());
-		sData.countMiss = Safe_atoi(ScoreData[score_CountMiss].c_str());
-		sData.Score = Safe_stoul(ScoreData[score_totalScore]);
-		sData.MaxCombo = Safe_atoi(ScoreData[score_maxCombo].c_str());
+		sData.count300 = StringToInt32(ScoreData[score_Count300]);
+		sData.count100 = StringToInt32(ScoreData[score_Count100]);
+		sData.count50 = StringToInt32(ScoreData[score_Count50]);
+		sData.countGeki = StringToInt32(ScoreData[score_CountGeki]);
+		sData.countKatu = StringToInt32(ScoreData[score_CountKatu]);
+		sData.countMiss = StringToInt32(ScoreData[score_CountMiss]);
+		sData.Score = StringToUInt32(ScoreData[score_totalScore]);
+		sData.MaxCombo = StringToInt32(ScoreData[score_maxCombo]);
 		sData.FullCombo = (ScoreData[score_Perfect] == "True") ? 1 : 0;
-		sData.GameMode = Safe_atoi(ScoreData[score_playMode].c_str());
-		sData.Mods = Safe_atoi(ScoreData[score_Mods].c_str());
+		sData.GameMode = StringToInt32(ScoreData[score_playMode]);
+		sData.Mods = StringToUInt32(ScoreData[score_Mods]);
 		//Score Data is ready to read.
 
 		if (sData.UserName.size() && sData.UserName[sData.UserName.size()-1] == ' ')
@@ -1195,13 +1181,11 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	const char* mName = "Aria";
 	const std::string URL(http.Host.begin(), http.Host.end());
 
-	std::string BeatmapMD5 = GetParam(URL, "&c=");
-	int SetID = Safe_stoul(GetParam(URL,"&i="));
+	const std::string BeatmapMD5 = REMOVEQUOTES(GetParam(URL, "&c="));
+	const DWORD SetID = StringToUInt32(GetParam(URL,"&i="));
 
 	if (BeatmapMD5.size() != 32)
 		return SendAria404(s);
-	
-	PrepareSQLString(BeatmapMD5);
 
 	const std::string UserName = GetParam(URL,"&us=");
 	const std::string Password = GetParam(URL, "&ha=");
@@ -1211,10 +1195,10 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	if (!u || Password.size() != 32 || !MD5CMP(&Password[0],u->Password))
 		return SendAria404(s);
 
-	const DWORD Mods = Safe_stoul(GetParam(URL, "&mods="));
-	DWORD Mode = Safe_stoul(GetParam(URL, "&m="));
+	const DWORD Mods = StringToUInt32(GetParam(URL, "&mods="));
+	DWORD Mode = StringToUInt32(GetParam(URL, "&m="));
 	const bool CustomClient = (URL.find("&vv=4") == std::string::npos);
-	const DWORD LType = Safe_stoul(GetParam(URL,"&v="));
+	const DWORD LType = StringToUInt32(GetParam(URL,"&v="));
 	const std::string ScoreTableName = (Mods & Relax) ? "scores_relax" : "scores";
 	const std::string DiffName = ExtractDiffName(urlDecode(GetParam(URL, "&f=")));
 	if ((u->actionMods & Relax) != (Mods & Relax)){//actionMods is outdated.
@@ -1478,7 +1462,7 @@ void GetReplay(const _HttpRes http, _Con s){
 
 	const std::string URL(http.Host.begin(), http.Host.end());
 
-	const uint64_t ScoreID = Safe_stou64(GetParam(URL, "&c="));
+	const uint64_t ScoreID = StringToUInt64(GetParam(URL, "&c="));
 	if (!ScoreID)
 		return s.close();
 	std::vector<byte> Data;

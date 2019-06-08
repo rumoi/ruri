@@ -37,12 +37,12 @@ __forceinline void PrepareSQLString(char* s){
 		return s;\
 }(STR)
 
-
+/*
 __forceinline void PrepareSQLString(std::string &s){
 	for (DWORD i = 0; i < s.size(); i++)
 		if (s[i] == '\"' || s[i] == '\'')
 			s[i] = '_';
-}
+}*/
 
 std::string SQL_Password;
 std::string SQL_Username;

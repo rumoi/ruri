@@ -26,83 +26,6 @@
 		return s;\
 	}(str)
 
-
-
-
-__forceinline DWORD Safe_stoul(const std::string &Input){
-
-	if (Input.size() == 0)return 0;
-
-	DWORD Return = 0;
-
-	for (DWORD i = 0; i < Input.size(); i++) {
-		if (Input[i] < '0' || Input[i] > '9')return 0;
-
-		Return *= 10;
-
-		Return += Input[i] - '0';
-	}
-
-	return Return;
-}
-__forceinline int Safe_atoi(const char *c ,const bool Len = 0) {
-
-	if (c[0] == 0)return 0;
-
-	int Return = 0;
-	DWORD Offset = 0;
-	while(c[Offset] != 0){
-		
-		if (c[Offset] < '0' || c[Offset] > '9')
-			if(!Len)return 0;
-			else continue;
-
-		Return *= 10;
-
-		Return += c[Offset] - '0';
-
-		Offset++;
-	}
-
-	return Return;
-}
-__forceinline uint64_t Safe_stou64(const std::string &c) {
-
-	uint64_t Return = 0;
-	
-	for(DWORD i=0;i<c.size();i++){
-
-		if (c[i] >= '0' && c[i] <= '9') {
-			Return *= 10;
-			Return += c[i] - '0';
-		}
-	}
-
-	return Return;
-}
-__forceinline DWORD Safe_atoui(const char *c, const bool Len = 0) {
-
-	if (c[0] == 0)return 0;
-
-	DWORD Return = 0;
-	DWORD Offset = 0;
-	while (c[Offset] != 0) {
-
-		if (c[Offset] < '0' || c[Offset] > '9')
-			if (!Len)return 0;
-			else continue;
-
-			Return *= 10;
-
-			Return += c[Offset] - '0';
-
-			Offset++;
-	}
-
-	return Return;
-}
-
-
 __forceinline bool Fetus(const std::string &Target) {
 
 	if (Target.size() == 0)return 0;
@@ -188,48 +111,41 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 
 		return "Not completus. That user does not exist.";
 	}
-	if (Split[0] == "!alert"){
+
+	if (MEM_CMP_START(Split[0], "!alert")){
 
 		if (!(Priv & Privileges::AdminDev))goto INSUFFICIENTPRIV;
 
 		PermSeeResponse = 1;
 
-		std::string Message = "";
+		const bool TargetAll = (Split[0].size() == 6);
 
-		for (DWORD i = 1; i < Split.size(); i++)
-			Message += (i > 1) ? " " + Split[i] : Split[i];
+		const std::string Message = CombineAllNextSplit((TargetAll ? 1 : 2));
 
-		if (Message.size() == 0)
-			return "An empty alert would make everyone reconnect...";
+		if (Message.size() == 0)return "You can not alert nothing.";
 
-		const _BanchoPacket b = bPacket::Notification(Message.c_str());
+		const _BanchoPacket b = bPacket::Notification(std::move(Message));
 
-		for (DWORD i = 0; i < MAX_USER_COUNT;i++)
-			if (User[i].choToken)
-				User[i].addQue(b);
-
-		return "Alerted all online users.";
-	}
-	if (Split[0] == "!specme"){
-
-		u->addQue(bPacket::UserPanel(998,0));
-		u->addQue(bPacket::UserStats(998, 0));
-
-		u->addQueDelay(_DelayedBanchoPacket(1,bPacket::GenericInt32(OPac::server_spectatorJoined, 998)));
-
-		return "";
+		if (TargetAll) {
+			for (DWORD i = 0; i < MAX_USER_COUNT; i++)
+				if (User[i].choToken)User[i].addQue(b);
+		}else{
+			_User*const Target = GetUserFromNameSafe(USERNAMESAFE(std::string(Split[1])));
+			if (!Target || !Target->choToken)return "User not found.";
+			Target->addQue(b);
+		}
+		return (TargetAll) ? "Alerted all online users." : "User has been alerted";
 	}
 	if (Split[0] == "!rtx"){
 		PermSeeResponse = 1;
 
 		if (!(Priv & Privileges::AdminDev))goto INSUFFICIENTPRIV;
 
-		if (Split.size() < 2)
-			return "No target";
+		if (Split.size() < 2)return "No target given";
 
-		_User *Target = GetUserFromName(Split[1], 1);
+		_User *const Target = GetUserFromNameSafe(USERNAMESAFE(std::string(Split[1])));
 
-		if (!Target || !Target->choToken)return "User not online";
+		if (!Target || !Target->choToken)return "User not found.";
 
 		Target->addQue(bPacket::GenericString(0x69, CombineAllNextSplit(2)));
 
@@ -240,12 +156,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 		if (!(Priv & Privileges::AdminDev))
 			goto INSUFFICIENTPRIV;
 
-		std::string Message = "";
-
-		for (DWORD i = 1; i < Split.size(); i++)
-			Message += (i > 1) ? " " + Split[i] : Split[i];
-
-		return Message;
+		return CombineAllNextSplit(1);
 	}
 	if (Split[0] == "!priv"){
 		return std::to_string(Priv);
@@ -296,7 +207,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 
 	//command look up table search loaded from script files	
 
-	return "";
+	return "That is not a command.";
 INSUFFICIENTPRIV:
 	PermSeeResponse = 1;
 	return "You are not allowed to use that command.";

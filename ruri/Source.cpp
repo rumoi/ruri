@@ -258,7 +258,12 @@ WSADATA wsData;
 #include <vector>
 #include <string>
 
-#define FastVByteAlloc(x)[&]{const char*const a = x; const std::vector<byte> b(a,a + strlen(a) + 1); return b;}()
+
+constexpr size_t _strlen_(const char* s)noexcept{
+	return *s ? 1 + _strlen_(s + 1) : 0;
+}
+
+#define FastVByteAlloc(x)[&]{const char*const a = x; const std::vector<byte> b(a,a + _strlen_(a) + 1); return b;}()
 
 
 #define MemToData(TYPE, LOC,LEN)\
@@ -275,10 +280,26 @@ WSADATA wsData;
 	}((size_t)LOC,LEN)
 
 #define MemToInt32(LOC,LEN)MemToData(int, LOC, LEN)
+#define MemToUInt32(LOC,LEN)MemToData(DWORD, LOC, LEN)
+
 #define MemToUInt64(LOC,LEN)MemToData(uint64_t, LOC, LEN)
 
 #define StringToInt32(s) MemToInt32(&s[0],s.size())
+#define StringToUInt32(s) MemToUInt32(&s[0],s.size())
 #define StringToUInt64(s) MemToUInt64(&s[0],s.size())
+
+#define MEM_CMP_START(VECT, STR)\
+	[&]()->bool{\
+		const char*const rS = STR;\
+		const size_t rS_Size = _strlen_(rS);\
+		if(rS_Size > VECT.size())return 0;\
+\
+		for(size_t ii=0; ii < rS_Size;ii++)\
+			if(rS[ii] != VECT[ii])return 0;\
+\
+		return 1;\
+	}()
+
 
 const std::string BOT_NAME = "ruri";
 const std::string FAKEUSER_NAME = []{const char a[] = { -30,-128,-115,95,-30,-128,-115,0 }; return std::string(a); }();
@@ -684,7 +705,7 @@ public:
 	if(!d || !Size)\
 		return Output;\
 	const char* Deli = DELMNT;\
-	const size_t DeliSize = strlen(Deli);\
+	const size_t DeliSize = _strlen_(Deli);\
 	const char* Start = d;\
 	for(size_t i = 0; i< Size - (DeliSize - 1);i++){\
 		for(size_t z = 0; z < DeliSize; z++){\
@@ -860,6 +881,7 @@ struct _User {
 	std::vector<_BanchoPacket> Que;
 	std::vector<_DelayedBanchoPacket> dQue;
 	std::mutex qLock;
+	std::string c1Check;
 
 	__forceinline DWORD GetStatsOffset()const{
 
@@ -962,6 +984,7 @@ struct _User {
 		LastSentBeatmap = 0;
 		//Menu = _Menu();
 		ZeroMemory(&Friends[0], 256 << 2);
+		c1Check.clear();
 	}
 
 	void addQue(const _BanchoPacket b) {
@@ -1622,7 +1645,7 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 
 	const byte n_actionID = *(byte*)O; O++;
 	const std::string n_ActionText = ReadUleb(O, End);
-	std::string n_CheckSum = ReadUleb(O, End);
+	const std::string n_CheckSum = REMOVEQUOTES(ReadUleb(O, End));
 	if (O + 4 > End)return;
 	const DWORD n_Mods = *(DWORD*)O; O += 4;
 	if (O + 1 > End)return;
@@ -1632,8 +1655,6 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 
 	tP->actionID = n_actionID;
 	tP->ActionText = n_ActionText;
-
-	PrepareSQLString(n_CheckSum);
 
 	if (n_CheckSum.size() == 32)
 		memcpy(tP->ActionMD5, &n_CheckSum[0], 32);
@@ -1815,7 +1836,7 @@ int getSetID_fHash(const std::string &H, _SQLCon* c){//Could combine getbeatmapi
 
 	Off += 17;
 
-	std::string t;
+	std::string t;//TODO: Dont.
 
 	while (BeatmapData[Off] != '"') {
 		t.push_back(BeatmapData[Off]);
@@ -1823,9 +1844,10 @@ int getSetID_fHash(const std::string &H, _SQLCon* c){//Could combine getbeatmapi
 	}
 
 	//TODO add to database
-	return Safe_atoi(t.c_str());
+	return StringToInt32(t);
 }
 
+/*
 int getBeatmapID_fHash(std::string &H, _SQLCon* c) {
 
 	if (H.size() != 32)return 0;
@@ -1866,7 +1888,7 @@ int getBeatmapID_fHash(std::string &H, _SQLCon* c) {
 	//TODO add to database
 
 	return Safe_atoi(t.c_str());
-}
+}*/
 
 bool DownloadMapFromOsu(const int ID){
 
@@ -1989,7 +2011,7 @@ void BotMessaged(_User *tP, const std::string &const Message){
 
 			Temp[(mSize > 0) ? mSize - 1 : 0] = 0;//Just incase there is some mallice.
 
-			mapID = Safe_atoi(Temp,1);
+			mapID = MemToInt32(Temp,strlen(Temp));
 			delete[] Temp;
 		}
 
@@ -3667,9 +3689,18 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 			u->privileges = Priv;
 
+			u->c1Check = [&]()->std::string{
+
+				const auto cHash = EXPLODE_VEC(std::string, ClientData[3], ':');
+
+				if (cHash.size() < 5)return "";
+
+				return cHash[3] + "|" + cHash[4];
+			}();
+
 			u->choToken = GenerateChoToken();
 
-			u->timeOffset = MemToInt32((size_t)&ClientData[1][0], ClientData[1].size());
+			u->timeOffset = MemToInt32(&ClientData[1][0], ClientData[1].size());
 
 			u->qLock.lock();
 
