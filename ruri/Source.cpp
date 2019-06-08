@@ -1945,6 +1945,19 @@ float ezpp_NewAcc(ezpp_t ez, const float Acc) {
 }
 
 void BotMessaged(_User *tP, const std::string &const Message){
+	
+	if (Message.size() == 0)return;
+
+	if (Message[0] == '!'){
+
+		DWORD Unused;
+
+		const std::string Res = ProcessCommand(tP, std::move(Message), Unused);
+
+		if (Res.size())tP->addQue(bPacket::BotMessage(tP->Username, std::move(Res)));
+
+		return;
+	}
 
 	auto BotMessage = EXPLODE_VEC(std::string, Message, ' ');
 
@@ -2148,7 +2161,7 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 	if (Message.size() == 0)return;
 
 	if (Target == BOT_NAME)
-		return BotMessaged(tP,Message);
+		return BotMessaged(tP,std::move(Message));
 
 	_User* u = GetUserFromName(Target);
 
@@ -3178,10 +3191,9 @@ void Event_client_invite(_User *tP, const byte* const Packet, const DWORD Size){
 
 	_User* Target = GetUserFromID(TID);
 
-	if (!Target){
-		tP->addQue(bPacket::BotMessage("#multiplayer", "Could not find player."));
-		return;
-	}
+	if (!Target)	
+		return tP->addQue(bPacket::BotMessage("#multiplayer", "Could not find player."));
+	
 
 	tP->addQue(bPacket::BotMessage("#multiplayer", "Invited " + Target->Username + " to your match."));
 
