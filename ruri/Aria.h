@@ -1438,6 +1438,7 @@ void Handle_DirectSearch(const _HttpRes http, _Con s) {
 	return s.close();
 }
 
+/*
 __forceinline bool ReadAllBytes(const std::string &filename, std::vector<byte>&res)
 {
 	res.clear();
@@ -1456,7 +1457,7 @@ __forceinline bool ReadAllBytes(const std::string &filename, std::vector<byte>&r
 	ifs.close();
 
 	return 1;
-}
+}*/
 
 void GetReplay(const _HttpRes http, _Con s){
 
@@ -1465,9 +1466,10 @@ void GetReplay(const _HttpRes http, _Con s){
 	const uint64_t ScoreID = StringToUInt64(GetParam(URL, "&c="));
 	if (!ScoreID)
 		return s.close();
-	std::vector<byte> Data;
 
-	if (!ReadAllBytes(REPLAY_PATH + std::to_string(ScoreID) + ".osr", Data))
+	const std::vector<byte> Data = LOAD_FILE(std::string(REPLAY_PATH + std::to_string(ScoreID) + ".osr"));
+	
+	if (!Data.size())
 		return s.close();
 
 	//sql::ResultSet *res = AriaSQL[s.ID].ExecuteQuery("SELECT * FROM ");

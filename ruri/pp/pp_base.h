@@ -1,23 +1,6 @@
 #pragma once
 
-#include "osuRandom.h"
-
-#define LOAD_FILE(Filename)													\
-	[&]{																	\
-		std::ifstream file(Filename, std::ios::binary | std::ios::ate);		\
-		if (!file.is_open())												\
-			return std::vector<byte>();										\
-																			\
-		const size_t pos = file.tellg();									\
-		std::vector<byte> rVec(pos + 1);									\
-		file.seekg(0, std::ios::beg);										\
-		file.read((char*)&rVec[0], pos);									\
-		file.close();														\
-		rVec[rVec.size()-1] = 0;											\
-																			\
-		return rVec;														\
-	}()																		
-
+#include "osuRandom.h"																		
 
 #define FindNext(memstart, memend, needle)									\
 		if(memstart && memend){												\

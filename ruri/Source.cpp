@@ -300,6 +300,23 @@ constexpr size_t _strlen_(const char* s)noexcept{
 		return 1;\
 	}()
 
+#define LOAD_FILE(FILENAME)													\
+	[](const std::string& Filename){																	\
+		std::ifstream file(Filename, std::ios::binary | std::ios::ate);		\
+		if (!file.is_open())												\
+			return std::vector<byte>();										\
+																			\
+		const size_t pos = file.tellg();									\
+		if(!pos)return std::vector<byte>();									\
+		std::vector<byte> rVec(pos + 1);									\
+																			\
+		file.seekg(0, std::ios::beg);										\
+		file.read((char*)&rVec[0], pos);									\
+		file.close();														\
+		rVec[rVec.size()-1] = 0;											\
+																			\
+		return rVec;														\
+	}(FILENAME)
 
 const std::string BOT_NAME = "ruri";
 const std::string FAKEUSER_NAME = []{const char a[] = { -30,-128,-115,95,-30,-128,-115,0 }; return std::string(a); }();
@@ -4066,9 +4083,9 @@ std::string ExtractConfigValue(const std::vector<byte> &Input){
 
 int main(){
 
-	std::vector<byte> ConfigBytes;
+	const std::vector<byte> ConfigBytes = LOAD_FILE("config.ini");
 
-	if (!ReadAllBytes("config.ini", ConfigBytes)) {
+	if (!ConfigBytes.size()){
 		printf("\nconfig.ini missing.\n");
 		return 0;
 	}

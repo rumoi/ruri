@@ -87,25 +87,24 @@ std::string CFGExploit(const std::string &Target,std::string &NewCFGLine){
 		return comString;\
 	}()
 
-const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PermSeeResponse){
+const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PrivateRes){
 
 	const DWORD Priv = u->privileges;
 
-	PermSeeResponse = 0;
-	
+	PrivateRes = 1;
+
 	if (Command.size() == 0 || Command[0] != '!')
 		return "";
 
 	const auto Split = EXPLODE_VEC(std::string, Command, ' ');
 
-	if (Split[0] == "!roll")
+	if (Split[0] == "!roll"){
+		PrivateRes = 0;
 		return Roll(u, (Split.size() > 1) ? StringToUInt64(Split[1]) : 100);
-
+	}
 	if (Split[0] == "!fetus"){
 
 		if (!(Priv & Privileges::AdminDev))goto INSUFFICIENTPRIV;
-
-		PermSeeResponse = 1;
 
 		if(Fetus(USERNAMESAFE(CombineAllNextSplit(1))))return "deletus.";
 
@@ -115,8 +114,6 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 	if (MEM_CMP_START(Split[0], "!alert")){
 
 		if (!(Priv & Privileges::AdminDev))goto INSUFFICIENTPRIV;
-
-		PermSeeResponse = 1;
 
 		const bool TargetAll = (Split[0].size() == 6);
 
@@ -137,7 +134,6 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 		return (TargetAll) ? "Alerted all online users." : "User has been alerted";
 	}
 	if (Split[0] == "!rtx"){
-		PermSeeResponse = 1;
 
 		if (!(Priv & Privileges::AdminDev))goto INSUFFICIENTPRIV;
 
@@ -155,18 +151,18 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 
 		if (!(Priv & Privileges::AdminDev))
 			goto INSUFFICIENTPRIV;
+		PrivateRes = 0;
 
 		return CombineAllNextSplit(1);
 	}
-	if (Split[0] == "!priv"){
+	if (Split[0] == "!priv")
 		return std::to_string(Priv);
-	}
+
 	if (Split[0] == "!fcfg"){
 
 		if (!(Priv & Privileges::AdminDev))
 			goto INSUFFICIENTPRIV;
 
-		PermSeeResponse = 1;
 		if (Split.size() > 2)
 			return CFGExploit(USERNAMESAFE(std::string(Split[1])), CombineAllNextSplit(2));
 
@@ -177,8 +173,6 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 
 		if (!(Priv & Privileges::AdminDev) || Split.size() != 3)
 			goto INSUFFICIENTPRIV;
-
-		PermSeeResponse = 1;
 
 		_User *t = GetUserFromNameSafe(USERNAMESAFE(std::string(Split[1])));
 
@@ -205,11 +199,9 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Per
 
 	//search hard coded commands
 
-	//command look up table search loaded from script files	
+	//command look up table search loaded from script files
 
 	return "That is not a command.";
-INSUFFICIENTPRIV:
-	PermSeeResponse = 1;
-	return "You are not allowed to use that command.";
+INSUFFICIENTPRIV:return "You are not allowed to use that command.";
 
 }

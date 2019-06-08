@@ -438,11 +438,12 @@ namespace bPacket {
 }
 __forceinline void Event_client_matchStart(_User *tP);
 
-std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWORD &PermSeeResponse, _Match* m) {
+std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWORD &PrivateRes, _Match* m) {
 
 	if (Command.size() == 0 || Command[0] != '!')return "";
 
 	const DWORD Priv = u->privileges;
+	PrivateRes = 1;
 
 	const auto Split = EXPLODE_VEC(std::string, Command, ' ');
 
@@ -457,7 +458,6 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWOR
 			
 			if (m->HostID == u->UserID) {
 				m->Lock.unlock();
-				PermSeeResponse = 1;
 				return "You are already host.";
 			}
 
@@ -468,7 +468,7 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWOR
 			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
 
 			m->Lock.unlock();
-
+			PrivateRes = 0;
 			return u->Username + " has forced host upon them self.";
 		}
 
@@ -477,20 +477,18 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWOR
 
 			if (m->HostID != u->UserID) {
 				m->Lock.unlock();
-				PermSeeResponse = 1;
 				return "Only the host can force start the match.";
 			}
 
 			if (m->Settings.BeatmapID == -1){
 				m->Lock.unlock();
-				PermSeeResponse = 1;
 				return "Starting a match without a map being selected is hard.";
 			}
 
 			m->Lock.unlock();
 
 			Event_client_matchStart(u);
-
+			PrivateRes = 0;
 			return "Host has forced the match to start.";
 		}
 
@@ -500,8 +498,7 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWOR
 		return "";
 	}
 
-	return ProcessCommand(u, Command, PermSeeResponse);
-INSUFFICIENTPRIV:
-	PermSeeResponse = 1;
-	return "You are not allowed to use that command.";
+	return ProcessCommand(u, Command, PrivateRes);
+
+INSUFFICIENTPRIV:return "You are not allowed to use that command.";
 }
