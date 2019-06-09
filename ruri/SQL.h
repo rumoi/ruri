@@ -19,15 +19,16 @@ __forceinline void PrepareSQLString(char* s){
 }
 
 
-#define REMOVEQUOTES(STR)[](std::string &const s)->const std::string{\
+#define REMOVEQUOTES(STR)\
+	[](std::string &const s)->const std::string{\
 		const size_t l = s.size();\
 		for(size_t i = 0; i < l ; i++)\
 			if(s[i] == '\'')\
 				s[i] = '_';\
 		return s;\
-}(STR)
+	}(STR)
 
-#define USERNAMESAFE(STR)[](std::string &const s)->const std::string{\
+#define USERNAMESAFE(STR)[](std::string &const s)->std::string{\
 		const size_t l = s.size();\
 		for(size_t i = 0; i < l ; i++){\
 			if(s[i] == ' ')s[i] = '_';\
@@ -147,7 +148,7 @@ struct _SQLCon {
 
 		}
 		catch (sql::SQLException &e) {
-			printf("SQLERROR:%i\n", e.getErrorCode());
+			printf("SQLERROR:%i (%s)\n", e.getErrorCode(), Query.c_str());
 		}
 		delete s;
 
@@ -159,29 +160,40 @@ struct _SQLCon {
 
 	bool Connect(){
 		Lock.lock();
-		driver = get_driver_instance();
 
-		if (!driver) {
-			Lock.unlock();
-			return 0;
-		}
-		con = driver->connect("localhost", SQL_Username, SQL_Password);
-		if (!con) {
-			Lock.unlock();
-			return 0;
-		}
-		con->setSchema(SQL_Schema);
+		bool Suc = 1;
 
+		try {
+			driver = get_driver_instance();
+
+			if (!driver) {
+				Lock.unlock();
+				return 0;
+			}
+			con = driver->connect("localhost", SQL_Username, SQL_Password);
+			if (!con) {
+				Lock.unlock();
+				return 0;
+			}
+			con->setSchema(SQL_Schema);
+		}catch (...) {
+			Suc = 0;
+		}
 		LastMessage = clock();
 
 		Lock.unlock();
-		return 1;
+		return Suc;
 	}
 
 	void Disconnect() {
 		Lock.lock();
-		con->close();
-		delete con;
+		if (con){
+			con->close();
+			delete con;
+			con = 0;
+		}
+		driver = 0;//I seem to remember reading somewhere that the driver should not be freed by us.
+		Lock.unlock();
 	}
 
 

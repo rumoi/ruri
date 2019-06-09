@@ -74,10 +74,11 @@ struct _Slot {
 
 #define NORMALMATCH_MAX_COUNT 16
 
+/*
 #define SERVERMATCH_PAGES 3
 #define SERVERMATCH_PERPAGE 14
 
-#define SERVERMATCH_MAX 2 + (SERVERMATCH_PERPAGE * SERVERMATCH_PAGES)//15 on first page then 14 on every other page
+#define SERVERMATCH_MAX 2 + (SERVERMATCH_PERPAGE * SERVERMATCH_PAGES)//15 on first page then 14 on every other page*/
 
 struct _Match{
 	bool Tournament;
@@ -262,7 +263,7 @@ struct _Match{
 
 
 };
-//std::vector<_Match*> Matchs;
+
 _Match Match[MAX_MULTI_COUNT];
 
 /*
@@ -452,11 +453,11 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWOR
 		if (Split.size() < 2)return "";
 
 		if (Split[1] == "host"){
-			if (!(Priv & Privileges::AdminDev | Privileges::AdminBanUsers))goto INSUFFICIENTPRIV;
+			if (!(Priv & Privileges::AdminDev | Privileges::UserTournamentStaff))goto INSUFFICIENTPRIV;
 
 			m->Lock.lock();
 			
-			if (m->HostID == u->UserID) {
+			if (m->HostID == u->UserID || m->inProgress) {
 				m->Lock.unlock();
 				return "You are already host.";
 			}
@@ -498,7 +499,7 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWOR
 		return "";
 	}
 
-	return ProcessCommand(u, Command, PrivateRes);
+	return ProcessCommand(u, Command, PrivateRes);//Moving is not worth it.
 
 INSUFFICIENTPRIV:return "You are not allowed to use that command.";
 }

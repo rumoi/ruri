@@ -301,7 +301,7 @@ constexpr size_t _strlen_(const char* s)noexcept{
 	}()
 
 #define LOAD_FILE(FILENAME)													\
-	[](const std::string& Filename){																	\
+	[](const std::string& Filename){										\
 		std::ifstream file(Filename, std::ios::binary | std::ios::ate);		\
 		if (!file.is_open())												\
 			return std::vector<byte>();										\
@@ -443,51 +443,95 @@ struct _RankList {
 		ID = I;
 		PP = P;
 	}
-}; _RankList RankList[8][USHORT(-1)];//This rank cache in general is very bad and should be rewritten.
+}; std::vector<_RankList> RankList[8];
 DWORD RankListVersion[] = { 1,1,1,1,1,1,1,1 };
-std::mutex RankUpdate[8];
+std::shared_mutex RankUpdate[8];
 
 
 DWORD GetRank(const DWORD UserID, const DWORD GameMode){//Could use the cached pp to tell around where its supposed to be?
 
-	if (UserID < 1000 || GameMode >= 8)return 0;
+	if (UserID < 1000 || GameMode >= 8 || RankList[GameMode].size() == 0)return 0;
 
-	DWORD Off = 0;
-	while(RankList[GameMode][Off].ID){
-		if (RankList[GameMode][Off].ID == UserID)
-			return Off + 1;
-		Off++;
+	RankUpdate[GameMode].lock_shared();
+
+	for (DWORD i = 0; i < RankList[GameMode].size(); i++) {
+
+		if (RankList[GameMode][i].ID == UserID){
+			RankUpdate[GameMode].unlock_shared();
+			return i + 1;
+		}
+
 	}
+
+	RankUpdate[GameMode].unlock_shared();
 
 	return 0;
 }
-bool SortRankCache(const _RankList i, const _RankList j) { return (i.PP > j.PP); }
 
-void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP) {
-	printf("Updating ranks\n");
+void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
+
 	if (!PP || UserID < 1000 || GameMode >= 8)return;
 
 	RankUpdate[GameMode].lock();
+	
+	std::vector<_RankList> &cRankList = RankList[GameMode];
 
-	DWORD Off = 0;
+	byte Direction = 0;
+	DWORD OrigPos = 0;
 
-	bool Direction = 0;
+	const _RankList n = { UserID,PP };
 
-	while (RankList[GameMode][Off].ID) {
-		if (RankList[GameMode][Off].ID == UserID){
-			Direction = (RankList[GameMode][Off].PP > PP);
-			RankList[GameMode][Off].PP = PP;
+	for (DWORD i = 0; i < cRankList.size(); i++) {
+		if (cRankList[i].ID == UserID) {
+			Direction = (cRankList[i].PP > PP) ? 2 : 1;
+			if (cRankList[i].PP == PP)
+				Direction = 3;
+			OrigPos = i;
 			break;
 		}
-		Off++;
 	}
-	if (!Direction) {
-		Off++;
-		std::sort(RankList[GameMode], RankList[GameMode] + (Off * sizeof(_RankList)), SortRankCache);//The reason for the offset
-	}else std::sort(RankList[GameMode], &RankList[GameMode][USHORT(-1)], SortRankCache);//TODO properly bound this backwards
-	RankListVersion[GameMode]++;
+
+	if (Direction == 1 || Direction == 2){
+
+		//const auto Sort = [](const _RankList &i, const _RankList &j){return (i.PP > j.PP); };
+		DWORD NewPos = 0;
+		if (Direction == 1){
+			if (OrigPos){
+				for (DWORD i = OrigPos - 1; i > 0; i--)
+					if (cRankList[i].PP > PP){
+						NewPos = i + 1;
+						break;
+					}
+				if (NewPos != OrigPos){					
+					memcpy(&cRankList[NewPos + 1], &cRankList[NewPos],(OrigPos - NewPos) * sizeof(_RankList));
+					cRankList[NewPos] = n;
+					RankListVersion[GameMode]++;
+				}else cRankList[OrigPos] = n;
+
+			}else cRankList[0] = n;//Rank one improving them self requires no extra calculations.
+
+		}else if(Direction == 2){
+			if (PP){
+				for (DWORD i = OrigPos; i < cRankList.size(); i++)
+					if (cRankList[i].PP < PP) {
+						NewPos = i - 1;
+						break;
+					}
+			}else NewPos = cRankList.size() - 1;
+			if (!NewPos)
+				NewPos = cRankList.size() - 1;
+
+			if (NewPos != OrigPos){
+				memcpy(&cRankList[OrigPos], &cRankList[OrigPos + 1], (NewPos - OrigPos) * sizeof(_RankList));
+				cRankList[NewPos] = n;
+				RankListVersion[GameMode]++;
+			}else cRankList[OrigPos] = n;
+		}
+	}else if (Direction == 0) {
+		//TODO add insertion
+	}
 	RankUpdate[GameMode].unlock();
-	printf("Updated ranks\n");
+	printf("Updated ranks gm:%i\n",GameMode);
 }
 
 
@@ -799,9 +843,9 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 	}
 	if (res)delete res;
 
-	const double ACC = (TotalAcc / double((Count > 50) ? 50 : Count));
+	const double ACC = (!Count) ? 0.f : (TotalAcc / double((Count > 50) ? 50 : Count));
 	
-	const float acc = ACC / 100.f;
+	const float acc = (!Count) ? 0.f : ACC / 100.f;
 	const int pp = (int)round(TotalPP);
 
 	if (acc != stats.Acc || pp != stats.pp){
@@ -1683,8 +1727,18 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 	tP->addQue(bPacket::UserStats(tP));
 }
 
-#include "Commands.h"
-#include "Match.h"
+#include <fstream>
+
+__forceinline bool FileExistCheck(const std::string &filename) {
+	std::ifstream ifs(filename, std::ios::binary | std::ios::ate);
+	if (ifs.is_open()) {
+		ifs.close();
+
+		return 1;
+	}
+	return 0;
+}
+
 
 __forceinline int CharHexToDecimal(const char c) {
 
@@ -1728,17 +1782,49 @@ __forceinline int CharHexToDecimal(const char c) {
 #define GET_WEB_CHUNKED(Chunk_Host, Chunk_Page)[&]{auto uChunk = HTTP_UNCHUNKER; return uChunk(GET_WEB(Chunk_Host, Chunk_Page));}()
 
 
-#include <fstream>
+__forceinline bool WriteAllBytes(const std::string &filename, const void* data, const DWORD Size);
+__forceinline bool WriteAllBytes(const std::string &filename, const std::string &res);
+bool DownloadMapFromOsu(const int ID) {
 
-__forceinline bool FileExistCheck(const std::string &filename) {
-	std::ifstream ifs(filename, std::ios::binary | std::ios::ate);
-	if (ifs.is_open()) {
-		ifs.close();
+	if (ID < 0 || ID > 6000000)
+		return 0;
 
-		return 1;
-	}
-	return 0;
+	const std::string &bFile = GET_WEB_CHUNKED("old.ppy.sh", std::string("osu/" + std::to_string(ID)));
+
+	if (bFile.size() == 0 || bFile.find("[HitObjects]") == std::string::npos)return 0;
+
+	//ReplaceAll(bFile, "\r\n", "\n");//Could save diskspace
+
+	WriteAllBytes(BEATMAP_PATH + std::to_string(ID) + ".osu", (void*)&bFile[0], bFile.size());
+
+	return 1;
 }
+
+#include "oppai.h"
+
+bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
+
+	const std::string MapPath = BEATMAP_PATH + std::to_string(BID) + ".osu";
+
+	if (!FileExistCheck(MapPath) && !DownloadMapFromOsu(BID)) {
+		printf(KRED "Failed to download %i.osu\n" KRESET, BID);
+		WriteAllBytes(MapPath, " ");//Stop it from trying it over and over again.
+		return 0;
+	}
+
+	int res = ezpp(ez, (char*)MapPath.c_str());
+
+	if (res < 0) {
+		printf(KMAG "oppai> " KRED "Failed with errorcode %i\n" KRESET, res);
+		return 0;
+	}
+
+	return 1;
+}
+
+#include "Commands.h"
+#include "Match.h"
+
 
 __forceinline bool WriteAllBytes(const std::string &filename, const std::string &res) {
 
@@ -1907,45 +1993,6 @@ int getBeatmapID_fHash(std::string &H, _SQLCon* c) {
 	return Safe_atoi(t.c_str());
 }*/
 
-bool DownloadMapFromOsu(const int ID){
-
-	if (ID < 0 || ID > 6000000)
-		return 0;
-
-	const std::string &bFile = GET_WEB_CHUNKED("old.ppy.sh", std::string("osu/" + std::to_string(ID)));
-
-	if (bFile.size() == 0 || bFile.find("[HitObjects]") == std::string::npos)return 0;
-
-	//ReplaceAll(bFile, "\r\n", "\n");//Could save diskspace
-
-	WriteAllBytes(BEATMAP_PATH + std::to_string(ID) + ".osu",(void*)&bFile[0],bFile.size());
-
-	return 1;
-}
-
-
-
-#include "oppai.h"
-
-bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID){
-
-	const std::string MapPath = BEATMAP_PATH + std::to_string(BID) + ".osu";
-
-	if (!FileExistCheck(MapPath) && !DownloadMapFromOsu(BID)) {
-		printf(KRED "Failed to download %i.osu\n" KRESET,BID);
-		return 0;
-	}
-
-	int res = ezpp(ez, (char*)MapPath.c_str());
-
-	if (res < 0){
-		printf(KMAG "oppai> " KRED "Failed with errorcode %i\n" KRESET, res);
-		return 0;
-	}
-
-	return 1;
-}
-
 #define AddDeci(s,o) if (*(byte*)(s + o) == 0) { *(USHORT*)(s + o - 1) = *(USHORT*)(s + o - 2); *(byte*)(s + o - 2) = '.'; return s;}
 
 std::string RoundTo2(const float Input) {
@@ -1974,7 +2021,6 @@ std::string RoundTo2(const float Input) {
 		return s;
 	}());
 }
-
 
 
 float ezpp_NewAcc(ezpp_t ez, const float Acc) {
@@ -2243,7 +2289,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 					m->Lock.unlock();
 				}else{
 
-					if (C)tP->addQue(bPacket::BotMessage("#multiplayer", s));
+					if(C)tP->addQue(bPacket::BotMessage("#multiplayer", s));
 					else{
 						m->Lock.lock();
 						m->sendUpdate(bPacket::BotMessage("#multiplayer", s), 0);
@@ -3908,6 +3954,8 @@ const std::string UserTableNames[] = { "users_stats","rx_stats" };
 
 void DoFillRank(DWORD I, bool TableName){
 
+	RankList[I].reserve(USHORT(-1));
+
 	sql::ResultSet *res = SQL_BanchoThread[I].ExecuteQuery("SELECT id, " + PPColNames[I] + " FROM " + UserTableNames[TableName] + " WHERE " + PPColNames[I] + " > 0 ORDER BY " + PPColNames[I] + " DESC");
 
 	DWORD cOffset = 0;
@@ -3915,7 +3963,7 @@ void DoFillRank(DWORD I, bool TableName){
 	if (TableName)
 		I += 4;
 	while (res && res->next()) {
-		RankList[I][cOffset] = _RankList(res->getInt(1), res->getInt(2));
+		RankList[I].push_back({res->getUInt(1), res->getUInt(2)});
 		cOffset++;
 	}
 	if (res)delete res;
