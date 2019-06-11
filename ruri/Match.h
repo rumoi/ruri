@@ -168,11 +168,11 @@ struct _Match{
 				Slot[i].User = 0;
 
 				if (Kicked){
-					u->addQue(bPacket::GenericInt32(OPac::server_disposeMatch,MatchId));
+					u->addQue(bPacket4Byte(OPac::server_disposeMatch,MatchId));
 					Slot[i].SlotStatus = SlotStatus::Locked;
 				}else{
 					if(PlayerCount == 0)
-						u->addQue(bPacket::GenericInt32(OPac::server_disposeMatch, MatchId));
+						u->addQue(bPacket4Byte(OPac::server_disposeMatch, MatchId));
 					Slot[i].SlotStatus = SlotStatus::Open;
 				}
 				Slot[i].CurrentMods = 0;

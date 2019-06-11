@@ -1058,7 +1058,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			return;
 		}		
 				
-		if (!FailTime && !Quit){
+		if (u->privileges & UserPublic && !FailTime && !Quit){
 			byte lGameMode = sData.GameMode;
 
 			if (sData.Mods & Relax)lGameMode += 4;
@@ -1073,7 +1073,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			}
 			float PP = 0.f;
 			float MapStars = 0.f;
-			if (u->privileges & UserPublic && BD->RankStatus >= RANKED){
+			if (BD->RankStatus >= RANKED){
 				ezpp_t ez = ezpp_new();
 
 				if (!ez) {

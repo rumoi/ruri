@@ -121,7 +121,7 @@ enum Mods
 
 #define CHO_VERSION 19
 
-const int PING_TIMEOUT_OSU = 50000;
+const int PING_TIMEOUT_OSU = 80000;//yes thanks peppy
 
 //const int PING_INTERVAL_OSU = 24000;
 
@@ -299,6 +299,18 @@ constexpr size_t _strlen_(const char* s)noexcept{
 \
 		return 1;\
 	}()
+#define MEM_CMP_OFF(VECT, STR, OFF)\
+	[&]()->bool{\
+		const char*const rS = STR;\
+		const size_t rS_Size = _strlen_(rS);\
+		if(rS_Size + OFF > VECT.size())return 0;\
+\
+		for(size_t ii=0; ii < rS_Size;ii++)\
+			if(rS[ii] != VECT[OFF + ii])return 0;\
+\
+		return 1;\
+	}()
+
 
 #define LOAD_FILE(FILENAME)													\
 	[](const std::string& Filename){										\
@@ -454,18 +466,18 @@ DWORD GetRank(const DWORD UserID, const DWORD GameMode){//Could use the cached p
 
 	RankUpdate[GameMode].lock_shared();
 
-	for (DWORD i = 0; i < RankList[GameMode].size(); i++) {
+	DWORD Rank = 0;
 
+	for (DWORD i = 0; i < RankList[GameMode].size(); i++){
 		if (RankList[GameMode][i].ID == UserID){
-			RankUpdate[GameMode].unlock_shared();
-			return i + 1;
+			Rank = i + 1;
+			break;
 		}
-
 	}
 
 	RankUpdate[GameMode].unlock_shared();
 
-	return 0;
+	return Rank;
 }
 
 void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
@@ -493,7 +505,6 @@ void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
 
 	if (Direction == 1 || Direction == 2){
 
-		//const auto Sort = [](const _RankList &i, const _RankList &j){return (i.PP > j.PP); };
 		DWORD NewPos = 0;
 		if (Direction == 1){
 			if (OrigPos){
@@ -518,6 +529,7 @@ void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
 						break;
 					}
 			}else NewPos = cRankList.size() - 1;
+
 			if (!NewPos)
 				NewPos = cRankList.size() - 1;
 
@@ -526,9 +538,17 @@ void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
 				cRankList[NewPos] = n;
 				RankListVersion[GameMode]++;
 			}else cRankList[OrigPos] = n;
+
+			for (DWORD i = cRankList.size(); i > 0; i--){//Pop off 0 pp players
+				if (cRankList[i - 1].PP)break;
+				cRankList.pop_back();
+			}
+
 		}
-	}else if (Direction == 0) {
-		//TODO add insertion
+	}else if (Direction == 0 && PP){//User is not currently in the rank cache.
+		cRankList.push_back(n);
+		std::sort(cRankList.begin(), cRankList.end(), [](const _RankList &i, const _RankList &j) {return (i.PP > j.PP); });//I am lazy.
+		RankListVersion[GameMode]++;
 	}
 	RankUpdate[GameMode].unlock();
 	printf("Updated ranks gm:%i\n",GameMode);
@@ -614,14 +634,6 @@ __forceinline void AddString(std::vector<byte> &v, const std::string &Value) {
 		v.resize(v.size() + Size);
 		memcpy(&v[v.size() - Size], &Value[0], Size);
 }
-__forceinline void AddInvisString(std::vector<byte> &v){
-	v.push_back(0xb);
-	v.push_back(2);
-	v.push_back(0x12);
-	v.push_back(0x12);
-}
-
-
 
 struct _BanchoPacket {
 	short Type;
@@ -678,10 +690,9 @@ struct _BanchoPacket {
 		Type = ID;
 		Compression = 0;
 	}
-	_BanchoPacket(const short ID, const std::vector<byte> &v) {
+	_BanchoPacket(const short ID, const std::vector<byte> &v): Data(v){
 		Type = ID;
 		Compression = 0;
-		Data = v;
 	}
 	_BanchoPacket(const short ID, const DWORD vSize) {
 		Type = ID;
@@ -944,7 +955,7 @@ struct _User {
 	std::mutex qLock;
 	std::string c1Check;
 
-	__forceinline DWORD GetStatsOffset()const{
+	DWORD GetStatsOffset()const{
 
 		if (GameMode > 3)return 3;
 		
@@ -953,7 +964,7 @@ struct _User {
 		return GameMode;
 	}
 
-	void SendToSpecs(const _BanchoPacket b, int Privs) {
+	void SendToSpecs(const _BanchoPacket &b) {
 
 		SpecLock.lock();
 
@@ -961,7 +972,7 @@ struct _User {
 
 			_User* Spec = Spectators[i];
 
-			if (Spec && Spec->privileges & Privs)
+			if (Spec)
 				Spec->addQue(b);		
 		}
 
@@ -1048,14 +1059,14 @@ struct _User {
 		c1Check.clear();
 	}
 
-	void addQue(const _BanchoPacket b) {
+	void addQue(const _BanchoPacket &b) {
 		if (b.Type == NULL_PACKET || !choToken)return;
 
 		qLock.lock();
 		if(choToken)Que.push_back(b);
 		qLock.unlock();
 	}
-	void addQueDelay(const _DelayedBanchoPacket b) {
+	void addQueDelay(const _DelayedBanchoPacket &b) {
 
 		if (b.b.Type == NULL_PACKET || b.Time == 0 || !choToken)return;
 		
@@ -1064,20 +1075,18 @@ struct _User {
 		qLock.unlock();
 	}
 
-	void addQueNonLocking(const _BanchoPacket b) {
+	void addQueNonLocking(const _BanchoPacket &b) {
 
 		if (b.Type == NULL_PACKET || !choToken)return;
 		Que.push_back(b);
 	}
-	void addQueDelayNonLocking(const _DelayedBanchoPacket b) {
+	void addQueDelayNonLocking(const _DelayedBanchoPacket &b) {
 
 		if (b.b.Type == NULL_PACKET || b.Time == 0 || !choToken)return;
 		dQue.push_back(b);
 	}
 
 	void doQue(_Con s){
-
-		_Timer Timer("doQue");
 
 		if (Que.size() == 0 && dQue.size() == 0){
 		FEEDALIVE:
@@ -1177,10 +1186,8 @@ _User* GetUserFromID(DWORD ID) {
 	if (int(ID) <= 0)return 0;
 
 	for (DWORD i = 0; i < MAX_USER_COUNT; i++)
-		if (User[i].UserID == ID){
-
+		if (User[i].UserID == ID)
 			return &User[i];
-		}
 
 	return 0;
 }
@@ -1273,6 +1280,25 @@ namespace bPacket {
 
 #include "Channel.h"
 
+
+const _BanchoPacket BOT_STATS = [] {
+	_BanchoPacket b(OPac::server_userStats);
+	AddInt(b.Data, 999);
+	b.Data.push_back(0);//actionID
+	AddString(b.Data, "");//actiontext
+	AddString(b.Data, "");//md5
+	AddInt(b.Data, 0);//mods
+	b.Data.push_back(0);//gamemode
+	AddInt(b.Data, 0);//beatmapid
+	AddLong(b.Data, 0);//rankedscore
+	AddInt(b.Data, 0);//acc
+	AddInt(b.Data, 0);//playcount
+	AddLong(b.Data, 0);//total score
+	AddInt(b.Data, 0);//gamerank
+	AddShort(b.Data, 0);//pp
+	return b;
+}();
+
 namespace bPacket {
 
 	__forceinline _BanchoPacket Notification(const std::string &Mes) {
@@ -1304,14 +1330,16 @@ namespace bPacket {
 		return b;
 	}
 
-	__forceinline _BanchoPacket GenericInt32(short ID, const int Value) {
+#define bPacket4Byte(ID, VALUE)[&]()->const _BanchoPacket{_BanchoPacket b(ID,{0,0,0,0});*(DWORD*)&b.Data[0] = VALUE;return b;}()
+
+	/*__forceinline _BanchoPacket GenericInt32(short ID, const int Value) {
 
 		_BanchoPacket b(ID);
 
 		AddInt(b.Data, Value);
 
 		return b;
-	}
+	}*/
 	__forceinline _BanchoPacket RawData(short ID, const byte* Value, const DWORD Size) {
 
 		_BanchoPacket b(ID);
@@ -1424,42 +1452,70 @@ namespace bPacket {
 		return b;
 	}
 
-	__forceinline _BanchoPacket UserStats(const DWORD UserID, const DWORD AskerID) {
+#define USER_STATS(UID, AID)\
+	[](const DWORD UserID, const DWORD AskerID)->const _BanchoPacket{\
+		if (UserID == 999)return BOT_STATS;\
+		if(UserID < 999){\
+			_BanchoPacket b = BOT_STATS;\
+			*(DWORD*)&b.Data[0] = UserID;\
+			return b;\
+		}\
+		_User *const tP = GetUserFromID(UserID);\
+		if (!tP || !tP->choToken || (!(tP->privileges & UserPublic) && UserID != AskerID))\
+			return bPacket4Byte(OPac::server_userLogout, UserID);\
+		const DWORD Off = tP->GetStatsOffset();\
+\
+		_BanchoPacket b(OPac::server_userStats);\
+		b.Data.reserve(128);\
+		AddInt(b.Data, UserID);\
+		b.Data.push_back(tP->actionID);\
+\
+		AddString(b.Data, tP->ActionText);\
+		if (tP->ActionMD5[0] == 0)AddString(b.Data, "");\
+		else AddString(b.Data, std::string(tP->ActionMD5, 32));\
+\
+		AddInt(b.Data, tP->actionMods);\
+		b.Data.push_back(tP->GameMode);\
+		AddInt(b.Data, tP->BeatmapID);\
+		AddLong(b.Data, tP->Stats[Off].rScore);\
+		AddInt(b.Data, *(int*)&tP->Stats[Off].Acc);\
+		AddInt(b.Data, (tP->Stats[Off].pp > USHORT(-1)) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount);\
+		AddLong(b.Data, tP->Stats[Off].tScore);\
+		AddInt(b.Data, tP->Stats[Off].getRank(Off, tP->UserID));\
+		AddShort(b.Data, USHORT(tP->Stats[Off].pp));\
+\
+		return b;\
+	}(UID,AID)
+
+	/*
+	_BanchoPacket UserStats(const DWORD UserID, const DWORD AskerID) {
 
 		if (UserID < 1000){//Hard Coded bot stats
 
-			_BanchoPacket b(OPac::server_userStats);
+			if (UserID == 999)
+				return BOT_STATS;
 
-			AddInt(b.Data, UserID);
-			b.Data.push_back(0);//actionID
-			AddString(b.Data, "");//actiontext
-			AddString(b.Data, "");//md5
-			AddInt(b.Data, 0);//mods
-			b.Data.push_back(0);//gamemode
-			AddInt(b.Data, 0);//beatmapid
-			AddLong(b.Data, 0);//rankedscore
-			AddInt(b.Data, 0);//acc
-			AddInt(b.Data, 0);//playcount
-			AddLong(b.Data, 0);//total score
-			AddInt(b.Data, 0);//gamerank
-			AddShort(b.Data, 0);//pp
-
-			return b;
+			_BanchoPacket b = BOT_STATS;\
+			*(DWORD*)&b.Data[0] = UserID;\
+			return b;\
 		}
 
-		_User *tP = GetUserFromID(UserID);
+		_User *const tP = GetUserFromID(UserID);
 
-		if (!tP || !tP->choToken || (!(tP->privileges & UserPublic) && UserID != AskerID))return bPacket::GenericInt32(OPac::server_userLogout,UserID);
+		if (!tP || !tP->choToken || (!(tP->privileges & UserPublic) && UserID != AskerID))
+			return bPacket4Byte(OPac::server_userLogout,UserID);
 
-		_BanchoPacket b(OPac::server_userStats);
+		_BanchoPacket b(OPac::server_userStats, 128);
 
 		const DWORD Off = tP->GetStatsOffset();
 
 		AddInt(b.Data, UserID);
 		b.Data.push_back(tP->actionID);
+
 		AddString(b.Data, tP->ActionText);
 		if (tP->ActionMD5[0] == 0)AddString(b.Data, "");
 		else AddString(b.Data, std::string(tP->ActionMD5, 32));
+
 		AddInt(b.Data, tP->actionMods);
 		b.Data.push_back(tP->GameMode);
 		AddInt(b.Data, tP->BeatmapID);
@@ -1471,18 +1527,17 @@ namespace bPacket {
 		AddShort(b.Data, USHORT(tP->Stats[Off].pp));
 
 		return b;
-	}
+	}*/
 
-	__forceinline _BanchoPacket UserStats(_User *tP){
+	__forceinline _BanchoPacket UserStats(_User *tP) {
 
-		if (!tP)return erPacket;
+		if (!tP || !tP->choToken || !(tP->privileges & UserPublic))
+			return bPacket4Byte(OPac::server_userLogout, tP->UserID);
 
-		if (!tP->choToken || (!(tP->privileges & UserPublic)))
-			return bPacket::GenericInt32(OPac::server_userLogout, tP->UserID);
-		
 		const DWORD Off = tP->GetStatsOffset();
 
 		_BanchoPacket b(OPac::server_userStats);
+		b.Data.reserve(128);
 
 		AddInt(b.Data, tP->UserID);
 		b.Data.push_back(tP->actionID);
@@ -1496,7 +1551,7 @@ namespace bPacket {
 		AddInt(b.Data, *(int*)&tP->Stats[Off].Acc);
 		AddInt(b.Data, (tP->Stats[Off].pp > USHORT(-1)) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount);
 		AddLong(b.Data, tP->Stats[Off].tScore);
-		AddInt(b.Data, tP->Stats[Off].getRank(Off,tP->UserID));
+		AddInt(b.Data, tP->Stats[Off].getRank(Off, tP->UserID));
 		AddShort(b.Data, USHORT(tP->Stats[Off].pp));
 
 		return b;
@@ -1512,8 +1567,8 @@ void debug_SendOnlineToAll(_User *p) {
 
 	if (!(p->privileges & UserPublic))return;//Do not even care about restricted users for now.
 
-	_BanchoPacket Panel = bPacket::UserPanel(p->UserID, 0);
-	_BanchoPacket Stats = bPacket::UserStats(p->UserID, 0);
+	const _BanchoPacket Panel = bPacket::UserPanel(p->UserID, 0);
+	const _BanchoPacket Stats = USER_STATS(p->UserID, 0);
 
 	for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
 
@@ -1547,7 +1602,7 @@ void Event_client_stopSpectating(_User *tP){
 
 	bool AllEmptySpecs = 1;
 
-	const _BanchoPacket b = bPacket::GenericInt32(OPac::server_fellowSpectatorLeft, tP->UserID);
+	const _BanchoPacket b = bPacket4Byte(OPac::server_fellowSpectatorLeft, tP->UserID);
 
 	for (DWORD i = 0; i < SpecTarget->Spectators.size(); i++){
 
@@ -1563,7 +1618,7 @@ void Event_client_stopSpectating(_User *tP){
 
 	SpecTarget->SpecLock.unlock();
 
-	SpecTarget->addQue(bPacket::GenericInt32(OPac::server_spectatorLeft, tP->UserID));
+	SpecTarget->addQue(bPacket4Byte(OPac::server_spectatorLeft, tP->UserID));
 
 	if (AllEmptySpecs)
 		SpecTarget->addQue(bPacket::GenericString(OPac::server_channelKicked,"#spectator"));
@@ -1578,9 +1633,9 @@ void Event_client_cantSpectate(_User *tP) {
 	if (!SpecHost)
 		return;
 
-	const _BanchoPacket b = bPacket::GenericInt32(OPac::server_spectatorCantSpectate, tP->UserID);
-	SpecHost->SendToSpecs(b, Privileges::UserPublic);
-	SpecHost->addQue(b);
+	const _BanchoPacket b = bPacket4Byte(OPac::server_spectatorCantSpectate, tP->UserID);
+	SpecHost->SendToSpecs(b);
+	SpecHost->addQue(std::move(b));
 }
 
 DWORD COUNT_REQUESTS = 0;
@@ -1688,12 +1743,7 @@ void Event_client_userStatsRequest(_User *tP, const byte* const Packet, const DW
 
 		const DWORD UID = *(DWORD*)&Packet[2 + (i << 2)];
 
-		_BanchoPacket b = bPacket::UserStats(UID,tP->UserID);
-
-		if (b.Type == NULL_PACKET)continue;
-
-		tP->addQueNonLocking(b);
-
+		tP->addQueNonLocking(USER_STATS(UID, tP->UserID));
 	}
 	tP->qLock.unlock();
 
@@ -1852,64 +1902,6 @@ __forceinline bool WriteAllBytes(const std::string &filename, const void* data, 
 	return 1;
 }
 
-/*
-std::string UnChunk(std::string ps) {
-
-	auto uChunk = [](std::string &rp){ \
-		if (rp.size() == 0)return rp; \
-		std::string p; p.reserve(rp.size()); \
-		DWORD Start = rp.find("\r\n\r\n"); \
-		if (Start == std::string::npos) { rp.clear();  return rp; } \
-		for (DWORD i = Start + 4; i < rp.size(); i++) { \
-			Start = i;while (*(USHORT*)&rp[i] != *(USHORT*)"\r\n")i++; \
-			DWORD ChunkSize = 0; \
-			for (DWORD z = Start; z < i; z++){ChunkSize = ChunkSize << 4;ChunkSize += CharHexToDecimal(rp[z]);} \
-			if (ChunkSize == 0)break; i += 2; \
-			if (ChunkSize + i > rp.size()) { rp.clear();  return rp; }; \
-			p.resize(p.size() + ChunkSize);memcpy(&p[p.size() - ChunkSize], &rp[i], ChunkSize); \
-			i += ChunkSize + 1; \
-		} \
-		rp = std::move(p); \
-		return rp;}; \
-	uChunk(GET_WEB(Chunk_Host, Chunk_Page));
-
-	if (S.size() == 0)return "";
-
-	std::string Ret;Ret.reserve(S.size());
-
-	DWORD Start = S.find("\r\n\r\n");
-
-	if (Start == std::string::npos)return std::string("");
-	
-	for (DWORD i = Start + 4; i < S.size(); i++){
-		//Read header hex
-		Start = i;
-		while (*(USHORT*)&S[i] != *(USHORT*)"\r\n")
-			i++;
-
-		DWORD ChunkSize = 0;
-
-		for (DWORD z = Start; z < i; z++) {
-			ChunkSize = ChunkSize << 4;
-			ChunkSize += CharHexToDecimal(S[z]);
-		}
-		if (ChunkSize == 0)break;
-		i += 2;
-
-		if (ChunkSize + i > S.size())
-			return S.clear();
-
-		//Copy data
-		Ret.resize(Ret.size() + ChunkSize);
-		memcpy(&Ret[Ret.size() - ChunkSize], &S[i], ChunkSize);
-
-		i += ChunkSize + 1;
-	}
-
-	S = std::string();
-	S = Ret;
-}*/
-
 int getSetID_fHash(const std::string &H, _SQLCon* c){//Could combine getbeatmapid and getsetid into one
 
 	if (H.size() != 32)
@@ -2035,28 +2027,32 @@ void BotMessaged(_User *tP, const std::string &const Message){
 
 	if (Message[0] == '!'){
 
-		DWORD Unused;
 
-		const std::string Res = ProcessCommand(tP, std::move(Message), Unused);
+		if (!MEM_CMP_START(Message, "!with") && !MEM_CMP_START(Message, "!acc")) {
 
-		if (Res.size())tP->addQue(bPacket::BotMessage(tP->Username, std::move(Res)));
+			DWORD Unused;
 
-		return;
+			const std::string Res = ProcessCommand(tP, std::move(Message), Unused);
+
+			if (Res.size())tP->addQue(bPacket::BotMessage(tP->Username, std::move(Res)));
+
+			return;
+		}
 	}
 
-	auto BotMessage = EXPLODE_VEC(std::string, Message, ' ');
+	const auto BotMessage = EXPLODE_VEC(std::string, Message, ' ');
+	
+	if (BotMessage.size() < 2)
+		return;
 
 	int mapID = 0;
 	int Mods = 0;
 	float Acc = 0.f;
 	int Combo = 0;
 
-	if (BotMessage.size() < 2)
-		return;
-
 	if (BotMessage.size() >= 5) {
 
-		if (BotMessage[0] == "\x1""ACTION") {
+		if (BotMessage[0] == "\x1""ACTION"){
 
 			const DWORD BeatmapOffset = (BotMessage[2] == "listening") ? 4:3;
 
@@ -2080,52 +2076,30 @@ void BotMessaged(_User *tP, const std::string &const Message){
 
 		if (mapID){
 
-			for (DWORD i = BotMessage.size() - 1; i > 5; i--){
-				ReplaceAll(BotMessage[i], "\x1", "");
-				if (BotMessage[i] == "+DoubleTime"){
-					Mods |= DoubleTime;
-					continue;
-				}
-				if (BotMessage[i] == "+Nightcore") {
-					Mods |= DoubleTime;
-					continue;
-				}
-				if (BotMessage[i] == "+Hidden") {
-					Mods |= Hidden;
-					continue;
-				}
-				if (BotMessage[i] == "+HardRock") {
-					Mods |= HardRock;
-					continue;
-				}
-				if (BotMessage[i] == "+Flashlight") {
-					Mods |= Flashlight;
-					continue;
-				}
-				if (BotMessage[i] == "-SpunOut") {
-					Mods |= SpunOut;
-					continue;
-				}
-				if (BotMessage[i] == "-Easy") {
-					Mods |= Easy;
-					continue;
-				}
-				if (BotMessage[i] == "-NoFail") {
-					Mods |= NoFail;
-					continue;
-				}
-				if (BotMessage[i] == "-HalfTime") {
-					Mods |= HalfTime;
-					continue;
-				}
-				if (BotMessage[i] == "~Relax~") {
-					Mods |= Relax;
-					continue;
-				}
+			#define MODREAD(s) if(MEM_CMP_OFF(BotMessage[i],#s,1)){ Mods |= s;continue; }
 
-				break;
+			for (DWORD i = BotMessage.size() - 1; i > 5; i--){
+
+				if (BotMessage[i].size() <= 1)continue;
+
+				MODREAD(DoubleTime);
+				MODREAD(Nightcore);
+				MODREAD(Hidden);
+				MODREAD(HardRock);
+				MODREAD(Flashlight);
+				MODREAD(SpunOut);
+				MODREAD(Easy);
+				MODREAD(NoFail);
+				MODREAD(HalfTime);
+				MODREAD(Relax);
+
 			}
 
+			if (Mods & Nightcore)
+				Mods |= DoubleTime;
+
+
+			#undef MODREAD
 		}
 
 	}
@@ -2133,7 +2107,7 @@ void BotMessaged(_User *tP, const std::string &const Message){
 	if (!mapID){
 		if (BotMessage.size() >= 2){
 
-			if (BotMessage[0] == "!mods" || BotMessage[0] == "!acc")
+			if (BotMessage[0] == "!acc")
 				return tP->addQue(bPacket::BotMessage(tP->Username, "This is now in !with. Here are some examples of the usage.\n!with HDDT 95\n!with 98.5 HD HR"));
 
 			if (BotMessage[0] == "!with"){
@@ -2200,8 +2174,7 @@ WITHMODS:
 
 	ezpp_t ez = ezpp_new();
 
-	if (!ez)
-		return;
+	if (!ez)return;
 
 	tP->addQue(bPacket::BotMessage(tP->Username, [&]()->std::string{
 		ezpp_set_mods(ez, Mods);
@@ -2236,7 +2209,7 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size + 1;
 
-	const std::string Sender = ReadUleb(O, End);
+	/*const std::string Sender = */ReadUleb(O, End);
 	const std::string Message = ReadUleb(O, End);
 	const std::string Target = ReadUleb(O, End);
 
@@ -2251,9 +2224,9 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 	_User* u = GetUserFromName(Target);
 
 	if (!u)
-		tP->addQue(bPacket::GenericInt32(OPac::server_userLogout, ID));
+		tP->addQue(bPacket4Byte(OPac::server_userLogout, ID));
 	else 
-		u->addQue(bPacket::Message(tP->Username, Target.c_str(), Message.c_str(), tP->UserID));
+		u->addQue(bPacket::Message(tP->Username, Target, Message, tP->UserID));
 
 }
 
@@ -2264,7 +2237,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size + 1;
 
-	const std::string Sender = ReadUleb(O, End);
+	/*const std::string Sender = */ReadUleb(O, End);
 	const std::string Message = TRIMSTRING(ReadUleb(O, End));
 	const std::string Target = ReadUleb(O, End);
 
@@ -2372,7 +2345,7 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 
 	tP->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess,"#spectator"));
 
-	const _BanchoPacket b = bPacket::GenericInt32(OPac::server_fellowSpectatorJoined, tP->UserID);
+	const _BanchoPacket b = bPacket4Byte(OPac::server_fellowSpectatorJoined, tP->UserID);
 	
 	SpecTarget->SpecLock.lock();
 
@@ -2385,7 +2358,7 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 
 		if (fSpec && fSpec != tP){
 			fSpec->addQue(b);
-			tP->addQue(bPacket::GenericInt32(OPac::server_fellowSpectatorJoined, fSpec->UserID));
+			tP->addQue(bPacket4Byte(OPac::server_fellowSpectatorJoined, fSpec->UserID));
 		}
 		if (!fSpec && Add) {
 			Add = 0;
@@ -2402,7 +2375,7 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 
 	SpecTarget->addQueNonLocking(bPacket::UserPanel(tP));
 	SpecTarget->addQueNonLocking(bPacket::UserStats(tP));
-	SpecTarget->addQueNonLocking(bPacket::GenericInt32(OPac::server_spectatorJoined, tP->UserID));
+	SpecTarget->addQueNonLocking(bPacket4Byte(OPac::server_spectatorJoined, tP->UserID));
 
 	SpecTarget->qLock.unlock();
 
@@ -2684,13 +2657,13 @@ void Event_client_matchChangeSettings(_User *tP, const byte* const Packet, const
 		return;
 	}
 
-	byte PreviousFree = m->Settings.FreeMod;
-	int PreviousBeatmapID = m->Settings.BeatmapID;
-	int PreviousMods = m->Settings.Mods;
+	const byte PreviousFree = m->Settings.FreeMod;
+	const int PreviousBeatmapID = m->Settings.BeatmapID;
+	const int PreviousMods = m->Settings.Mods;
 
-	byte pMatchType = m->Settings.MatchType;
-	byte pScoringType = m->Settings.ScoringType;
-	byte pTeamType = m->Settings.TeamType;
+	const byte pMatchType = m->Settings.MatchType;
+	const byte pScoringType = m->Settings.ScoringType;
+	const byte pTeamType = m->Settings.TeamType;
 
 	ReadMatchData(m, Packet,Size, 1);
 
@@ -2914,7 +2887,7 @@ void Event_client_joinMatch(_User *tP, const byte* const Packet, const DWORD Siz
 		}	
 		m->Lock.unlock();
 	}
-	else tP->addQueNonLocking(bPacket::GenericInt32(OPac::server_disposeMatch, MatchID));// could be a disbanded match - send this to clear it out.
+	else tP->addQueNonLocking(bPacket4Byte(OPac::server_disposeMatch, MatchID));// could be a disbanded match - send this to clear it out.
 	
 	if (Failed)
 		tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));
@@ -3220,7 +3193,7 @@ void Event_client_matchFailed(_User *tP) {
 
 	for (DWORD i = 0; i < 16; i++){
 		if (m->Slot[i].User == tP){
-			m->sendUpdate(bPacket::GenericInt32(OPac::server_matchPlayerFailed,i));
+			m->sendUpdate(bPacket4Byte(OPac::server_matchPlayerFailed,i));
 			break;
 		}
 	}	
@@ -3240,7 +3213,7 @@ void Event_client_matchSkipRequest(_User* tP) {
 	for (DWORD i = 0; i < 16; i++){
 		if (m->Slot[i].User == tP){
 			m->Slot[i].Skipped = 1;
-			m->sendUpdate(bPacket::GenericInt32(OPac::server_matchPlayerSkipped, i));
+			m->sendUpdate(bPacket4Byte(OPac::server_matchPlayerSkipped, i));
 			break;
 		}
 	}
@@ -3298,7 +3271,7 @@ __forceinline void debug_LogOutUser(_User *tP){
 
 	if (!UID)return;
 
-	const _BanchoPacket b = bPacket::GenericInt32(OPac::server_userLogout, UID);
+	const _BanchoPacket b = bPacket4Byte(OPac::server_userLogout, UID);
 
 	for(DWORD i = 0; i < MAX_USER_COUNT; i++){
 		if (!User[i].choToken)continue;
@@ -3382,7 +3355,7 @@ void Event_client_requestStatusUpdate(_User *const tP){
 
 void DoBanchoPacket(_Con s,const uint64_t choToken,std::vector<byte> &PacketBundle){
 
-	_User *tP = GetUserFromToken(choToken);
+	_User *const tP = GetUserFromToken(choToken);
 
 	if (!tP || !tP->UserID){//No user online with that token
 		
@@ -3413,6 +3386,8 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,std::vector<byte> &PacketBund
 
 		const byte* const Packet = (byte*)&PacketBundle[In];
 		In += PacketSize;
+
+		//std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
 
 		switch (PacketID){
 			
@@ -3540,22 +3515,31 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,std::vector<byte> &PacketBund
 		case client_matchScoreUpdate:
 			Event_client_matchScoreUpdate(tP, Packet, PacketSize);
 			break;
+
 		case client_matchComplete:
 			Event_client_matchComplete(tP);
 			break;
+
 		case client_matchFailed:
 			Event_client_matchFailed(tP);
 			break;
+
 		case client_matchSkipRequest:
 			Event_client_matchSkipRequest(tP);
 			break;
+
 		case client_invite:
 			Event_client_invite(tP, Packet, PacketSize);
 			break;
+
 		default:
 			printf("PacketID:%i | Length:%i\n", PacketID, PacketSize);
 			break;
 		}
+
+		//const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+		//printf("P%i: %fms\n", PacketID, double(double(TTime) / 1000000.0));
+
 
 	}
 
@@ -3742,7 +3726,6 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 		//chan_DevLog.Bot_SendMessage(Username);
 
 		{
-
 			if (!u){
 				u = GetPlayerSlot(Username);
 				if (!u)goto SERVERFULL;				
@@ -3776,21 +3759,23 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 			if (Username != GetUsernameFromCache(UserID))
 				UsernameCacheUpdateName(UserID, Username, &SQL_BanchoThread[s.ID]);
-
-
-			u->Username = Username;
-			u->Username_Safe = Username_Safe;
+			
+			u->Username = std::move(Username);
+			u->Username_Safe = std::move(Username_Safe);
 			memcpy(u->Password, &cPassword[0], 32);
 
-			u->addQueNonLocking(bPacket::Notification("Welcome to ruri."));
-			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_silenceEnd, 0));
-			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_userID, UserID));
-			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_protocolVersion, CHO_VERSION));
-			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_supporterGMT, Supporter));
+			u->addQueNonLocking(bPacket::Notification("Welcome to ruri.\nBuild: " __DATE__ " " __TIME__));
+			u->addQueNonLocking(bPacket4Byte(OPac::server_silenceEnd, 0));
+			u->addQueNonLocking(bPacket4Byte(OPac::server_userID, UserID));
+			u->addQueNonLocking(bPacket4Byte(OPac::server_protocolVersion, CHO_VERSION));
+			u->addQueNonLocking(bPacket4Byte(OPac::server_supporterGMT, Supporter));
 			u->addQueNonLocking(bPacket::UserPanel(u));
 			u->addQueNonLocking(bPacket::UserStats(u));
 			
 			const int IRC_LEVEL = GetMaxPerm(u->privileges);
+
+
+			u->addQueNonLocking(bPacket4Byte(OPac::server_channelInfoEnd, 0));
 
 			for (DWORD i = 0; i < ChannelList.size(); i++) {
 
@@ -3806,7 +3791,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 			u->addQueNonLocking(bPacket::GenericString(OPac::server_channelKicked, "#osu"));
 
-			u->addQueNonLocking(bPacket::GenericInt32(OPac::server_channelInfoEnd, 0));
+			//u->addQueNonLocking(bPacket4Byte(OPac::server_channelInfoEnd, 0)); Seems to reorder channels in a *stupid* way.
 
 			std::vector<DWORD> FriendsList;
 			FriendsList.reserve(256);
@@ -3821,12 +3806,13 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			u->addQueNonLocking(bPacket::GenericDWORDList(OPac::server_friendsList, FriendsList, 0));
 
 			u->addQueNonLocking(bPacket::UserPanel(999, 0));
-			u->addQueNonLocking(bPacket::UserStats(999, 0));
+			u->addQueNonLocking(USER_STATS(999, 0));
+
 
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++){
 				if (!User[i].choToken || &User[i] == u)continue;				
 				u->addQueNonLocking(bPacket::UserPanel(User[i].UserID, UserID));
-				u->addQueNonLocking(bPacket::UserStats(User[i].UserID, UserID));
+				u->addQueNonLocking(USER_STATS(User[i].UserID, UserID));
 			}
 
 			u->SendToken = 1;
@@ -3841,8 +3827,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 		return;
 	}
 	else DoBanchoPacket(s,choToken,res.Body);
-
-
+	
 
 	return;
 
@@ -3924,7 +3909,7 @@ void LazyThread(){
 
 	while (1){
 
-		Sleep(250);
+		Sleep(500);
 
 		const int cTime = clock();
 		
@@ -3935,7 +3920,7 @@ void LazyThread(){
 				debug_LogOutUser(&User[i]);
 			}
 		}
-		Sleep(250);
+		Sleep(500);
 
 		DWORD ActiveLobbies = 0;
 
