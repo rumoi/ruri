@@ -135,10 +135,7 @@ void RecalcSingleUserPP(const DWORD ID, _SQLCon &SQL){//This is relatively expen
 		UpdateUserStatsFromDB(&SQL, ID, Mode, blank);
 		printf("TotalEndPP: %i\n", blank.pp);		
 	}
-
 	ezpp_free(ez);
-
-
 }
 
 void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
@@ -401,6 +398,28 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 		return "";
 	}
+	if (Split[0] == "!silence") {
+
+		if (!(Priv & Privileges::AdminSilenceUsers))
+			goto INSUFFICIENTPRIV;
+		
+		if (Split.size() != 3)
+			return "!silence <username> <time>";
+
+		_User *const t = GetUserFromNameSafe(REMOVEQUOTES(USERNAMESAFE(std::string(Split[1]))));
+
+		if (!t)
+			return "User not found.";
+
+		const int Length = StringToUInt32(Split[2]);
+
+		t->silence_end = time(0) + Length;
+		t->addQue(bPacket4Byte(OPac::server_silenceEnd, Length));
+
+		SQLExecQue.AddQue("UPDATE users SET silence_end = " + std::to_string(t->silence_end) + " WHERE id = " + std::to_string(t->UserID));
+
+		return "User has been silenced";
+	}
 
 	if (Split[0] == "!cbomb") {
 
@@ -440,11 +459,6 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 		u->choToken = GenerateChoToken();
 		return "";
 	}
-
-	//search hard coded commands
-
-	//command look up table search loaded from script files
-
 	return "That is not a command.";
 INSUFFICIENTPRIV:return "You are not allowed to use that command.";
 

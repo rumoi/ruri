@@ -459,6 +459,19 @@ struct _RankList {
 DWORD RankListVersion[] = { 1,1,1,1,1,1,1,1 };
 std::shared_mutex RankUpdate[8];
 
+struct _SQLQue{
+	std::mutex Lock;
+	std::vector<std::string> Commands;
+
+	void AddQue(const std::string&s){
+
+		std::lock_guard<std::mutex> l(Lock);
+
+		Commands.push_back(s);
+	}
+
+}; _SQLQue SQLExecQue;
+
 
 DWORD GetRank(const DWORD UserID, const DWORD GameMode){//Could use the cached pp to tell around where its supposed to be?
 
@@ -910,7 +923,7 @@ struct _User {
 	uint64_t choToken;
 	DWORD UserID;
 	DWORD privileges;
-
+	int silence_end;
 	std::string Username;
 	std::string Username_Safe;
 	char Password[32];//Could be half the size but who cares
@@ -990,6 +1003,10 @@ struct _User {
 		return 0;
 	}
 
+	bool isSilenced()const{
+		return silence_end ? (time(0) <= silence_end) : 0;
+	}
+
 	_User(){
 
 		TotalDelta = 0; Delta = 0;
@@ -1022,6 +1039,7 @@ struct _User {
 		HyperMode = 0;
 		LastSentBeatmap = 0;
 		ZeroMemory(&Friends[0], 256 << 2);
+		silence_end = 0;
 	}
 	void reset() {
 
@@ -1057,6 +1075,7 @@ struct _User {
 		//Menu = _Menu();
 		ZeroMemory(&Friends[0], 256 << 2);
 		c1Check.clear();
+		silence_end = 0;
 	}
 
 	void addQue(const _BanchoPacket &b) {
@@ -1330,16 +1349,8 @@ namespace bPacket {
 		return b;
 	}
 
-#define bPacket4Byte(ID, VALUE)[&]()->const _BanchoPacket{_BanchoPacket b(ID,{0,0,0,0});*(DWORD*)&b.Data[0] = VALUE;return b;}()
+	#define bPacket4Byte(ID, VALUE)[&]()->const _BanchoPacket{_BanchoPacket b(ID,{0,0,0,0});*(DWORD*)&b.Data[0] = VALUE;return b;}()
 
-	/*__forceinline _BanchoPacket GenericInt32(short ID, const int Value) {
-
-		_BanchoPacket b(ID);
-
-		AddInt(b.Data, Value);
-
-		return b;
-	}*/
 	__forceinline _BanchoPacket RawData(short ID, const byte* Value, const DWORD Size) {
 
 		_BanchoPacket b(ID);
@@ -2204,7 +2215,7 @@ WITHMODS:
 
 void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const DWORD Size){
 
-	if (Size < 7)return;
+	if (Size < 7 || tP->isSilenced())return;
 
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size + 1;
@@ -2232,7 +2243,7 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 
 void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const DWORD Size) {
 
-	if (Size < 7)return;
+	if (Size < 7 || tP->isSilenced())return;
 
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size + 1;
@@ -3652,16 +3663,18 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 		int UserID = 0;
 		int Priv = 0;
+		int SilenceEnd = 0;
 		if (u && u->Password[0] != 0 && MD5CMP(u->Password, &cPassword[0])){
 			UserID = u->UserID;
 			Priv = u->privileges;//TODO make this able to be updated.
+			SilenceEnd = u->silence_end;
 			goto LOGGEDIN;
 		}
 
 		{
 			_SQLCon *const con = &SQL_BanchoThread[s.ID];
 
-			sql::ResultSet *res = con->ExecuteQuery("SELECT id, password_md5, username, privileges FROM users WHERE username_safe = '" + Username_Safe + "' LIMIT 1");
+			sql::ResultSet *res = con->ExecuteQuery("SELECT id, password_md5, username, privileges,silence_end FROM users WHERE username_safe = '" + Username_Safe + "' LIMIT 1");
 
 			if (!res || !res->next()){
 				if (res)delete res;
@@ -3681,7 +3694,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 			Username = res->getString(3);//get the database captialization for consistencies sake
 			Priv = res->getInt(4);
-
+			SilenceEnd = res->getInt(5);
 			const std::string TableName[] = {"users_stats","rx_stats"};
 
 			for (DWORD z = 0; z < 2; z++) {
@@ -3736,7 +3749,6 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			u->privileges = Priv;
 
 			u->c1Check = [&]()->std::string{
-
 				const auto cHash = EXPLODE_VEC(std::string, ClientData[3], ':');
 
 				if (cHash.size() < 5)return "";
@@ -3756,7 +3768,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			u->LoginTime = clock();
 			u->LastPacketTime = u->LoginTime;
 			u->UserID = UserID;
-
+			u->silence_end = SilenceEnd;
 			if (Username != GetUsernameFromCache(UserID))
 				UsernameCacheUpdateName(UserID, Username, &SQL_BanchoThread[s.ID]);
 			
@@ -3765,7 +3777,12 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			memcpy(u->Password, &cPassword[0], 32);
 
 			u->addQueNonLocking(bPacket::Notification("Welcome to ruri.\nBuild: " __DATE__ " " __TIME__));
-			u->addQueNonLocking(bPacket4Byte(OPac::server_silenceEnd, 0));
+
+			if(SilenceEnd && SilenceEnd > time(0))
+				u->addQueNonLocking(bPacket4Byte(OPac::server_silenceEnd, SilenceEnd - time(0)));
+			else
+				u->addQueNonLocking(bPacket4Byte(OPac::server_silenceEnd, 0));
+
 			u->addQueNonLocking(bPacket4Byte(OPac::server_userID, UserID));
 			u->addQueNonLocking(bPacket4Byte(OPac::server_protocolVersion, CHO_VERSION));
 			u->addQueNonLocking(bPacket4Byte(OPac::server_supporterGMT, Supporter));
@@ -3872,17 +3889,15 @@ void HandlePacket(_Con s){
 	bool Suc = s.RecvData(res);
 
 	if (!Suc){
-		s.close();
 		LogMessage(KRED "Connection lost");
-		return;
+		return s.close();;
 	}
-
 
 	const std::string UserAgent = res.GetHeaderValue("User-Agent");
 
 	const uint64_t choToken = StringToUInt64(res.GetHeaderValue("osu-token"));
 
-	if (!UserAgent.size()) {
+	if (!UserAgent.size()){
 		LogMessage("No user agent set.");
 
 		s.SendData(ConstructResponse(200, Empty_Headers,bPacket::Notification("If there is anything that seems wrong make sure to contact rumoi.").GetBytes()));
@@ -3892,13 +3907,13 @@ void HandlePacket(_Con s){
 	if (UserAgent != "osu!" && !choToken){//If it is not found
 		RenderHTMLPage(s,res);
 		LogMessage("HTML page served");
-		s.close();
-		return;
+
+		return s.close();
 	}
 
 	HandleBanchoPacket(s, res, choToken);
 
-	s.close();
+	return s.close();
 }
 
 #include "Aria.h"
@@ -3906,6 +3921,9 @@ void HandlePacket(_Con s){
 //Used to logout dropped users and other house keeping
 void LazyThread(){
 	printf("LazyThread running.\n");
+
+	_SQLCon lThreadSQL;
+	lThreadSQL.Connect();
 
 	while (1){
 
@@ -3929,6 +3947,17 @@ void LazyThread(){
 				ActiveLobbies++;
 
 		COUNT_MULTIPLAYER = ActiveLobbies;
+
+		if (SQLExecQue.Commands.size()) {
+			SQLExecQue.Lock.lock();
+
+			for (DWORD i = 0; i < SQLExecQue.Commands.size(); i++)
+				lThreadSQL.ExecuteUPDATE(SQLExecQue.Commands[i], 1);
+
+			SQLExecQue.Commands.clear();
+			SQLExecQue.Lock.unlock();
+		}
+
 
 	}
 }

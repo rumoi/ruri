@@ -44,7 +44,7 @@ const std::string ConstructResponse(const DWORD Code, const std::vector<_HttpHea
 	}();
 
 	for (DWORD i = 0; i < Headers.size(); i++)
-		Return += std::string(Headers[i].Text) + ": " + Headers[i].Value + MNL;//TODO: replace headers with std::string?
+		Return += Headers[i].Text + ": " + Headers[i].Value + MNL;//TODO: replace headers with std::string?
 	
 
 	Return += "Content-Length: " + std::to_string(Body.size()) + MNL + "Connection: close" + DMNL;
