@@ -10,10 +10,10 @@ struct _HttpHeader{
 	const std::string Text;
 	const std::string Value;
 
-
 	_HttpHeader(const std::string &Text,const std::string &Value): Text(Text),Value(Value){};
 
 };
+
 struct _HttpRes {
 	std::vector<byte> Body;
 	std::vector<byte> Host;
@@ -30,7 +30,6 @@ struct _HttpRes {
 
 };
 
-
 const std::string ConstructResponse(const DWORD Code, const std::vector<_HttpHeader> &Headers,const std::vector<byte> &Body){
 
 	std::string Return = [=]{
@@ -44,7 +43,7 @@ const std::string ConstructResponse(const DWORD Code, const std::vector<_HttpHea
 	}();
 
 	for (DWORD i = 0; i < Headers.size(); i++)
-		Return += Headers[i].Text + ": " + Headers[i].Value + MNL;//TODO: replace headers with std::string?
+		Return += Headers[i].Text + ": " + Headers[i].Value + MNL;
 	
 
 	Return += "Content-Length: " + std::to_string(Body.size()) + MNL + "Connection: close" + DMNL;

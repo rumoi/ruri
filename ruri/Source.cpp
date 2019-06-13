@@ -264,8 +264,6 @@ constexpr size_t _strlen_(const char* s)noexcept{
 }
 
 #define FastVByteAlloc(x)[&]{const char*const a = x; const std::vector<byte> b(a,a + _strlen_(a) + 1); return b;}()
-
-
 #define MemToData(TYPE, LOC,LEN)\
 	[](const size_t mem, const DWORD size)->TYPE{\
 		if(!mem || !size)return 0;\
@@ -287,6 +285,8 @@ constexpr size_t _strlen_(const char* s)noexcept{
 #define StringToInt32(s) MemToInt32(&s[0],s.size())
 #define StringToUInt32(s) MemToUInt32(&s[0],s.size())
 #define StringToUInt64(s) MemToUInt64(&s[0],s.size())
+
+#define DeleteAndNull(s)if(s)delete s;s=0;
 
 #define MEM_CMP_START(VECT, STR)\
 	[&]()->bool{\
@@ -312,7 +312,7 @@ constexpr size_t _strlen_(const char* s)noexcept{
 	}()
 
 
-#define LOAD_FILE(FILENAME)													\
+#define LOAD_FILE(FILENAME, NULLTERM)										\
 	[](const std::string& Filename){										\
 		std::ifstream file(Filename, std::ios::binary | std::ios::ate);		\
 		if (!file.is_open())												\
@@ -424,8 +424,10 @@ std::string GetUsernameFromCache(const DWORD UID){
 
 	return Res;
 }
-void UsernameCacheUpdateName(const DWORD UID, const std::string &s, _SQLCon *SQL) {
-	if (UID < 1000)return;
+void UsernameCacheUpdateName(const DWORD UID, const std::string &s, _SQLCon *SQL){
+
+	if (UID < 1000)
+		return;
 
 	UsernameCacheLock.lock_shared();
 
@@ -967,6 +969,7 @@ struct _User {
 	std::vector<_DelayedBanchoPacket> dQue;
 	std::mutex qLock;
 	std::string c1Check;
+	bool SlotLocked;
 
 	DWORD GetStatsOffset()const{
 
@@ -1040,6 +1043,7 @@ struct _User {
 		LastSentBeatmap = 0;
 		ZeroMemory(&Friends[0], 256 << 2);
 		silence_end = 0;
+		SlotLocked = 0;
 	}
 	void reset() {
 
@@ -1094,8 +1098,7 @@ struct _User {
 		qLock.unlock();
 	}
 
-	void addQueNonLocking(const _BanchoPacket &b) {
-
+	void addQueNonLocking(const _BanchoPacket &b){
 		if (b.Type == NULL_PACKET || !choToken)return;
 		Que.push_back(b);
 	}
@@ -1185,8 +1188,8 @@ _User *GetPlayerSlot(const std::string &UserName){
 
 	for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
 
-		if (User[i].choToken)continue;
-
+		if (User[i].choToken || User[i].SlotLocked)continue;
+		User[i].SlotLocked = 1;
 		User[i].reset();
 		LoginMutex.unlock();
 
@@ -3614,7 +3617,10 @@ const std::vector<byte> PACKET_CLIENTOUTOFDATE = [] {
 void BanchoIncorrectLogin(_Con s){
 	s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", "0") }, PACKET_INCORRECTLOGIN));
 }
-
+void BanchoServerFull(_Con s) {
+	LogError("Server Full");
+	s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", "0") }, PACKET_SERVERFULL));
+}
 
 void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
@@ -3637,68 +3643,76 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 		std::string Username = REMOVEQUOTES(std::string(LoginData[0]));
 		const std::string Username_Safe = USERNAMESAFE(std::string(Username.begin(),Username.end()));
 		const std::string cPassword = REMOVEQUOTES(std::string(LoginData[1]));
+
 		const auto ClientData = EXPLODE_VEC(std::string,LoginData[2],'|');
 
 		if (ClientData.size() != 5 || Username.size() > MAX_USERNAME_LENGTH || cPassword.size() != 32)
 			return BanchoIncorrectLogin(s);
 
-		{
-			const bool VersionFailed = [&]{
+		const bool VersionFailed = [&]{
 
-				if (ClientData[0].size() < 4)return 1;
+			const std::string &ClientVersion = ClientData[0];
 
-				for (size_t i = (size_t)&ClientData[0][0]; i < (size_t)&ClientData[0][ClientData[0].size() - 4]; i++)
+			const size_t Start = (size_t)&ClientVersion[0];
+			const size_t End = (size_t)&ClientVersion[ClientVersion.size()] - 4;
 
-					if (*(USHORT*)i == *(USHORT*)"20" && ((*(byte*)(i + 2) - '0') * 10) + (*(byte*)(i + 3) - '0') >= 19)
-						return 0;
+			for (size_t i = Start; i < End; i++)
+				if (*(USHORT*)i == *(USHORT*)"20" && MemToInt32(i, 4) >= 2019)
+					return 0;
+		
+			return 1;
+		}();
 
-				return 1;
-			}();
-
-			if(VersionFailed)
-				return (void)s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", "0") }, PACKET_CLIENTOUTOFDATE));
-		}
-
-		_User* u = GetUserFromNameSafe(Username_Safe,1);
-
+		if(VersionFailed)
+			return (void)s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", "0") }, PACKET_CLIENTOUTOFDATE));
+	
 		int UserID = 0;
 		int Priv = 0;
 		int SilenceEnd = 0;
-		if (u && u->Password[0] != 0 && MD5CMP(u->Password, &cPassword[0])){
+
+		_User* u = GetUserFromNameSafe(Username_Safe,1);
+				
+		if (u && MD5CMP(u->Password, &cPassword[0])){
 			UserID = u->UserID;
 			Priv = u->privileges;//TODO make this able to be updated.
 			SilenceEnd = u->silence_end;
-			goto LOGGEDIN;
-		}
+		}else u = 0;
 
-		{
+		if(!u){
+
 			_SQLCon *const con = &SQL_BanchoThread[s.ID];
 
 			sql::ResultSet *res = con->ExecuteQuery("SELECT id, password_md5, username, privileges,silence_end FROM users WHERE username_safe = '" + Username_Safe + "' LIMIT 1");
 
 			if (!res || !res->next()){
-				if (res)delete res;
+				DeleteAndNull(res);
 				return BanchoIncorrectLogin(s);
 			}
 
 			UserID = res->getInt(1);
 
-			std::string Password_Hash = res->getString(2);
-			
-			if (bcrypt_checkpw(cPassword.c_str(), Password_Hash.c_str()) != 0){
-				if (res)delete res;
+			if (bcrypt_checkpw(cPassword.c_str(), res->getString(2).c_str())){
+				DeleteAndNull(res);
 				return BanchoIncorrectLogin(s);//Might want to add a brute force lock out
 			}
-			if (!u)u = GetPlayerSlot(Username);
-			if (!u)goto SERVERFULL;
+			if (!u) {
+				u = GetPlayerSlot(Username);
+				if (!u) {
+					DeleteAndNull(res);
+					return BanchoServerFull(s);
+				}
+			}
 
 			Username = res->getString(3);//get the database captialization for consistencies sake
 			Priv = res->getInt(4);
 			SilenceEnd = res->getInt(5);
+
 			const std::string TableName[] = {"users_stats","rx_stats"};
 
-			for (DWORD z = 0; z < 2; z++) {
-				if (res)delete res;
+			for(byte z = 0; z < 2; z++){
+
+				DeleteAndNull(res);
+
 				res = con->ExecuteQuery("SELECT ranked_score_std, playcount_std, total_score_std, avg_accuracy_std,pp_std,"
 					"ranked_score_taiko, playcount_taiko, total_score_taiko, avg_accuracy_taiko, pp_taiko,"
 					"ranked_score_ctb, playcount_ctb, total_score_ctb, avg_accuracy_ctb, pp_ctb,"
@@ -3708,7 +3722,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 					DWORD Offset = 0;
 
-					for (DWORD i = 0; i < 4; i++){
+					for (byte i = 0; i < 4; i++){
 
 						const DWORD Slot = i + (z * 4);
 
@@ -3718,11 +3732,11 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 						u->Stats[Slot].Acc = res->getDouble(++Offset) * 0.01f;
 						u->Stats[Slot].pp = res->getInt(++Offset);
 
-						if (u->Stats[Slot].Acc > 100.f) u->Stats[Slot].Acc = 100.f;  else if (u->Stats[Slot].Acc < 0.f)u->Stats[Slot].Acc = 0.f;
 					}
 				}
 			}
-			if (res) delete res;
+
+			DeleteAndNull(res);
 
 			res = con->ExecuteQuery("SELECT user2 FROM users_relationships WHERE user1 = " + std::to_string(UserID) + " LIMIT 256");
 			DWORD fCount = 0;
@@ -3730,18 +3744,19 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 				u->Friends[fCount] = res->getInt(1);
 				fCount++;
 			}
-			if (res) delete res;
+
+			DeleteAndNull(res);
 
 			//Todo HWID
 		}
-	LOGGEDIN:
 
 		//chan_DevLog.Bot_SendMessage(Username);
 
 		{
 			if (!u){
 				u = GetPlayerSlot(Username);
-				if (!u)goto SERVERFULL;				
+				if (!u)
+					return BanchoServerFull(s);
 			}
 			
 			DisconnectUser(u);
@@ -3757,6 +3772,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			}();
 
 			u->choToken = GenerateChoToken();
+			u->SlotLocked = 0;
 
 			u->timeOffset = MemToInt32(&ClientData[1][0], ClientData[1].size());
 
@@ -3778,10 +3794,11 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 			u->addQueNonLocking(bPacket::Notification("Welcome to ruri.\nBuild: " __DATE__ " " __TIME__));
 
-			if(SilenceEnd && SilenceEnd > time(0))
-				u->addQueNonLocking(bPacket4Byte(OPac::server_silenceEnd, SilenceEnd - time(0)));
-			else
-				u->addQueNonLocking(bPacket4Byte(OPac::server_silenceEnd, 0));
+			const int SilenceDelta = (SilenceEnd && SilenceEnd > time(0)) ? SilenceEnd - time(0) : 0;
+
+			if (!SilenceDelta)u->silence_end = 0;
+
+			u->addQueNonLocking(bPacket4Byte(OPac::server_silenceEnd, SilenceDelta));
 
 			u->addQueNonLocking(bPacket4Byte(OPac::server_userID, UserID));
 			u->addQueNonLocking(bPacket4Byte(OPac::server_protocolVersion, CHO_VERSION));
@@ -3789,14 +3806,14 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			u->addQueNonLocking(bPacket::UserPanel(u));
 			u->addQueNonLocking(bPacket::UserStats(u));
 			
+			u->addQueNonLocking(bPacket4Byte(OPac::server_channelInfoEnd, 0));//Sending this after loading the channels fucks with the desired order. So it is here instead.
+
 			const int IRC_LEVEL = GetMaxPerm(u->privileges);
 
+			for (DWORD i = 0; i < ChannelList.size(); i++){
 
-			u->addQueNonLocking(bPacket4Byte(OPac::server_channelInfoEnd, 0));
-
-			for (DWORD i = 0; i < ChannelList.size(); i++) {
-
-				if (ChannelList[i]->ViewLevel > IRC_LEVEL)continue;
+				if (ChannelList[i]->ViewLevel > IRC_LEVEL)
+					continue;
 
 				u->addQueNonLocking(bPacket::ChannelInfo(ChannelList[i]));
 				
@@ -3808,8 +3825,6 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 			u->addQueNonLocking(bPacket::GenericString(OPac::server_channelKicked, "#osu"));
 
-			//u->addQueNonLocking(bPacket4Byte(OPac::server_channelInfoEnd, 0)); Seems to reorder channels in a *stupid* way.
-
 			std::vector<DWORD> FriendsList;
 			FriendsList.reserve(256);
 			FriendsList.push_back(999);//Bot is always their friend.
@@ -3820,12 +3835,12 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 					FriendsList.push_back(u->Friends[i]);
 				else break;
 			}
+
 			u->addQueNonLocking(bPacket::GenericDWORDList(OPac::server_friendsList, FriendsList, 0));
 
 			u->addQueNonLocking(bPacket::UserPanel(999, 0));
 			u->addQueNonLocking(USER_STATS(999, 0));
-
-
+			
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++){
 				if (!User[i].choToken || &User[i] == u)continue;				
 				u->addQueNonLocking(bPacket::UserPanel(User[i].UserID, UserID));
@@ -3834,23 +3849,19 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 			u->SendToken = 1;
 			u->qLock.unlock();
+
+			const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+			printf("LoginTime: %fms\n", double(double(TTime) / 1000000.0));
+
 			u->doQue(s);
 
 			debug_SendOnlineToAll(u);
-
 		}
-		const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
-		printf("LoginTime: %fms\n", double(double(TTime) / 1000000.0));
+
 		return;
 	}
 	else DoBanchoPacket(s,choToken,res.Body);
-	
 
-	return;
-
-SERVERFULL:
-	LogError("Server Full");
-	return (void)s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", "0") }, PACKET_SERVERFULL));
 }
 
 
@@ -3948,14 +3959,15 @@ void LazyThread(){
 
 		COUNT_MULTIPLAYER = ActiveLobbies;
 
-		if (SQLExecQue.Commands.size()) {
-			SQLExecQue.Lock.lock();
+		if (SQLExecQue.Commands.size()){
+
+			std::lock_guard<std::mutex> l(SQLExecQue.Lock);
 
 			for (DWORD i = 0; i < SQLExecQue.Commands.size(); i++)
 				lThreadSQL.ExecuteUPDATE(SQLExecQue.Commands[i], 1);
 
 			SQLExecQue.Commands.clear();
-			SQLExecQue.Lock.unlock();
+
 		}
 
 

@@ -26,7 +26,6 @@
 #ifdef _WIN32 || _WIN64
 // On windows we need to generate random bytes differently.
 typedef __int64 ssize_t;
-#define BCRYPT_HASHSIZE 60
 
 #include "bcrypt.h"
 
@@ -84,31 +83,6 @@ static int try_read(int fd, char *out, size_t count)
 *
 * Return value is zero if both strings are equal and nonzero otherwise.
 */
-static int timing_safe_strcmp(const char *str1, const char *str2)
-{
-	const unsigned char *u1;
-	const unsigned char *u2;
-	int ret;
-	int i;
-
-	int len1 = strlen(str1);
-	int len2 = strlen(str2);
-
-	/* In our context both strings should always have the same length
-	* because they will be hashed passwords. */
-	if (len1 != len2)
-		return 1;
-
-	/* Force unsigned for bitwise operations. */
-	u1 = (const unsigned char *)str1;
-	u2 = (const unsigned char *)str2;
-
-	ret = 0;
-	for (i = 0; i < len1; ++i)
-		ret |= (u1[i] ^ u2[i]);
-
-	return ret;
-}
 
 int bcrypt_gensalt(int factor, char salt[BCRYPT_HASHSIZE])
 {
@@ -173,7 +147,12 @@ int bcrypt_checkpw(const char *passwd, const char hash[BCRYPT_HASHSIZE])
 	if (ret != 0)
 		return -1;
 
-	return timing_safe_strcmp(hash, outhash);
+	const int len1 = strlen(hash);
+
+	if (len1 != strlen(outhash))
+		return 1;
+
+	return memcmp(hash, outhash, len1);
 }
 
 #ifdef TEST_BCRYPT

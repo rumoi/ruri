@@ -456,7 +456,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 	}
 	
 	if (Split[0] == "!reconnect"){
-		u->choToken = GenerateChoToken();
+		u->choToken = 0;
 		return "";
 	}
 	return "That is not a command.";

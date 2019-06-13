@@ -980,6 +980,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 					score = std::string(Start, End);
 				else {
 					Start += 58;
+					End -= _strlen_("-------------------------------28947758029299--");
 					if (Start >= End)continue;
 					ReplayFile = std::string(Start, End);
 				}
@@ -1459,7 +1460,7 @@ __forceinline bool ReadAllBytes(const std::string &filename, std::vector<byte>&r
 	return 1;
 }*/
 
-void GetReplay(const _HttpRes http, _Con s){
+void GetReplay(const _HttpRes http, _Con s) {
 
 	const std::string URL(http.Host.begin(), http.Host.end());
 
@@ -1467,15 +1468,39 @@ void GetReplay(const _HttpRes http, _Con s){
 	if (!ScoreID)
 		return s.close();
 
-	const std::vector<byte> Data = LOAD_FILE(std::string(REPLAY_PATH + std::to_string(ScoreID) + ".osr"));
-	
+	std::vector<byte> Data = LOAD_FILE(std::string(REPLAY_PATH + std::to_string(ScoreID) + ".osr"));
+
 	if (!Data.size())
 		return s.close();
 
-	//sql::ResultSet *res = AriaSQL[s.ID].ExecuteQuery("SELECT * FROM ");
+	Data.pop_back();
+
+	printf("Serving replay\n");
+
+	s.SendData(ConstructResponse(200, Empty_Headers, Data));
 
 
 	return s.close();
+	/*
+	_SQLCon sql;
+
+	if (!sql.Connect())
+		return s.close();
+
+	//TODO: decide what to do about the **disgusting** legacy solution to relax.
+
+	sql::ResultSet *res = sql.ExecuteQuery("SELECT userid, beatmap_md5, score, max_combo, full_combo, mods, 300_count, 100_count, 50_count, "
+		"katus_count, gekis_count, misses_count, time, play_mode from scores WHERE id = " + std::to_string(ScoreID));
+
+	if (!res || !res->next()) {
+		if (res)delete res;
+		return s.close();
+	}*/
+
+
+
+	//beatmap_md5, score, max_combo, full_combo, mods, 300_count, 100_count, 50_count,
+	// katus_count, gekis_count, misses_count, time, play_mode
 }
 
 void DownloadOSZ(const _HttpRes http, _Con s){
