@@ -92,6 +92,7 @@ struct _Channel{
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
 				if (ConnectedUsers[i] == 0) {
 					NotIn = 0;
+					u->AddChannel((size_t)this);
 					ConnectedUsers[i] = u;
 					ChannelCount++;
 					break;
@@ -99,11 +100,11 @@ struct _Channel{
 			}
 
 		}
-
 		if (NotIn) {
 			CleanChannel();
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++){
 				if (ConnectedUsers[i] == 0){
+					u->AddChannel((size_t)this);
 					ConnectedUsers[i] = u;
 					ChannelCount++;
 					break;
@@ -120,10 +121,12 @@ struct _Channel{
 
 		if (Offset && ConnectedUsers[Offset] == u){
 			ConnectedUsers[Offset] = 0;
+			u->RemoveChannel((size_t)this);
 			ChannelCount--;
 		}else{
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++)
-				if (ConnectedUsers[i] == u) {
+				if (ConnectedUsers[i] == u){
+					u->RemoveChannel((size_t)this);
 					ConnectedUsers[i] = 0;
 					ChannelCount--;
 					break;
@@ -191,13 +194,17 @@ _Channel chan_Admin("#admin", "Command dumpster.", IRC_Admin, IRC_Admin,1);
 _Channel chan_DevLog("#devlog", "Log all the things.", IRC_Dev, IRC_Dev, 1);
 _Channel chan_Lobby("#lobby", "Chat with others browsing for a lobby.", IRC_Public, IRC_Public);
 
-const std::vector<_Channel*> ChannelList = {&chan_Akatsuki,&chan_Announce,&chan_Supporter,&chan_Admin,&chan_DevLog,&chan_Lobby};
+_Channel* const ChannelList[] = {&chan_Akatsuki,&chan_Announce,&chan_Supporter,&chan_Admin,&chan_DevLog,&chan_Lobby};
+
+constexpr size_t ChannelListSize() noexcept{
+	return sizeof(ChannelList) / sizeof(_Channel*);
+}
 
 __forceinline _Channel* GetChannelByName(const std::string &Name){
 
 	const int Sum = WeakStringToInt(Name);
 
-	for (DWORD i = 0; i < ChannelList.size(); i++)
+	for (DWORD i = 0; i < ChannelListSize(); i++)
 		if (ChannelList[i]->NameSum == Sum)
 			return ChannelList[i];
 	

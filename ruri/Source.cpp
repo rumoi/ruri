@@ -345,15 +345,14 @@ const std::string FAKEUSER_NAME = []{const char a[] = { -30,-128,-115,95,-30,-12
 #include <time.h>
 #include <random>
 
-int WeakStringToInt(const std::string &s) {
 
-	char Return[] = { 0,0,0,0 };
-
-	for (DWORD i = 0; i < s.size(); i++)
-		Return[i % 4] += s[i] ^ i;
-
-	return *(int*)&Return[0];
-}
+#define WeakStringToInt(s)\
+	[&](){\
+		char Return[] = { 0,0,0,0 };\
+		for (DWORD i = 0; i < s.size(); i++)\
+			Return[i % 4] += s[i] ^ i;\
+		return *(int*)&Return[0];\
+	}()
 
 struct _Timer{
 
@@ -920,8 +919,9 @@ struct _Menu {
 
 #include "Achievement.h"
 
-struct _User {
+#define MAX_CHAN_COUNT 32
 
+struct _User{
 	uint64_t choToken;
 	DWORD UserID;
 	DWORD privileges;
@@ -967,9 +967,31 @@ struct _User {
 
 	std::vector<_BanchoPacket> Que;
 	std::vector<_DelayedBanchoPacket> dQue;
+	size_t ActiveChannels[MAX_CHAN_COUNT];//There is no way to resolve the actual size without restructuring xdxdxd
+
+	void AddChannel(const size_t C){
+		for (DWORD i = 0; i < MAX_CHAN_COUNT; i++){
+			if (!ActiveChannels[i]) {
+				ActiveChannels[i] = C;
+				return;
+			}
+		}
+	}
+	void RemoveChannel(const size_t C) {
+		for (DWORD i = 0; i < MAX_CHAN_COUNT; i++) {
+			if (ActiveChannels[i] == C) {
+				ActiveChannels[i] = 0;
+				return;
+			}
+		}
+	}
+
+
 	std::mutex qLock;
 	std::string c1Check;
 	bool SlotLocked;
+
+
 
 	DWORD GetStatsOffset()const{
 
@@ -3367,16 +3389,13 @@ void Event_client_requestStatusUpdate(_User *const tP){
 	tP->addQue(bPacket::UserStats(tP));
 }
 
-void DoBanchoPacket(_Con s,const uint64_t choToken,std::vector<byte> &PacketBundle){
+void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &PacketBundle){
 
 	_User *const tP = GetUserFromToken(choToken);
 
 	if (!tP || !tP->UserID){//No user online with that token
-		
-		_BanchoPacket rC(OPac::server_restart);
-		AddInt(rC.Data, 1);//Restart Time
 
-		s.SendData(ConstructResponse(200, Empty_Headers, rC.GetBytes()));
+		s.SendData(ConstructResponse(200, Empty_Headers, bPacket4Byte(OPac::server_restart,1).GetBytes()));
 		printf("Request relogin\n");
 		return;
 	}
@@ -3405,8 +3424,8 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,std::vector<byte> &PacketBund
 
 		switch (PacketID){
 			
-		case 68://68 is beatmap data and 79 is meant to be for a stats update
-		case 79:
+		case 68://Client asking if certain beatmaps are ranked.
+		case 79://Client asking for stats updates. ruri does all this automatically so its useless :)
 		case OPac::client_pong:
 			break;
 
@@ -3553,15 +3572,11 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,std::vector<byte> &PacketBund
 
 		//const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
 		//printf("P%i: %fms\n", PacketID, double(double(TTime) / 1000000.0));
-
-
+		
 	}
 
 	SendMatchList(tP, 0);//Sends multiplayer data if they are in the lobby.
 	//IngameMenu(tP,s);//Handles all the cool new clickable menus
-
-	//if (tP->HyperMode)
-		//tP->addQue(_BanchoPacket(server_ping));
 
 	tP->LastPacketTime = clock();
 	
@@ -3809,8 +3824,8 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			u->addQueNonLocking(bPacket4Byte(OPac::server_channelInfoEnd, 0));//Sending this after loading the channels fucks with the desired order. So it is here instead.
 
 			const int IRC_LEVEL = GetMaxPerm(u->privileges);
-
-			for (DWORD i = 0; i < ChannelList.size(); i++){
+			
+			for (DWORD i = 0; i < ChannelListSize(); i++){
 
 				if (ChannelList[i]->ViewLevel > IRC_LEVEL)
 					continue;
@@ -3866,6 +3881,16 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 
 void DisconnectUser(_User *u){
+
+
+	for (DWORD i = 0; i < MAX_CHAN_COUNT; i++) {
+
+		_Channel*const C = (_Channel*)u->ActiveChannels[i];
+
+		if (!C)continue;
+
+		C->PartChannel(u);
+	}
 
 	u->choToken = 0;
 	u->inLobby = 0;
