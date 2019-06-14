@@ -2,7 +2,9 @@
 
 #include <climits>
 #include <cstring>
+#include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 #include <netdb.h>
 #include <netinet/in.h>

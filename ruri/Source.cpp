@@ -127,8 +127,6 @@ enum Mods
 const int PING_TIMEOUT_OSU = 80000;//yes thanks peppy
 const bool USER_TEST = 0;
 
-const int MAX_PACKET_LENGTH = 2816;
-
 enum OPac {
 	NULL_PACKET = 1000,
 	client_changeAction = 0,
@@ -245,6 +243,9 @@ enum LoginReply {
 	Login_Failed = -1
 };
 
+
+const int MAX_PACKET_LENGTH = 2816;
+
 #ifndef LINUX
 
 #include <WS2tcpip.h>
@@ -258,6 +259,10 @@ enum LoginReply {
 #include "Linux.h"
 
 #endif
+
+#define RURI_UNIX_SOCKET "/tmp/ruri.sock"
+#define ARIA_UNIX_SOCKET "/tmp/aria.sock"
+
 
 #include <thread>
 
@@ -3999,14 +4004,16 @@ void HandlePacket(_Con s){
 		LogMessage(KRED "Connection lost");
 		return s.Dis();
 	}
+	
+	std::string UserAgent = res.GetHeaderValue("User-Agent");
 
-	const std::string UserAgent = res.GetHeaderValue("User-Agent");
+	if(UserAgent.size() == 0)
+		UserAgent = res.GetHeaderValue("user-agent");
 
 	const uint64_t choToken = StringToUInt64(res.GetHeaderValue("osu-token"));
-
+	
 	if (!UserAgent.size()){
 		LogMessage("No user agent set.");
-
 		s.SendData(ConstructResponse(200, Empty_Headers,bPacket::Notification("If there is anything that seems wrong make sure to contact rumoi.").GetBytes()));
 		s.Dis();
 		return;
@@ -4014,7 +4021,6 @@ void HandlePacket(_Con s){
 	if (UserAgent != "osu!" && !choToken){//If it is not found
 		RenderHTMLPage(s,res);
 		LogMessage("HTML page served");
-
 		return s.Dis();
 	}
 
@@ -4175,16 +4181,13 @@ void receiveConnections(){
 		std::thread a(LazyThread);
 		a.detach();
 	}
-
+#ifndef LINUX
 	SOCKET listening = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (listening == INVALID_SOCKET)
 	{
 		printf("Failed to load listening socket.\n");
 		return;
 	}
-
-	std::printf(KGRN "Created Socket\n" KRESET);
-
 	sockaddr_in hint;
 	ZeroMemory(&hint.sin_addr, sizeof(hint.sin_addr));
 	hint.sin_family = AF_INET;
@@ -4201,17 +4204,45 @@ void receiveConnections(){
 	setsockopt(listening, SOL_SOCKET, SO_RCVTIMEO, (char*)&Time, 4);
 	setsockopt(listening, SOL_SOCKET, SO_SNDTIMEO, (char*)&Time, 4);
 	setsockopt(listening, SOL_SOCKET, SO_RCVBUF, (char*)&MPL, 4);
+#else
+
+	struct sockaddr_un serveraddr;
+
+	SOCKET listening = socket(AF_UNIX, SOCK_STREAM, 0);
+
+	memset(&serveraddr, 0, sizeof(serveraddr));
+	serveraddr.sun_family = AF_UNIX;
+	strcpy(serveraddr.sun_path, RURI_UNIX_SOCKET);
+
+	unlink(RURI_UNIX_SOCKET);
+
+	if (bind(listening, (struct sockaddr *)&serveraddr, SUN_LEN(&serveraddr)) < 0) {
+		perror("bind() failed");
+		return;
+	}
+	if (listen(listening, SOMAXCONN) < 0){
+		perror("listen() failed");
+		return;
+	}
+
+	
+#endif
+
+	std::printf(KGRN "Listening to socket\n" KRESET);
 
 	DWORD ID = 0;
 
 	while(1){
-
+#ifndef LINUX
 		int clientSize = sizeof(client);
 		ZeroMemory(&client, clientSize);
 
 		SOCKET s = accept(listening, (sockaddr*)&client, &clientSize);
-
-		if (s == INVALID_SOCKET)continue;		
+#else
+		SOCKET s = accept(listening, 0, 0);
+#endif
+		if (s == INVALID_SOCKET)continue;
+		
 		COUNT_REQUESTS++;
 
 		BanchoWorkLock[ID].lock();
@@ -4278,10 +4309,8 @@ int main(){
 			REPLAY_PATH = ExtractConfigValue(Config[i]);
 	}
 	
-	if (BANCHO_THREAD_COUNT < 4 || ARIA_THREAD_COUNT < 4) {
-
+	if (BANCHO_THREAD_COUNT < 4 || ARIA_THREAD_COUNT < 4){
 		printf("BANCHO_THREAD_COUNT or ARIA_THREAD_COUNT can not be below 4\n");
-
 		return 0;
 	}
 

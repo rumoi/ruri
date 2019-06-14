@@ -1638,6 +1638,8 @@ void Aria_Main(){
 	}
 	ARIALOADED = 1;
 
+
+#ifndef LINUX
 	SOCKET listening = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
 	if (listening == INVALID_SOCKET)
@@ -1660,15 +1662,41 @@ void Aria_Main(){
 	setsockopt(listening, SOL_SOCKET, SO_RCVTIMEO, (char*)&Time, 4);
 	setsockopt(listening, SOL_SOCKET, SO_SNDTIMEO, (char*)&Time, 4);
 	setsockopt(listening, SOL_SOCKET, SO_RCVBUF, (char*)&MPL, 4);
+#else
 
+	struct sockaddr_un serveraddr;
+
+	SOCKET listening = socket(AF_UNIX, SOCK_STREAM, 0);
+
+	memset(&serveraddr, 0, sizeof(serveraddr));
+	serveraddr.sun_family = AF_UNIX;
+	strcpy(serveraddr.sun_path, ARIA_UNIX_SOCKET);
+
+	unlink(ARIA_UNIX_SOCKET);
+
+	if (bind(listening, (struct sockaddr *)&serveraddr, SUN_LEN(&serveraddr)) < 0) {
+		perror("bind() failed");
+		return;
+	}
+	if (listen(listening, SOMAXCONN) < 0) {
+		perror("listen() failed");
+		return;
+	}
+
+
+#endif
 	DWORD ID = 0;
 
 	while(1){
 
+#ifndef LINUX
 		int clientSize = sizeof(client);
 		ZeroMemory(&client, clientSize);
 
 		SOCKET s = accept(listening, (sockaddr*)&client, &clientSize);
+#else
+		SOCKET s = accept(listening, 0, 0);
+#endif
 
 		if (s == INVALID_SOCKET)continue;
 

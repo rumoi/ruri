@@ -21,6 +21,8 @@ struct _HttpRes {
 
 	const std::string GetHeaderValue(const std::string Name){
 
+		
+
 		for (DWORD i = 0; i < Headers.size(); i++)
 			if (Headers[i].Text == Name)
 				return Headers[i].Value;
@@ -73,6 +75,9 @@ struct _Con{
 		DWORD pSize = 0;
 		std::vector<byte> p;
 		p.reserve(USHORT(-1));
+
+		std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
+
 		int pLength = MAX_PACKET_LENGTH;
 		do{
 			p.resize(pSize + MAX_PACKET_LENGTH);
@@ -83,6 +88,9 @@ struct _Con{
 			pSize += pLength;
 
 		} while (pLength == MAX_PACKET_LENGTH);
+
+		const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+		printf("recv %fms\n", double(double(TTime) / 1000000.0));
 
 		if (pSize == 0)return 0;
 
@@ -141,6 +149,9 @@ struct _Con{
 	bool SendData(const std::string &Data) {;
 		if (!s)return 0;
 
+
+		std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
+
 		DWORD Count = 0;
 		const DWORD Size = Data.size();
 		while (Count < Data.size()){
@@ -156,6 +167,10 @@ struct _Con{
 			Count += SendSize;
 
 		}
+
+		const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+		printf("Send%fms\n", double(double(TTime) / 1000000.0));
+
 		return 1;
 	}
 
