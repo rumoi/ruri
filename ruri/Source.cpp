@@ -253,43 +253,9 @@ enum LoginReply {
 
 #define clock_ms clock
 
-#define GET_WEB(HostName, Page) [&]()->std::string{\
-	SOCKET Socket_WEB = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);if (!Socket_WEB)return std::string("");\
-	SOCKADDR_IN SockAddr_WEB;SockAddr_WEB.sin_family = AF_INET;SockAddr_WEB.sin_port = htons(80);SockAddr_WEB.sin_addr.s_addr = *((unsigned long*)gethostbyname(HostName)->h_addr);\
-	if (connect(Socket_WEB, (SOCKADDR*)(&SockAddr_WEB), sizeof(SockAddr_WEB))){closesocket(Socket_WEB);return std::string("");}\
-	const std::string pData = "GET /" + Page + " HTTP/1.1\r\nHost: " HostName "\r\nConnection: close\r\n\r\n";\
-	if (send(Socket_WEB, (char*)&pData[0],pData.size(), 0) == SOCKET_ERROR) {closesocket(Socket_WEB);return std::string("");}\
-	int tSize = 0;std::string Return_WEB(MAX_PACKET_LENGTH,'\0');\
-	while(1){const int rByte = recv(Socket_WEB, &Return_WEB[tSize], MAX_PACKET_LENGTH, 0);if (!rByte)break;Return_WEB.resize(Return_WEB.size() + rByte);tSize += rByte;}closesocket(Socket_WEB);\
-	Return_WEB.resize(tSize);\
-	return Return_WEB;}()
-
-#define HTTP_UNCHUNKER [](std::string &rp)->std::string{												\
-		if (rp.size() == 0)return rp;																								\
-		std::string p; p.reserve(rp.size());																						\
-		DWORD Start = rp.find("\r\n\r\n");																							\
-		if (Start == std::string::npos) { rp.clear();  return rp; }																	\
-		for (DWORD i = Start + 4; i < rp.size(); i++) {																				\
-			Start = i;while (*(USHORT*)&rp[i] != *(USHORT*)"\r\n")i++;																\
-			DWORD ChunkSize = 0;																									\
-			for (DWORD z = Start; z < i; z++){ChunkSize = ChunkSize << 4;ChunkSize += CharHexToDecimal(rp[z]);}						\
-			if (ChunkSize == 0)break; i += 2;																						\
-			if (ChunkSize + i > rp.size()) { rp.clear();  return rp; };																\
-			p.resize(p.size() + ChunkSize);memcpy(&p[p.size() - ChunkSize], &rp[i], ChunkSize);										\
-			i += ChunkSize + 1;																										\
-		}																															\
-		rp = std::move(p);																											\
-		return rp;}
-
-#define GET_WEB_CHUNKED(Chunk_Host, Chunk_Page)[&]()->std::string{auto uChunk = HTTP_UNCHUNKER; return uChunk(GET_WEB(Chunk_Host, Chunk_Page));}()
-
 #else
 
 #include "Linux.h"
-
-#define GET_WEB(HostName, Page) HostName
-
-#define GET_WEB_CHUNKED(Chunk_Host, Chunk_Page) Chunk_Host
 
 #endif
 
@@ -387,6 +353,93 @@ const std::string FAKEUSER_NAME = []{const char a[] = { -30,-128,-115,95,-30,-12
 
 #include <time.h>
 #include <random>
+
+
+
+std::string GET_WEB(const std::string &HostName, const std::string &Page) {
+
+	SOCKET Socket_WEB = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+	if (!Socket_WEB)return "";
+	
+
+	SOCKADDR_IN SockAddr_WEB;
+	SockAddr_WEB.sin_family = AF_INET;
+	SockAddr_WEB.sin_port = htons(80);
+	SockAddr_WEB.sin_addr.s_addr = *(unsigned long*)gethostbyname(HostName.c_str())->h_addr;
+		
+	if (connect(Socket_WEB, (SOCKADDR*)(&SockAddr_WEB), sizeof(SockAddr_WEB))) {
+		closesocket(Socket_WEB);
+		return "";
+	}
+
+	const std::string pData = "GET /" + Page + " HTTP/1.1\r\nHost: " + HostName + "\r\nConnection: close\r\n\r\n";
+
+	if (send(Socket_WEB, (char*)&pData[0], pData.size(), 0) == SOCKET_ERROR) {
+		closesocket(Socket_WEB); return "";
+	}
+	
+	int tSize = 0; std::string Return_WEB(MAX_PACKET_LENGTH, '\0'); \
+		while (1) {
+			const int rByte = recv(Socket_WEB, &Return_WEB[tSize], MAX_PACKET_LENGTH, 0);
+			if (!rByte)
+				break;
+			Return_WEB.resize(Return_WEB.size() + rByte);
+			tSize += rByte;
+		}
+
+	closesocket(Socket_WEB);
+	Return_WEB.resize(tSize);
+
+	return Return_WEB;
+}
+
+int CharHexToDecimal(const char c) {
+
+	if (c >= '0' && c <= '9')return c - '0';
+
+	if (c >= 'A' && c <= 'F')return 10 + (c - 'A');
+
+	if (c >= 'a' && c <= 'f')return 10 + (c - 'a');
+
+	return 0;
+}
+
+std::string GET_WEB_CHUNKED(const std::string &HostName, const std::string &Page){
+
+	std::string rp = GET_WEB(HostName, Page);
+
+	if (rp.size() == 0)
+		return "";
+
+	std::string p; p.reserve(rp.size());
+	DWORD Start = rp.find("\r\n\r\n");
+	if (Start == std::string::npos)
+		return "";
+
+	for (DWORD i = Start + 4; i < rp.size(); i++){
+		Start = i;
+		while (*(USHORT*)&rp[i] != *(USHORT*)"\r\n")i++;
+		DWORD ChunkSize = 0;
+		for (DWORD z = Start; z < i; z++){
+			ChunkSize = ChunkSize << 4;
+			ChunkSize += CharHexToDecimal(rp[z]);
+		}
+
+		if (ChunkSize == 0)break;
+
+		i += 2;
+
+		if (ChunkSize + i > rp.size())
+			return "";
+
+		p.resize(p.size() + ChunkSize); memcpy(&p[p.size() - ChunkSize], &rp[i], ChunkSize);
+		i += ChunkSize + 1;
+	}
+
+	return p;
+}
+
 
 
 #define WeakStringToInt(s)\
@@ -1872,16 +1925,6 @@ __forceinline bool FileExistCheck(const std::string &filename) {
 }
 
 
-__forceinline int CharHexToDecimal(const char c) {
-
-	if (c >= '0' && c <= '9')return c - '0';
-
-	if (c >= 'A' && c <= 'F')return 10 + (c - 'A');
-
-	if (c >= 'a' && c <= 'f')return 10 + (c - 'a');
-
-	return 0;
-}
 
 
 __forceinline bool WriteAllBytes(const std::string &filename, const void* data, const DWORD Size);
@@ -4242,7 +4285,7 @@ int main(){
 		return 0;
 	}
 
-	if (WSAStartup(MAKEWORD(2, 2), &wsData)){
+	if (WSAStartup(MAKEWORD(2, 2), &wsData)) {
 		printf("Failed to load WSA.\n");
 		return 0;
 	}
