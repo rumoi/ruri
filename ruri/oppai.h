@@ -189,8 +189,6 @@ char* errstr(int err) {
 
 #define log10f (float)log10
 #define al_round(x) (float)floor((x) + 0.5f)
-#define al_min(a, b) ((a) < (b) ? (a) : (b))
-#define al_max(a, b) ((a) > (b) ? (a) : (b))
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846

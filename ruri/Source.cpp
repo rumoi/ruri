@@ -119,14 +119,13 @@ enum Mods
 #define MAX_USERNAME_LENGTH 19
 #define MAX_MULTI_COUNT 64
 
+#define al_min(a, b) ((a) < (b) ? (a) : (b))
+#define al_max(a, b) ((a) > (b) ? (a) : (b))
+
 #define CHO_VERSION 19
 
 const int PING_TIMEOUT_OSU = 80000;//yes thanks peppy
-
-//const int PING_INTERVAL_OSU = 24000;
-
 const bool USER_TEST = 0;
-//const bool LOW_LATENCY = 0;
 
 const int MAX_PACKET_LENGTH = 2816;
 
@@ -246,18 +245,63 @@ enum LoginReply {
 	Login_Failed = -1
 };
 
+#ifndef LINUX
+
 #include <WS2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
+#include <Windows.h>
+
+#define clock_ms clock
+
+#define GET_WEB(HostName, Page) [&]()->std::string{\
+	SOCKET Socket_WEB = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);if (!Socket_WEB)return std::string("");\
+	SOCKADDR_IN SockAddr_WEB;SockAddr_WEB.sin_family = AF_INET;SockAddr_WEB.sin_port = htons(80);SockAddr_WEB.sin_addr.s_addr = *((unsigned long*)gethostbyname(HostName)->h_addr);\
+	if (connect(Socket_WEB, (SOCKADDR*)(&SockAddr_WEB), sizeof(SockAddr_WEB))){closesocket(Socket_WEB);return std::string("");}\
+	const std::string pData = "GET /" + Page + " HTTP/1.1\r\nHost: " HostName "\r\nConnection: close\r\n\r\n";\
+	if (send(Socket_WEB, (char*)&pData[0],pData.size(), 0) == SOCKET_ERROR) {closesocket(Socket_WEB);return std::string("");}\
+	int tSize = 0;std::string Return_WEB(MAX_PACKET_LENGTH,'\0');\
+	while(1){const int rByte = recv(Socket_WEB, &Return_WEB[tSize], MAX_PACKET_LENGTH, 0);if (!rByte)break;Return_WEB.resize(Return_WEB.size() + rByte);tSize += rByte;}closesocket(Socket_WEB);\
+	Return_WEB.resize(tSize);\
+	return Return_WEB;}()
+
+#define HTTP_UNCHUNKER [](std::string &rp)->std::string{												\
+		if (rp.size() == 0)return rp;																								\
+		std::string p; p.reserve(rp.size());																						\
+		DWORD Start = rp.find("\r\n\r\n");																							\
+		if (Start == std::string::npos) { rp.clear();  return rp; }																	\
+		for (DWORD i = Start + 4; i < rp.size(); i++) {																				\
+			Start = i;while (*(USHORT*)&rp[i] != *(USHORT*)"\r\n")i++;																\
+			DWORD ChunkSize = 0;																									\
+			for (DWORD z = Start; z < i; z++){ChunkSize = ChunkSize << 4;ChunkSize += CharHexToDecimal(rp[z]);}						\
+			if (ChunkSize == 0)break; i += 2;																						\
+			if (ChunkSize + i > rp.size()) { rp.clear();  return rp; };																\
+			p.resize(p.size() + ChunkSize);memcpy(&p[p.size() - ChunkSize], &rp[i], ChunkSize);										\
+			i += ChunkSize + 1;																										\
+		}																															\
+		rp = std::move(p);																											\
+		return rp;}
+
+#define GET_WEB_CHUNKED(Chunk_Host, Chunk_Page)[&]()->std::string{auto uChunk = HTTP_UNCHUNKER; return uChunk(GET_WEB(Chunk_Host, Chunk_Page));}()
+
+#else
+
+#include "Linux.h"
+
+#define GET_WEB(HostName, Page) HostName
+
+#define GET_WEB_CHUNKED(Chunk_Host, Chunk_Page) Chunk_Host
+
+#endif
+
+#include <thread>
 
 typedef unsigned char byte;
 
 WSADATA wsData;
 
-#include <Windows.h>
 #include <iostream>
 #include <vector>
 #include <string>
-
 
 constexpr size_t _strlen_(const char* s)noexcept{
 	return *s ? 1 + _strlen_(s + 1) : 0;
@@ -312,7 +356,7 @@ constexpr size_t _strlen_(const char* s)noexcept{
 	}()
 
 
-#define LOAD_FILE(FILENAME, NULLTERM)										\
+#define LOAD_FILE(FILENAME)													\
 	[](const std::string& Filename){										\
 		std::ifstream file(Filename, std::ios::binary | std::ios::ate);		\
 		if (!file.is_open())												\
@@ -334,7 +378,6 @@ const std::string BOT_NAME = "ruri";
 const std::string FAKEUSER_NAME = []{const char a[] = { -30,-128,-115,95,-30,-128,-115,0 }; return std::string(a); }();
 
 #include <time.h>
-#include <thread>
 
 #include <mutex>
 #include <shared_mutex>
@@ -1160,7 +1203,7 @@ struct _User{
 		if (dQue.size() != 0){
 
 			std::sort(dQue.begin(), dQue.end(), SortDelayPacket);
-			int cTime = clock();
+			int cTime = clock_ms();
 
 			for (int i = int(dQue.size()) - 1; i >= 0; i--){
 				if (dQue[i].Time == 1){//means do the next bancho frame.
@@ -1682,7 +1725,7 @@ void RenderHTMLPage(_Con s, _HttpRes &res){
 	std::vector<byte> Body;
 
 	AddStringToVector(Body, "<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/567292020104888320/unknown.png\">"
-		"<br>ruri uptime : " + std::to_string(double(clock()) / 86400000.) + " days. With " + std::to_string(COUNT_REQUESTS) + " connections handled."
+		"<br>ruri uptime : " + std::to_string(double(clock_ms()) / 86400000.) + " days. With " + std::to_string(COUNT_REQUESTS) + " connections handled."
 		"<br>"+ std::to_string(COUNT_MULTIPLAYER) + " currently active multiplayer games.</HTML>");
 
 	s.SendData(ConstructResponse(405, {_HttpHeader("Content-Type", "text/html; charset=utf-8")}, Body));
@@ -1769,7 +1812,7 @@ void Event_client_userStatsRequest(_User *tP, const byte* const Packet, const DW
 
 	if (Size <= 2)return;
 
-	const USHORT Count = min(*(USHORT*)&Packet[0],64);
+	const USHORT Count = al_min(*(USHORT*)&Packet[0],64);
 
 	if ((Count << 2) + 2 > Size)return;
 
@@ -1792,7 +1835,10 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 
 	const byte n_actionID = *(byte*)O; O++;
 	const std::string n_ActionText = ReadUleb(O, End);
-	const std::string n_CheckSum = REMOVEQUOTES(ReadUleb(O, End));
+	const std::string n_CheckSum = [&]{
+		std::string gccxd = ReadUleb(O, End);
+		return REMOVEQUOTES(gccxd);
+	}();
 	if (O + 4 > End)return;
 	const DWORD n_Mods = *(DWORD*)O; O += 4;
 	if (O + 1 > End)return;
@@ -1836,36 +1882,6 @@ __forceinline int CharHexToDecimal(const char c) {
 
 	return 0;
 }
-
-#define GET_WEB(HostName, Page) [&]{\
-	SOCKET Socket_WEB = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);if (!Socket_WEB)return std::string("");\
-	SOCKADDR_IN SockAddr_WEB;SockAddr_WEB.sin_family = AF_INET;SockAddr_WEB.sin_port = htons(80);SockAddr_WEB.sin_addr.s_addr = *((unsigned long*)gethostbyname(HostName)->h_addr);\
-	if (connect(Socket_WEB, (SOCKADDR*)(&SockAddr_WEB), sizeof(SockAddr_WEB))){closesocket(Socket_WEB);return std::string("");}\
-	const std::string pData = "GET /" + Page + " HTTP/1.1\r\nHost: " HostName "\r\nConnection: close\r\n\r\n";\
-	if (send(Socket_WEB, (char*)&pData[0],pData.size(), 0) == SOCKET_ERROR) {closesocket(Socket_WEB);return std::string("");}\
-	int tSize = 0;std::string Return_WEB(MAX_PACKET_LENGTH,'\0');\
-	while(1){const int rByte = recv(Socket_WEB, &Return_WEB[tSize], MAX_PACKET_LENGTH, 0);if (!rByte)break;Return_WEB.resize(Return_WEB.size() + rByte);tSize += rByte;}closesocket(Socket_WEB);\
-	Return_WEB.resize(tSize);\
-	return Return_WEB;}()
-
-#define HTTP_UNCHUNKER [](std::string &rp){												\
-		if (rp.size() == 0)return rp;																								\
-		std::string p; p.reserve(rp.size());																						\
-		DWORD Start = rp.find("\r\n\r\n");																							\
-		if (Start == std::string::npos) { rp.clear();  return rp; }																	\
-		for (DWORD i = Start + 4; i < rp.size(); i++) {																				\
-			Start = i;while (*(USHORT*)&rp[i] != *(USHORT*)"\r\n")i++;																\
-			DWORD ChunkSize = 0;																									\
-			for (DWORD z = Start; z < i; z++){ChunkSize = ChunkSize << 4;ChunkSize += CharHexToDecimal(rp[z]);}						\
-			if (ChunkSize == 0)break; i += 2;																						\
-			if (ChunkSize + i > rp.size()) { rp.clear();  return rp; };																\
-			p.resize(p.size() + ChunkSize);memcpy(&p[p.size() - ChunkSize], &rp[i], ChunkSize);										\
-			i += ChunkSize + 1;																										\
-		}																															\
-		rp = std::move(p);																											\
-		return rp;}
-
-#define GET_WEB_CHUNKED(Chunk_Host, Chunk_Page)[&]{auto uChunk = HTTP_UNCHUNKER; return uChunk(GET_WEB(Chunk_Host, Chunk_Page));}()
 
 
 __forceinline bool WriteAllBytes(const std::string &filename, const void* data, const DWORD Size);
@@ -2029,7 +2045,7 @@ std::string RoundTo2(const float Input) {
 	*(uint64_t*)(s) = 0;
 	*(uint64_t*)(s + 8) = 0;
 
-	_itoa(int(Input * 100.f), s, 10);
+	snprintf(s, 16, "%d", int(Input * 100.f));
 
 	return std::string([&]{
 		if (s[0] == '0')return s;
@@ -2057,7 +2073,7 @@ float ezpp_NewAcc(ezpp_t ez, const float Acc) {
 	return ezpp_pp(ez);
 }
 
-void BotMessaged(_User *tP, const std::string &const Message){
+void BotMessaged(_User *tP, const std::string& Message){
 	
 	if (Message.size() == 0)return;
 
@@ -2274,7 +2290,10 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 	const size_t End = O + Size + 1;
 
 	/*const std::string Sender = */ReadUleb(O, End);
-	const std::string Message = TRIMSTRING(ReadUleb(O, End));
+	const std::string Message = [&]{
+		std::string gccxd = ReadUleb(O, End);
+		return TRIMSTRING(gccxd); }
+	();
 	const std::string Target = ReadUleb(O, End);
 
 	if (O + 4 > End)return;
@@ -2454,7 +2473,7 @@ void Event_client_spectateFrames(_User *tP, const byte* const Packet, const DWOR
 				for (USHORT i = 1; i < frameCount; i++)
 					TotalDelta += Frames[i].time - Frames[i - 1].time;
 
-				const int Delta = clock() - tP->LastReplayBundleTime;
+				const int Delta = clock_ms() - tP->LastReplayBundleTime;
 
 				tP->TotalDelta += TotalDelta;
 				//tP->Delta += Delta;
@@ -2467,7 +2486,7 @@ void Event_client_spectateFrames(_User *tP, const byte* const Packet, const DWOR
 				
 				tP->qLock.unlock();
 			}else{
-				tP->LastReplayBundleTime = clock();
+				tP->LastReplayBundleTime = clock_ms();
 				tP->TotalDelta = 0;
 				tP->Delta = 0;
 
@@ -3400,7 +3419,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 		return;
 	}
 
-	tP->LastPacketTime = clock();
+	tP->LastPacketTime = clock_ms();
 
 	DWORD In = 0;
 
@@ -3458,7 +3477,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 			break;
 
 		case OPac::client_logout:
-			if (tP->LoginTime + 5000 > clock())break;
+			if (tP->LoginTime + 5000 > clock_ms())break;
 			debug_LogOutUser(tP);
 			break;
 
@@ -3578,7 +3597,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 	SendMatchList(tP, 0);//Sends multiplayer data if they are in the lobby.
 	//IngameMenu(tP,s);//Handles all the cool new clickable menus
 
-	tP->LastPacketTime = clock();
+	tP->LastPacketTime = clock_ms();
 	
 	tP->doQue(s);
 
@@ -3655,10 +3674,19 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 		if (LoginData.size() != 3)
 			return BanchoIncorrectLogin(s);
 
-		std::string Username = REMOVEQUOTES(std::string(LoginData[0]));
-		const std::string Username_Safe = USERNAMESAFE(std::string(Username.begin(),Username.end()));
-		const std::string cPassword = REMOVEQUOTES(std::string(LoginData[1]));
+		std::string Username = [&]{
+			std::string gccxd = LoginData[0];
+			return REMOVEQUOTES(gccxd);
+		}();
 
+		const std::string Username_Safe = [&]{
+			std::string gccxd(Username.begin(), Username.end());
+			return USERNAMESAFE(gccxd);
+		}();
+		const std::string cPassword = [&] {
+			std::string gccxd = LoginData[1];
+			return REMOVEQUOTES(gccxd);
+		}();
 		const auto ClientData = EXPLODE_VEC(std::string,LoginData[2],'|');
 
 		if (ClientData.size() != 5 || Username.size() > MAX_USERNAME_LENGTH || cPassword.size() != 32)
@@ -3796,7 +3824,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			u->country = 0;// getCountryNum(res.GetHeaderValue("CF-IPCountry")); the nature of private servers disallow this.. i guess bancho could use this :(
 						   // Best course of action would to resolve it from cloudflare on registration, not verification.
 
-			u->LoginTime = clock();
+			u->LoginTime = clock_ms();
 			u->LastPacketTime = u->LoginTime;
 			u->UserID = UserID;
 			u->silence_end = SilenceEnd;
@@ -3926,7 +3954,7 @@ void HandlePacket(_Con s){
 
 	if (!Suc){
 		LogMessage(KRED "Connection lost");
-		return s.close();;
+		return s.Dis();
 	}
 
 	const std::string UserAgent = res.GetHeaderValue("User-Agent");
@@ -3937,19 +3965,19 @@ void HandlePacket(_Con s){
 		LogMessage("No user agent set.");
 
 		s.SendData(ConstructResponse(200, Empty_Headers,bPacket::Notification("If there is anything that seems wrong make sure to contact rumoi.").GetBytes()));
-		s.close();
+		s.Dis();
 		return;
 	}
 	if (UserAgent != "osu!" && !choToken){//If it is not found
 		RenderHTMLPage(s,res);
 		LogMessage("HTML page served");
 
-		return s.close();
+		return s.Dis();
 	}
 
 	HandleBanchoPacket(s, res, choToken);
 
-	return s.close();
+	return s.Dis();
 }
 
 #include "Aria.h"
@@ -3965,7 +3993,7 @@ void LazyThread(){
 
 		Sleep(500);
 
-		const int cTime = clock();
+		const int cTime = clock_ms();
 		
 		for (DWORD i = 0; i < MAX_USER_COUNT; i++){//TODO: Could batch this to cut down on sends
 
@@ -4115,9 +4143,9 @@ void receiveConnections(){
 	std::printf(KGRN "Created Socket\n" KRESET);
 
 	sockaddr_in hint;
+	ZeroMemory(&hint.sin_addr, sizeof(hint.sin_addr));
 	hint.sin_family = AF_INET;
 	hint.sin_port = htons(RURIPORT);
-	hint.sin_addr.S_un.S_addr = INADDR_ANY;
 
 	::bind(listening, (sockaddr*)&hint, sizeof(hint));
 	::listen(listening, SOMAXCONN);
@@ -4206,7 +4234,6 @@ int main(){
 		else if (SafeStartCMP(Config[i], "ReplayPath"))
 			REPLAY_PATH = ExtractConfigValue(Config[i]);
 	}
-
 	
 	if (BANCHO_THREAD_COUNT < 4 || ARIA_THREAD_COUNT < 4) {
 

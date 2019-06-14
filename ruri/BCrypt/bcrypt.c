@@ -176,10 +176,10 @@ int main(void)
 	ret = bcrypt_gensalt(12, salt);
 	assert(ret == 0);
 	printf("Generated salt: %s\n", salt);
-	before = clock();
+	before = clock_ms();
 	ret = bcrypt_hashpw("testtesttest", salt, hash);
 	assert(ret == 0);
-	after = clock();
+	after = clock_ms();
 	printf("Hashed password: %s\n", hash);
 	printf("Time taken: %f seconds\n",
 		(double)(after - before) / CLOCKS_PER_SEC);
@@ -191,16 +191,16 @@ int main(void)
 	assert(ret == 0);
 	printf("Second hash check: %s\n", (strcmp(hash2, hash) == 0) ? "OK" : "FAIL");
 
-	before = clock();
+	before = clock_ms();
 	ret = (bcrypt_checkpw(pass, hash1) == 0);
-	after = clock();
+	after = clock_ms();
 	printf("First hash check with bcrypt_checkpw: %s\n", ret ? "OK" : "FAIL");
 	printf("Time taken: %f seconds\n",
 		(double)(after - before) / CLOCKS_PER_SEC);
 
-	before = clock();
+	before = clock_ms();
 	ret = (bcrypt_checkpw(pass, hash2) == 0);
-	after = clock();
+	after = clock_ms();
 	printf("Second hash check with bcrypt_checkpw: %s\n", ret ? "OK" : "FAIL");
 	printf("Time taken: %f seconds\n",
 		(double)(after - before) / CLOCKS_PER_SEC);

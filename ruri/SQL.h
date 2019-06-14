@@ -20,7 +20,7 @@ __forceinline void PrepareSQLString(char* s){
 
 
 #define REMOVEQUOTES(STR)\
-	[](std::string &const s)->const std::string{\
+	[](std::string &s){\
 		const size_t l = s.size();\
 		for(size_t i = 0; i < l ; i++)\
 			if(s[i] == '\'')\
@@ -28,7 +28,8 @@ __forceinline void PrepareSQLString(char* s){
 		return s;\
 	}(STR)
 
-#define USERNAMESAFE(STR)[](std::string &const s)->std::string{\
+#define USERNAMESAFE(STR)\
+	[](std::string &s)->std::string{\
 		const size_t l = s.size();\
 		for(size_t i = 0; i < l ; i++){\
 			if(s[i] == ' ')s[i] = '_';\
@@ -36,7 +37,7 @@ __forceinline void PrepareSQLString(char* s){
 				s[i] += 'a' - 'A';\
 		}\
 		return s;\
-}(STR)
+	}(STR)
 
 /*
 __forceinline void PrepareSQLString(std::string &s){
@@ -83,7 +84,7 @@ struct _SQLCon {
 
 			if (!s) {
 				if (!DontLock)Lock.unlock();
-				LastMessage = clock();
+				LastMessage = clock_ms();
 				return 0;
 			}
 			ret = s->executeQuery(Query);
@@ -95,7 +96,7 @@ struct _SQLCon {
 
 
 		if (!DontLock)Lock.unlock();
-		LastMessage = clock();
+		LastMessage = clock_ms();
 		return ret;
 	}
 	bool ExecuteSQL(const std::string Query){
@@ -110,7 +111,7 @@ struct _SQLCon {
 			s = con->createStatement();
 			if (!s) {
 				Lock.unlock();
-				LastMessage = clock();
+				LastMessage = clock_ms();
 				return 0;
 			}
 			ret = s->execute(Query);
@@ -122,7 +123,7 @@ struct _SQLCon {
 		if (s)delete s;
 
 		Lock.unlock();
-		LastMessage = clock();
+		LastMessage = clock_ms();
 
 		return ret;
 	}
@@ -141,7 +142,7 @@ struct _SQLCon {
 
 			if (!s) {
 				if (!DontLock)Lock.unlock();
-				LastMessage = clock();
+				LastMessage = clock_ms();
 				return 0;
 			}
 			ret = s->executeUpdate(Query);
@@ -154,7 +155,7 @@ struct _SQLCon {
 
 		if (!DontLock)Lock.unlock();
 
-		LastMessage = clock();
+		LastMessage = clock_ms();
 		return ret;
 	}
 
@@ -179,7 +180,7 @@ struct _SQLCon {
 		}catch (...) {
 			Suc = 0;
 		}
-		LastMessage = clock();
+		LastMessage = clock_ms();
 
 		Lock.unlock();
 		return Suc;

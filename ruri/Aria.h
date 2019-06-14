@@ -649,8 +649,10 @@ TryMap:
 
 				for (DWORD i = 0; i < BeatmapData.size(); i++){
 
-					const std::string MD5 = REMOVEQUOTES(GetJsonValue(BeatmapData[i], "file_md5"));
-
+					const std::string MD5 = [&]{
+						std::string Temp = GetJsonValue(BeatmapData[i], "file_md5");
+						return REMOVEQUOTES(Temp);
+					}();
 					if (MD5.size() == 32){
 
 						float diff_size = 0.f;
@@ -766,8 +768,8 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 		}
 		BS->Lock.unlock_shared();
 
-		if (!BS->LastUpdate || BS->LastUpdate + 14400000 < clock()){//Rate limit to every 4 hours
-			BS->LastUpdate = clock();
+		if (!BS->LastUpdate || BS->LastUpdate + 14400000 < clock_ms()){//Rate limit to every 4 hours
+			BS->LastUpdate = clock_ms();
 
 			LogMessage("Possible update to beatmap set.", "Aria");
 			
@@ -858,16 +860,16 @@ __forceinline std::string GetParam(const std::string &s, const std::string param
 void SendAria404(_Con s){
 
 	s.SendData(ConstructResponse(200, Empty_Headers, FastVByteAlloc("<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/570910676428652544/Kanzaki.png\"><br><b>404</b> - Aria does not know this page.</HTML>")));
-	s.close();
+	s.Dis();
 }
 
 void TryScoreAgain(_Con s){
 	s.SendData(ConstructResponse(408, Empty_Headers, Empty_Byte));
-	s.close();
+	s.Dis();
 }
 void ScoreFailed(_Con s){
 	s.SendData(ConstructResponse(408, Empty_Headers, FastVByteAlloc("error: no")));
-	s.close();
+	s.Dis();
 }
 
 _Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
@@ -893,7 +895,7 @@ _Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
 	if (s.MaxCombo >= 2000)
 		*Gen += AchGeneral::Combo2000;
 
-	int StarCount = min(int(StarDiff), 8);
+	int StarCount = al_min(int(StarDiff), 8);
 
 	while (StarCount > 0){
 		if (s.FullCombo)
@@ -1027,7 +1029,10 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 		
 
-		sData.BeatmapHash = REMOVEQUOTES(std::string(ScoreData[scoreOffset::score_FileCheckSum]));
+		sData.BeatmapHash = [&]{
+			std::string Temp = ScoreData[scoreOffset::score_FileCheckSum];
+			return REMOVEQUOTES(Temp);
+		}();
 		sData.UserName = ScoreData[scoreOffset::score_PlayerName];
 		sData.count300 = StringToInt32(ScoreData[score_Count300]);
 		sData.count100 = StringToInt32(ScoreData[score_Count100]);
@@ -1122,7 +1127,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			}
 			
 			s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Charts.begin(), Charts.end())));
-			s.close();
+			s.Dis();
 
 			if(NewBest && UpdateUserStatsFromDB(&AriaSQL[s.ID], UserID, lGameMode, u->Stats[lGameMode]))
 				u->addQue(bPacket::UserStats(u));
@@ -1136,7 +1141,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		}
 
 		s.SendData(ConstructResponse(200, Empty_Headers, FastVByteAlloc("error: no")));
-		s.close();
+		s.Dis();
 
 		const std::string TableName = (sData.Mods & Relax) ? "scores_relax" : "scores";
 
@@ -1182,7 +1187,11 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	const char* mName = "Aria";
 	const std::string URL(http.Host.begin(), http.Host.end());
 
-	const std::string BeatmapMD5 = REMOVEQUOTES(GetParam(URL, "&c="));
+	const std::string BeatmapMD5 = [&]{
+		std::string Temp = GetParam(URL, "&c=");
+		return REMOVEQUOTES(Temp);
+	}();
+
 	const DWORD SetID = StringToUInt32(GetParam(URL,"&i="));
 
 	if (BeatmapMD5.size() != 32)
@@ -1229,7 +1238,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 		std::string BeatmapFailed = std::to_string(Status) + "|0";
 
 		s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(BeatmapFailed.begin(), BeatmapFailed.end())));
-		return s.close();
+		return s.Dis();
 	}
 
 
@@ -1322,7 +1331,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	}
 
 	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Response.begin(),Response.end())));
-	s.close();
+	s.Dis();
 }
 
 __forceinline const bool SafeStartCMP(const std::vector<byte> &b, const std::string &Check){
@@ -1356,9 +1365,9 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s) {
 
 		if (UpdateCache[i].Stream == Stream){
 
-			if (UpdateCache[i].LastTime + 3600000 > clock()){
+			if (UpdateCache[i].LastTime + 3600000 > clock_ms()){
 				s.SendData(ConstructResponse(200, Empty_Headers,UpdateCache[i].Cache));
-				return s.close();
+				return s.Dis();
 			}
 
 			CacheOffset = i;
@@ -1369,12 +1378,12 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s) {
 	const std::string &res = GET_WEB_CHUNKED("old.ppy.sh",URL);
 
 	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(res.begin(), res.end())));
-	s.close();
+	s.Dis();
 
 	_UpdateCache c;
 
 	c.Stream = Stream;
-	c.LastTime = clock();
+	c.LastTime = clock_ms();
 	c.Cache = std::vector<byte>(res.begin(),res.end());
 
 	if (CacheOffset == -1)
@@ -1394,17 +1403,17 @@ void Handle_SearchSet(const _HttpRes http, _Con s){
 	}
 
 	if (!Start)
-		return s.close();
+		return s.Dis();
 
 	std::string Res;// GetMirrorResponse("api/set?" + std::string(http.Host.begin() + Start, http.Host.end()));
 
 	//UnChunk(Res);
 
 	if (!Res.size())
-		return s.close();
+		return s.Dis();
 
 	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
-	return s.close();
+	return s.Dis();
 }
 void Handle_DirectSearch(const _HttpRes http, _Con s) {
 
@@ -1419,7 +1428,7 @@ void Handle_DirectSearch(const _HttpRes http, _Con s) {
 	}
 
 	if (!Start)
-		return s.close();
+		return s.Dis();
 
 	std::string Res;// GetMirrorResponse("api/search?" + std::string(http.Host.begin() + Start, http.Host.end()));
 
@@ -1431,12 +1440,12 @@ void Handle_DirectSearch(const _HttpRes http, _Con s) {
 
 		s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(MirrorFailure.begin(), MirrorFailure.end())));
 
-		return s.close();
+		return s.Dis();
 	}
 
 	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
 
-	return s.close();
+	return s.Dis();
 }
 
 /*
@@ -1466,12 +1475,12 @@ void GetReplay(const _HttpRes http, _Con s) {
 
 	const uint64_t ScoreID = StringToUInt64(GetParam(URL, "&c="));
 	if (!ScoreID)
-		return s.close();
+		return s.Dis();
 
 	std::vector<byte> Data = LOAD_FILE(std::string(REPLAY_PATH + std::to_string(ScoreID) + ".osr"));
 
 	if (!Data.size())
-		return s.close();
+		return s.Dis();
 
 	Data.pop_back();
 
@@ -1480,7 +1489,7 @@ void GetReplay(const _HttpRes http, _Con s) {
 	s.SendData(ConstructResponse(200, Empty_Headers, Data));
 
 
-	return s.close();
+	return s.Dis();
 	/*
 	_SQLCon sql;
 
@@ -1514,12 +1523,12 @@ void DownloadOSZ(const _HttpRes http, _Con s){
 
 	if (Res.size() < 100){
 		s.SendData(ConstructResponse(404, Empty_Headers, Empty_Byte));
-		return s.close();
+		return s.Dis();
 	}
 	
 	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
 	
-	return s.close();
+	return s.Dis();
 }
 
 void HandleAria(_Con s){
@@ -1529,18 +1538,18 @@ void HandleAria(_Con s){
 	_HttpRes res;
 
 	if (!s.RecvData(res)){
-		s.close();
+		s.Dis();
 		return LogError("Connection Lost", mName);
 	}
 
 	bool DontCloseConnection = 0;
 	if (SafeStartCMP(res.Host, "/web/osu-submit-modular-selector.php")){
 
-		const int sTime = clock();
+		const int sTime = clock_ms();
 
 		ScoreServerHandle(res, s);
 
-		const unsigned long long Time = clock() - sTime;
+		const unsigned long long Time = clock_ms() - sTime;
 
 		printf("Score Done in %ims\n", Time);
 
@@ -1568,7 +1577,7 @@ void HandleAria(_Con s){
 	}else SendAria404(s);
 
 	if (!DontCloseConnection){
-		s.close();
+		s.Dis();
 		/*const unsigned long long Time = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - begin).count();
 		
 		printf(KMAG"Aria> " KRESET "%fms\n", double(double(Time) / 1000000.0));*/
@@ -1634,11 +1643,11 @@ void Aria_Main(){
 	if (listening == INVALID_SOCKET)
 		return LogError("Failed to load socket", mName);
 
-	sockaddr_in hint;
+	sockaddr_in hint; 
+	ZeroMemory(&hint.sin_addr, sizeof(hint.sin_addr));
 	hint.sin_family = AF_INET;
 	hint.sin_port = htons(ARIAPORT);
-	hint.sin_addr.S_un.S_addr = INADDR_ANY;
-
+	
 	::bind(listening, (sockaddr*)&hint, sizeof(hint));
 
 	listen(listening, SOMAXCONN);// Sets the socket to listen

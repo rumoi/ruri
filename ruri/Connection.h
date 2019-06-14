@@ -159,7 +159,7 @@ struct _Con{
 		return 1;
 	}
 
-	__inline void close() {
+	void Dis() {
 
 		if (!s)return;
 		//printf("Closing Connection\n");

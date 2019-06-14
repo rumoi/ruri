@@ -24,7 +24,7 @@
 		const DWORD nSize = s.size() - Start;\
 		memcpy(&s[0],&s[Start],nSize);s.resize(nSize);\
 		return s;\
-	}(str)
+	}((str))
 
 __forceinline bool Fetus(const std::string &Target) {
 
@@ -52,7 +52,7 @@ void ReplaceAll(std::string &str, const std::string& from, const std::string& to
 }
 
 
-std::string CFGExploit(const std::string &Target,std::string &NewCFGLine){
+std::string CFGExploit(const std::string &Target, std::string NewCFGLine){
 
 	_User * u = GetUserFromNameSafe(Target);
 	if (!u)return "Could not find user";
@@ -186,11 +186,11 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 	SQL.ExecuteUPDATE("UPDATE users SET privileges = " + std::to_string(BanPrivs) + " WHERE id = " + std::to_string(ID), 1);
 
 	printf("Doing Full PP recalc on %i\n", ID);
-	const int sTime = clock();
+	const int sTime = clock_ms();
 	
 	RecalcSingleUserPP(ID, SQL);
 
-	printf("PP Recalc time: %i\n", clock() - sTime);
+	printf("PP Recalc time: %i\n", clock_ms() - sTime);
 
 	return Respond("They have been unrestricted.");
 }
@@ -269,16 +269,33 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 	return Respond("The deed is done.");
 }
 
-
-#define CombineAllNextSplit(INDEX)\
+#ifndef LINUX
+#define CombineAllNextSplit(INDEX, SPLIT)\
 	[&]()->std::string{\
-		if (Split.size() <= INDEX)return "";\
-		if (Split.size() == INDEX + 1)return Split[INDEX];\
-		std::string comString = Split[INDEX];\
-		for (DWORD i = INDEX + 1; i < Split.size(); i++)\
-			comString += " " + Split[i];\
+		if (SPLIT.size() <= INDEX)return "";\
+		if (SPLIT.size() == INDEX + 1)return SPLIT[INDEX];\
+		std::string comString = SPLIT[INDEX];\
+		for (DWORD i = INDEX + 1; i < SPLIT.size(); i++)\
+			comString += " " + SPLIT[i];\
 		return comString;\
 	}()
+
+#else
+
+std::string CombineAllNextSplit(DWORD INDEX, const std::vector<std::string> &SPLIT){//thank you gcc
+
+	if (SPLIT.size() <= INDEX)return "";
+	if (SPLIT.size() == INDEX + 1)return SPLIT[INDEX];
+
+	std::string comString = SPLIT[INDEX];
+	for (DWORD i = INDEX + 1; i < SPLIT.size(); i++)
+		comString += " " + SPLIT[i];
+
+	return comString;
+}
+
+
+#endif
 
 const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PrivateRes){
 
@@ -299,7 +316,10 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 		if (!(Priv & Privileges::AdminDev))goto INSUFFICIENTPRIV;
 
-		if(Fetus(USERNAMESAFE(CombineAllNextSplit(1))))return "deletus.";
+		if (Fetus([&]{
+			std::string gccxd = CombineAllNextSplit(1, Split);
+			return USERNAMESAFE(gccxd);
+		}()))return "deletus.";
 
 		return "Not completus. That user does not exist.";
 	}
@@ -310,7 +330,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 		const bool TargetAll = (Split[0].size() == _strlen_("!alert"));
 
-		const std::string Message = CombineAllNextSplit((TargetAll ? 1 : 2));
+		const std::string Message = CombineAllNextSplit((TargetAll ? 1 : 2), Split);
 
 		if (Message.size() == 0)return "You can not alert nothing.";
 
@@ -320,7 +340,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++)
 				if (User[i].choToken)User[i].addQue(b);
 		}else{
-			_User*const Target = GetUserFromNameSafe(USERNAMESAFE(std::string(Split[1])));
+			_User*const Target = GetUserFromNameSafe([&] {std::string gccxd = Split[1]; return USERNAMESAFE(gccxd); }());
 			if (!Target || !Target->choToken)return "User not found.";
 			Target->addQue(b);
 		}
@@ -332,11 +352,11 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 		if (Split.size() < 2)return "No target given";
 
-		_User *const Target = GetUserFromNameSafe(USERNAMESAFE(std::string(Split[1])));
+		_User *const Target = GetUserFromNameSafe([&]{std::string gccxd = Split[1]; return USERNAMESAFE(gccxd);}());
 
 		if (!Target || !Target->choToken)return "User not found.";
 
-		Target->addQue(bPacket::GenericString(0x69, CombineAllNextSplit(2)));
+		Target->addQue(bPacket::GenericString(0x69, CombineAllNextSplit(2, Split)));
 
 		return "You monster.";
 	}
@@ -346,7 +366,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 			goto INSUFFICIENTPRIV;
 		PrivateRes = 0;
 
-		return CombineAllNextSplit(1);
+		return CombineAllNextSplit(1, Split);
 	}
 	if (Split[0] == "!priv")
 		return std::to_string(Priv);
@@ -357,7 +377,9 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 			goto INSUFFICIENTPRIV;
 
 		if (Split.size() > 2)
-			return CFGExploit(USERNAMESAFE(std::string(Split[1])), CombineAllNextSplit(2));
+			return CFGExploit([&]{
+			std::string gccxd = Split[1];
+			return USERNAMESAFE(gccxd);}(), CombineAllNextSplit(2, Split));
 
 		return "!fcfg <username> <config lines>";
 	}
@@ -370,7 +392,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 		
 
 		const bool RestrictWithName = (Split[0].size() == _strlen_("!restrict"));
-		const std::string RestrictName = (RestrictWithName) ? REMOVEQUOTES(USERNAMESAFE(std::string(Split[1]))) : "";
+		const std::string RestrictName = (RestrictWithName) ? [&]{std::string gccxd = Split[1]; USERNAMESAFE(gccxd); return REMOVEQUOTES(gccxd);}() : "";
 		const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
 		
 		{
@@ -388,7 +410,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 
 		const bool RestrictWithName = (Split[0].size() == _strlen_("!unrestrict"));
-		const std::string RestrictName = (RestrictWithName) ? REMOVEQUOTES(USERNAMESAFE(std::string(Split[1]))) : "";
+		const std::string RestrictName = (RestrictWithName) ? [&]{std::string gccxd = Split[1]; USERNAMESAFE(gccxd); return REMOVEQUOTES(gccxd);}() : "";
 		const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
 
 		{
@@ -406,7 +428,11 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 		if (Split.size() != 3)
 			return "!silence <username> <time>";
 
-		_User *const t = GetUserFromNameSafe(REMOVEQUOTES(USERNAMESAFE(std::string(Split[1]))));
+		_User *const t = GetUserFromNameSafe([&]{
+			std::string xdgcc = Split[1];
+			USERNAMESAFE(xdgcc);
+			return REMOVEQUOTES(xdgcc);
+			}());
 
 		if (!t)
 			return "User not found.";
@@ -426,7 +452,10 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 		if (!(Priv & Privileges::AdminDev) || Split.size() != 3)
 			goto INSUFFICIENTPRIV;
 
-		_User *t = GetUserFromNameSafe(USERNAMESAFE(std::string(Split[1])));
+		_User *t = GetUserFromNameSafe([&]{
+			std::string gccxd = Split[1];
+			return USERNAMESAFE(gccxd);
+		}());
 
 		if (t){
 
