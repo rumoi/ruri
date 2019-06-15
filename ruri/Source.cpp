@@ -108,8 +108,6 @@ enum Mods
 #define KGRY  "\x1B[37m"
 #define KRESET "\033[0m"
 #define BOT_LOCATION 38
-#define RURIPORT 420
-#define ARIAPORT 421
 
 #define MIRROR_IP "5.9.151.156"
 #define MIRROR_PORT 8420
@@ -243,7 +241,6 @@ enum LoginReply {
 	Login_Failed = -1
 };
 
-
 const int MAX_PACKET_LENGTH = 2816;
 
 #ifndef LINUX
@@ -254,14 +251,18 @@ const int MAX_PACKET_LENGTH = 2816;
 
 #define clock_ms clock
 
+#define RURIPORT 420
+#define ARIAPORT 421
+
 #else
 
 #include "Linux.h"
 
-#endif
 
 #define RURI_UNIX_SOCKET "/tmp/ruri.sock"
 #define ARIA_UNIX_SOCKET "/tmp/aria.sock"
+
+#endif
 
 
 #include <thread>
@@ -346,7 +347,7 @@ constexpr size_t _strlen_(const char* s)noexcept{
 	}(FILENAME)
 
 const std::string BOT_NAME = "ruri";
-const std::string FAKEUSER_NAME = []{const char a[] = { -30,-128,-115,95,-30,-128,-115,0 }; return std::string(a); }();
+const std::string FAKEUSER_NAME = []{const char a[] = { 226,128,140,226,128,141,0 }; return std::string(a); }();
 
 #include <time.h>
 
@@ -373,14 +374,14 @@ std::string GET_WEB(const std::string &HostName, const std::string &Page) {
 	SockAddr_WEB.sin_port = htons(80);
 	SockAddr_WEB.sin_addr.s_addr = *(unsigned long*)gethostbyname(HostName.c_str())->h_addr;
 		
-	if (connect(Socket_WEB, (SOCKADDR*)(&SockAddr_WEB), sizeof(SockAddr_WEB))) {
+	if (connect(Socket_WEB, (SOCKADDR*)(&SockAddr_WEB), sizeof(SockAddr_WEB))){
 		closesocket(Socket_WEB);
 		return "";
 	}
 
 	const std::string pData = "GET /" + Page + " HTTP/1.1\r\nHost: " + HostName + "\r\nConnection: close\r\n\r\n";
 
-	if (send(Socket_WEB, (char*)&pData[0], pData.size(), 0) == SOCKET_ERROR) {
+	if (send(Socket_WEB, (char*)&pData[0], pData.size(), 0) == SOCKET_ERROR){
 		closesocket(Socket_WEB); return "";
 	}
 	
@@ -544,7 +545,7 @@ void UsernameCacheUpdateName(const DWORD UID, const std::string &s, _SQLCon *SQL
 std::string BEATMAP_PATH;
 std::string REPLAY_PATH;
 std::string osu_API_KEY;
-std::string osu_API_BEATMAP = "api/get_beatmaps?k=" + osu_API_KEY + "&";
+std::string osu_API_BEATMAP;
 
 struct _RankList {
 	DWORD ID;
@@ -1783,11 +1784,10 @@ void RenderHTMLPage(_Con s, _HttpRes &res){
 	std::vector<byte> Body;
 
 	AddStringToVector(Body, "<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/567292020104888320/unknown.png\">"
-		"<br>ruri uptime : " + std::to_string(double(clock_ms()) / 86400000.) + " days. With " + std::to_string(COUNT_REQUESTS) + " connections handled."
+		"<br>" + std::to_string(COUNT_REQUESTS) + " connections handled."
 		"<br>"+ std::to_string(COUNT_MULTIPLAYER) + " currently active multiplayer games.</HTML>");
 
 	s.SendData(ConstructResponse(405, {_HttpHeader("Content-Type", "text/html; charset=utf-8")}, Body));
-
 }
 
 uint64_t GenerateChoToken(){
@@ -1939,7 +1939,7 @@ bool DownloadMapFromOsu(const int ID) {
 	if (ID < 0 || ID > 6000000)
 		return 0;
 
-	const std::string &bFile = GET_WEB_CHUNKED("old.ppy.sh", std::string("osu/" + std::to_string(ID)));
+	const std::string bFile = GET_WEB_CHUNKED("old.ppy.sh", std::string("osu/" + std::to_string(ID)));
 
 	if (bFile.size() == 0 || bFile.find("[HitObjects]") == std::string::npos)return 0;
 
@@ -3487,7 +3487,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 		const byte* const Packet = (byte*)&PacketBundle[In];
 		In += PacketSize;
 
-		//std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
+		std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
 
 		switch (PacketID){
 			
@@ -3637,8 +3637,10 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 			break;
 		}
 
-		//const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
-		//printf("P%i: %fms\n", PacketID, double(double(TTime) / 1000000.0));
+		const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+
+		if(PacketID == 0 || PacketID == 4 || PacketID == 85)
+			printf("P%i: %fms\n", PacketID, double(double(TTime) / 1000000.0));
 		
 	}
 
@@ -3713,7 +3715,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 	if (!choToken){//No token sent - Assume its the login request which only ever comes in once
 
-		std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
+		//std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
 
 		res.Body.pop_back();//Pops trailing new line
 
@@ -3841,7 +3843,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			//Todo HWID
 		}
 
-		//chan_DevLog.Bot_SendMessage(Username);
+		chan_DevLog.Bot_SendMessage(Username + " Logged in.");
 
 		{
 			if (!u){
@@ -3941,8 +3943,8 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			u->SendToken = 1;
 			u->qLock.unlock();
 
-			const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
-			printf("LoginTime: %fms\n", double(double(TTime) / 1000000.0));
+			//const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+			//printf("LoginTime: %fms\n", double(double(TTime) / 1000000.0));
 
 			u->doQue(s);
 
@@ -4313,6 +4315,10 @@ int main(){
 		printf("BANCHO_THREAD_COUNT or ARIA_THREAD_COUNT can not be below 4\n");
 		return 0;
 	}
+
+	if (osu_API_KEY.size() == 0)
+		printf("No api key was given. Some features will not work.\n");
+	else osu_API_BEATMAP = "api/get_beatmaps?k=" + osu_API_KEY + "&";
 
 	if (WSAStartup(MAKEWORD(2, 2), &wsData)) {
 		printf("Failed to load WSA.\n");

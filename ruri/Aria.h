@@ -9,6 +9,7 @@
 #define ARIA_THREAD_COUNT 4
 
 struct _Score {
+
 	std::string UserName;
 	std::string BeatmapHash;
 	int Score;
@@ -34,6 +35,7 @@ struct _Score {
 };
 
 struct _ScoreCache{
+
 	DWORD UserID;
 	uint64_t ScoreID;
 	int Score;
@@ -404,7 +406,7 @@ struct _BeatmapData{
 
 struct _BeatmapSet{
 	DWORD ID;
-	int LastUpdate;
+	DWORD LastUpdate;
 	std::shared_mutex Lock;
 	std::vector<_BeatmapData> Maps;
 
@@ -768,8 +770,10 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 		}
 		BS->Lock.unlock_shared();
 
-		if (!BS->LastUpdate || BS->LastUpdate + 14400000 < clock_ms()){//Rate limit to every 4 hours
-			BS->LastUpdate = clock_ms();
+		const DWORD cTime = clock_ms();
+
+		if (BS->LastUpdate + 14400000 < cTime){//Rate limit to every 4 hours
+			BS->LastUpdate = cTime;
 
 			LogMessage("Possible update to beatmap set.", "Aria");
 			
@@ -1359,9 +1363,8 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s) {
 	int CacheOffset = -1;
 	
 	const int Stream = WeakStringToInt(GetParam(URL, "stream="));
-
-
-	for (DWORD i = 0; i < UpdateCache.size(); i++) {
+	
+	for (DWORD i = 0; i < UpdateCache.size(); i++){
 
 		if (UpdateCache[i].Stream == Stream){
 
@@ -1375,7 +1378,8 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s) {
 		}
 
 	}
-	const std::string &res = GET_WEB_CHUNKED("old.ppy.sh",URL);
+
+	const std::string res = GET_WEB_CHUNKED("old.ppy.sh",URL);
 
 	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(res.begin(), res.end())));
 	s.Dis();
@@ -1505,8 +1509,6 @@ void GetReplay(const _HttpRes http, _Con s) {
 		if (res)delete res;
 		return s.close();
 	}*/
-
-
 
 	//beatmap_md5, score, max_combo, full_combo, mods, 300_count, 100_count, 50_count,
 	// katus_count, gekis_count, misses_count, time, play_mode

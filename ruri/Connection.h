@@ -15,6 +15,7 @@ struct _HttpHeader{
 };
 
 struct _HttpRes {
+
 	std::vector<byte> Body;
 	std::vector<byte> Host;
 	std::vector<_HttpHeader> Headers;
@@ -129,13 +130,12 @@ struct _Con{
 					FirstBody = 0;
 					res.Body = std::vector<byte>(temp[i].begin() + 1, temp[i].end());
 				}
-				else {
+				else{
 					res.Body.push_back('\r');
 					res.Body.resize(res.Body.size() + temp[i].size());
 					memcpy(&res.Body[res.Body.size() - temp[i].size()], &temp[i][0], temp[i].size());
 				}
 			}
-
 		}
 		
 		return 1;
@@ -163,10 +163,9 @@ struct _Con{
 		return 1;
 	}
 
-	void Dis() {
-
+	void Dis(){
 		if (!s)return;
-		//printf("Closing Connection\n");
+
 		closesocket(s);
 		s = 0;
 

@@ -176,7 +176,7 @@ int pp_getRawMapData(const std::string &Input, _RawBeatmap &Output){
 	const char* Start = (char*)&RawMap[0];
 	const char* End = (char*)&RawMap[RawMap.size()];
 
-	const char* CO = Start + 17;;
+	const char* CO = Start + 17;
 
 
 	conP(_MapHeaders) Headers = Output.Headers;

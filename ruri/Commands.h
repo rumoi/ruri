@@ -368,6 +368,18 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 		return CombineAllNextSplit(1, Split);
 	}
+	if (Split[0] == "!br"){
+
+		const std::string TotalMessage = CombineAllNextSplit(1, Split);
+
+		std::string Return;
+
+		for (DWORD i = 0; i < TotalMessage.size(); i++)
+			Return += " " + std::to_string(byte(TotalMessage[i]));
+		
+		return Return;
+	}
+
 	if (Split[0] == "!priv")
 		return std::to_string(Priv);
 

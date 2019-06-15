@@ -71,7 +71,7 @@ const std::string Ach_GeneralMania[] = {
 };
 
 
-const std::string* Ach_GeneralNames[4] = { &Ach_GeneralOsu[0],&Ach_GeneralTaiko[0], &Ach_GeneralCTB[0],&Ach_GeneralMania[0]};
+const std::string* Ach_GeneralNames[] = { &Ach_GeneralOsu[0],&Ach_GeneralTaiko[0], &Ach_GeneralCTB[0],&Ach_GeneralMania[0]};
 
 void Ach_General(const DWORD Diff, const DWORD GameMode, std::string *res){
 
