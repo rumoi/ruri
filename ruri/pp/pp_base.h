@@ -79,7 +79,7 @@
 		default:break;																	\
 		}																				\
 																						\
-	}																					\
+	}																	\
 																						\
 	const double r = (p1 == 0 && p2 == 0) ? 0. : double(p1) + (double(p2) * 0.00001);	\
 																						\

@@ -3487,7 +3487,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 		const byte* const Packet = (byte*)&PacketBundle[In];
 		In += PacketSize;
 
-		std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
+		//std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
 
 		switch (PacketID){
 			
@@ -3637,10 +3637,10 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 			break;
 		}
 
-		const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+		//const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
 
-		if(PacketID == 0 || PacketID == 4 || PacketID == 85)
-			printf("P%i: %fms\n", PacketID, double(double(TTime) / 1000000.0));
+		//if(PacketID == 0 || PacketID == 4 || PacketID == 85)
+			//printf("P%i: %fms\n", PacketID, double(double(TTime) / 1000000.0));
 		
 	}
 
@@ -3715,7 +3715,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 	if (!choToken){//No token sent - Assume its the login request which only ever comes in once
 
-		//std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
+		std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
 
 		res.Body.pop_back();//Pops trailing new line
 
@@ -3843,7 +3843,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			//Todo HWID
 		}
 
-		chan_DevLog.Bot_SendMessage(Username + " Logged in.");
+		//chan_DevLog.Bot_SendMessage(Username + " Logged in.");
 
 		{
 			if (!u){
@@ -3943,8 +3943,8 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			u->SendToken = 1;
 			u->qLock.unlock();
 
-			//const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
-			//printf("LoginTime: %fms\n", double(double(TTime) / 1000000.0));
+			const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+			printf("LoginTime: %fms\n", double(double(TTime) / 1000000.0));
 
 			u->doQue(s);
 
@@ -4226,7 +4226,7 @@ void receiveConnections(){
 		perror("listen() failed");
 		return;
 	}
-
+	chmod(RURI_UNIX_SOCKET, S_IRWXU | S_IRWXG | S_IRWXO);
 	
 #endif
 

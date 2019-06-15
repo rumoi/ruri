@@ -1684,7 +1684,7 @@ void Aria_Main(){
 		perror("listen() failed");
 		return;
 	}
-
+	chmod(ARIA_UNIX_SOCKET, S_IRWXU | S_IRWXG | S_IRWXO);
 
 #endif
 	DWORD ID = 0;
