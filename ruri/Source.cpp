@@ -1304,14 +1304,14 @@ std::mutex LoginMutex;
 
 void debug_LogOutUser(_User *p);
 
-_User *GetPlayerSlot(const std::string &UserName){
+_User *GetPlayerSlot_Safe(const std::string &UserName){
 
 	if (!UserName.size())return 0;
 
 	LoginMutex.lock();
 
 	for (DWORD i = 0; i < MAX_USER_COUNT; i++){
-		if (User[i].Username != UserName)
+		if (User[i].Username_Safe != UserName)
 			continue;
 
 		LoginMutex.unlock();
@@ -1902,10 +1902,7 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 
 	const byte n_actionID = *(byte*)O; O++;
 	const std::string n_ActionText = ReadUleb(O, End);
-	const std::string n_CheckSum = [&]{
-		std::string gccxd = ReadUleb(O, End);
-		return REMOVEQUOTES(gccxd);
-	}();
+	const std::string n_CheckSum = REMOVEQUOTES(ReadUleb(O, End));
 	if (O + 4 > End)return;
 	const DWORD n_Mods = *(DWORD*)O; O += 4;
 	if (O + 1 > End)return;
@@ -2346,9 +2343,10 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 
 	/*const std::string Sender = */ReadUleb(O, End);
 	const std::string Message = [&]{
-		std::string gccxd = ReadUleb(O, End);
-		return TRIMSTRING(gccxd); }
-	();
+		std::string Why_can_MSVC_compile_and_work_fine_with_no_locals_but_GCC_eats_massive_dog_shit__Thanks_GCC = ReadUleb(O, End);
+		return TRIMSTRING(Why_can_MSVC_compile_and_work_fine_with_no_locals_but_GCC_eats_massive_dog_shit__Thanks_GCC);
+	}();
+
 	const std::string Target = ReadUleb(O, End);
 
 	if (O + 4 > End)return;
@@ -3470,7 +3468,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 	if (!tP || !tP->UserID){//No user online with that token
 
 		s.SendData(ConstructResponse(200, Empty_Headers, bPacket4Byte(OPac::server_restart,1).GetBytes()));
-		printf("Request relogin\n");
+		//printf("Request relogin\n");
 		return;
 	}
 
@@ -3729,19 +3727,12 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 		if (LoginData.size() != 3)
 			return BanchoIncorrectLogin(s);
 
-		std::string Username = [&]{
-			std::string gccxd = LoginData[0];
-			return REMOVEQUOTES(gccxd);
-		}();
+		std::string Username = USERNAMESQL(LoginData[0]);
 
-		const std::string Username_Safe = [&]{
-			std::string gccxd(Username.begin(), Username.end());
-			return USERNAMESAFE(gccxd);
-		}();
-		const std::string cPassword = [&] {
-			std::string gccxd = LoginData[1];
-			return REMOVEQUOTES(gccxd);
-		}();
+		const std::string Username_Safe = Username;
+
+		const std::string cPassword = REMOVEQUOTES(LoginData[1]);
+
 		const auto ClientData = EXPLODE_VEC(std::string,LoginData[2],'|');
 
 		if (ClientData.size() != 5 || Username.size() > MAX_USERNAME_LENGTH || cPassword.size() != 32)
@@ -3794,7 +3785,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 				return BanchoIncorrectLogin(s);//Might want to add a brute force lock out
 			}
 			if (!u) {
-				u = GetPlayerSlot(Username);
+				u = GetPlayerSlot_Safe(Username_Safe);
 				if (!u) {
 					DeleteAndNull(res);
 					return BanchoServerFull(s);
@@ -3852,7 +3843,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 		{
 			if (!u){
-				u = GetPlayerSlot(Username);
+				u = GetPlayerSlot_Safe(Username_Safe);
 				if (!u)
 					return BanchoServerFull(s);
 			}

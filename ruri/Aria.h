@@ -207,7 +207,7 @@ struct _LeaderBoardCache{
 		bool Done = 0;
 		bool NewTop = 0;
 
-		REMOVEQUOTES(MD5);
+		MD5 = REMOVEQUOTES(MD5);
 
 		const std::string TableName = (s.Mods & Relax) ? "scores_relax" : "scores";
 
@@ -651,10 +651,8 @@ TryMap:
 
 				for (DWORD i = 0; i < BeatmapData.size(); i++){
 
-					const std::string MD5 = [&]{
-						std::string Temp = GetJsonValue(BeatmapData[i], "file_md5");
-						return REMOVEQUOTES(Temp);
-					}();
+					const std::string MD5 = REMOVEQUOTES(GetJsonValue(BeatmapData[i], "file_md5"));
+					
 					if (MD5.size() == 32){
 
 						float diff_size = 0.f;
@@ -1033,10 +1031,8 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 		
 
-		sData.BeatmapHash = [&]{
-			std::string Temp = ScoreData[scoreOffset::score_FileCheckSum];
-			return REMOVEQUOTES(Temp);
-		}();
+		sData.BeatmapHash = REMOVEQUOTES(ScoreData[scoreOffset::score_FileCheckSum]);
+
 		sData.UserName = ScoreData[scoreOffset::score_PlayerName];
 		sData.count300 = StringToInt32(ScoreData[score_Count300]);
 		sData.count100 = StringToInt32(ScoreData[score_Count100]);
@@ -1191,10 +1187,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	const char* mName = "Aria";
 	const std::string URL(http.Host.begin(), http.Host.end());
 
-	const std::string BeatmapMD5 = [&]{
-		std::string Temp = GetParam(URL, "&c=");
-		return REMOVEQUOTES(Temp);
-	}();
+	const std::string BeatmapMD5 = REMOVEQUOTES(GetParam(URL, "&c="));
 
 	const DWORD SetID = StringToUInt32(GetParam(URL,"&i="));
 

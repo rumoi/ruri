@@ -18,8 +18,7 @@ __forceinline void PrepareSQLString(char* s){
 	}
 }
 
-
-#define REMOVEQUOTES(STR)\
+#define DO_REMOVEQUOTES(STR)\
 	[](std::string &s){\
 		const size_t l = s.size();\
 		for(size_t i = 0; i < l ; i++)\
@@ -28,7 +27,7 @@ __forceinline void PrepareSQLString(char* s){
 		return s;\
 	}(STR)
 
-#define USERNAMESAFE(STR)\
+#define DO_USERNAMESAFE(STR)\
 	[](std::string &s)->std::string{\
 		const size_t l = s.size();\
 		for(size_t i = 0; i < l ; i++){\
@@ -38,6 +37,17 @@ __forceinline void PrepareSQLString(char* s){
 		}\
 		return s;\
 	}(STR)
+#define USERNAMESQL(STR)\
+	[&]{\
+		std::string s = STR;\
+		DO_REMOVEQUOTES(s);\
+		return DO_USERNAMESAFE(s);\
+	}()\
+
+#define USERNAMESAFE(STR) [&]{std::string gccxd = STR; return DO_USERNAMESAFE(gccxd);}()
+#define REMOVEQUOTES(STR) [&]{std::string gccxd = STR; return DO_REMOVEQUOTES(gccxd);}()
+
+
 
 /*
 __forceinline void PrepareSQLString(std::string &s){
