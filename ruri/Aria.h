@@ -1246,9 +1246,9 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	}
 
 
-	bool NeedUpdate = (BeatData && BeatData->Hash != BeatmapMD5);
+	const bool NeedUpdate = (BeatData && BeatData->Hash != BeatmapMD5);
 
-	_LeaderBoardCache *LeaderBoard = BeatData->GetLeaderBoard(Mode, &AriaSQL[s.ID]);
+	_LeaderBoardCache *const LeaderBoard = BeatData->GetLeaderBoard(Mode, &AriaSQL[s.ID]);
 
 	const DWORD TotalScores = (LeaderBoard) ? LeaderBoard->ScoreCache.size() : 0;
 	
@@ -1346,7 +1346,7 @@ __forceinline const bool SafeStartCMP(const std::vector<byte> &b, const std::str
 
 struct _UpdateCache{
 	int Stream;
-	int LastTime;
+	DWORD LastTime;
 	std::vector<byte> Cache;
 	_UpdateCache() {
 		Stream = 0;
@@ -1354,7 +1354,7 @@ struct _UpdateCache{
 	}
 }; std::vector<_UpdateCache> UpdateCache;
 
-void osu_checkUpdates(const std::vector<byte> &Req,_Con s) {
+void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 
 	if (!SafeStartCMP(Req, "/web/check-updates.php?action=check") && !SafeStartCMP(Req, "/web/check-updates.php?action=path"))
 		return SendAria404(s);
@@ -1452,27 +1452,6 @@ void Handle_DirectSearch(const _HttpRes http, _Con s) {
 	return s.Dis();
 }
 
-/*
-__forceinline bool ReadAllBytes(const std::string &filename, std::vector<byte>&res)
-{
-	res.clear();
-	if (filename.size() == 0)return 0;
-
-	std::ifstream ifs(filename, std::ios::binary | std::ios::ate);
-
-	if (!ifs.is_open())return 0;
-
-	std::ifstream::pos_type pos = ifs.tellg();
-
-	res.resize(pos);
-
-	ifs.seekg(0, std::ios::beg);
-	ifs.read((char*)&res[0], pos);
-	ifs.close();
-
-	return 1;
-}*/
-
 void GetReplay(const _HttpRes http, _Con s) {
 
 	const std::string URL(http.Host.begin(), http.Host.end());
@@ -1481,18 +1460,15 @@ void GetReplay(const _HttpRes http, _Con s) {
 	if (!ScoreID)
 		return s.Dis();
 
-	std::vector<byte> Data = LOAD_FILE(std::string(REPLAY_PATH + std::to_string(ScoreID) + ".osr"));
+	std::vector<byte> Data = LOAD_FILE(REPLAY_PATH + std::to_string(ScoreID) + ".osr");
 
 	if (!Data.size())
 		return s.Dis();
 
 	Data.pop_back();
 
-	printf("Serving replay\n");
-
 	s.SendData(ConstructResponse(200, Empty_Headers, Data));
-
-
+	
 	return s.Dis();
 	/*
 	_SQLCon sql;

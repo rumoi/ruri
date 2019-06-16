@@ -329,8 +329,8 @@ constexpr size_t _strlen_(const char* s)noexcept{
 
 
 #define LOAD_FILE(FILENAME)													\
-	[](const std::string& Filename){										\
-		std::ifstream file(Filename, std::ios::binary | std::ios::ate);		\
+	[&](){																	\
+		std::ifstream file(std::string(FILENAME), std::ios::binary | std::ios::ate);		\
 		if (!file.is_open())												\
 			return std::vector<byte>();										\
 																			\
@@ -344,7 +344,7 @@ constexpr size_t _strlen_(const char* s)noexcept{
 		rVec[rVec.size()-1] = 0;											\
 																			\
 		return rVec;														\
-	}(FILENAME)
+	}()
 
 const std::string BOT_NAME = "ruri";
 const std::string FAKEUSER_NAME = []{const char a[] = { 226,128,140,226,128,141,0 }; return std::string(a); }();
@@ -541,7 +541,6 @@ void UsernameCacheUpdateName(const DWORD UID, const std::string &s, _SQLCon *SQL
 	UsernameCacheLock.unlock_shared();
 }
 
-
 std::string BEATMAP_PATH;
 std::string REPLAY_PATH;
 std::string osu_API_KEY;
@@ -629,13 +628,13 @@ void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
 						NewPos = i + 1;
 						break;
 					}
-				if (NewPos != OrigPos){					
+				if (NewPos != OrigPos){
 					memcpy(&cRankList[NewPos + 1], &cRankList[NewPos],(OrigPos - NewPos) * sizeof(_RankList));
 					cRankList[NewPos] = n;
 					RankListVersion[GameMode]++;
 				}else cRankList[OrigPos] = n;
 
-			}else cRankList[0] = n;//Rank one improving them self requires no extra calculations.
+			}else cRankList[0] = n;//Rank one improving themself requires no extra calculations.
 
 		}else if(Direction == 2){
 			if (PP){
@@ -675,7 +674,7 @@ namespace BR {
 	std::random_device randomDeviceInit;	
 	std::mt19937 mersenneTwister = std::mt19937(randomDeviceInit());
 
-	int GetRand(int min = 0, int max = INT_MAX) {
+	int GetRand(int min = INT_MIN, int max = INT_MAX) {
 		return std::uniform_int_distribution<int>{min, max}(mersenneTwister);
 	}
 	uint64_t GetRand64(uint64_t min = 0, uint64_t max = uint64_t(-1)) {
@@ -831,7 +830,6 @@ struct _DelayedBanchoPacket{
 	}
 
 };
-bool SortDelayPacket(const _DelayedBanchoPacket i, const _DelayedBanchoPacket j) { return (i.Time < j.Time); }
 
 struct _UserStats {
 
@@ -1234,12 +1232,11 @@ struct _User{
 
 	void doQue(_Con s){
 
-		if (Que.size() == 0 && dQue.size() == 0){
-		FEEDALIVE:
-			s.SendData(ConstructResponse(200, Empty_Headers, Empty_Byte));
-			return;
-		}
 		std::vector<byte> SendBytes;
+
+		if (Que.size() == 0 && dQue.size() == 0)
+			goto FEEDALIVE;
+
 		qLock.lock();
 
 		if (Que.size()){
@@ -1261,31 +1258,42 @@ struct _User{
 
 		if (dQue.size() != 0){
 
-			std::sort(dQue.begin(), dQue.end(), SortDelayPacket);
-			int cTime = clock_ms();
+			std::sort(dQue.begin(), dQue.end(), [](const _DelayedBanchoPacket i, const _DelayedBanchoPacket j) { return (i.Time < j.Time); });
 
+			const int cTime = clock_ms();
+			bool NotEnd = 0;
 			for (int i = int(dQue.size()) - 1; i >= 0; i--){
 				if (dQue[i].Time == 1){//means do the next bancho frame.
 					dQue[i].Time = 0;
+					NotEnd = 1;
 					continue;
 				}
 				if (dQue[i].Time == 2) {
 					dQue[i].Time = 1;
+					NotEnd = 1;
 					continue;
 				}
 				if(dQue[i].Time <= cTime){
 					dQue[i].b.GetBytes(SendBytes);
-					dQue.pop_back();
+
+					if(!NotEnd)dQue.pop_back();
+					else{
+						dQue[i] = dQue[dQue.size() - 1];
+						dQue.pop_back();//Dont really care about it being slightly off. The next sort will correct this.
+					}
+
 				}else break;
 			}
 		}
 		qLock.unlock();
 
-		if (SendBytes.size() == 0)goto FEEDALIVE;
-		if (SendToken)
-			s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", std::to_string(choToken).c_str()) }, SendBytes));
-		else
+		if (SendBytes.size())
+			s.SendData(ConstructResponse(200, (!SendToken) ? Empty_Headers : std::vector<_HttpHeader>{ _HttpHeader("cho-token", std::to_string(choToken).c_str()) }, SendBytes));
+		else{
+		FEEDALIVE:
 			s.SendData(ConstructResponse(200, Empty_Headers, SendBytes));
+		}
+
 	}
 
 }; _User User[MAX_USER_COUNT];
@@ -1831,7 +1839,7 @@ void Event_client_channelJoin(_User *tP,const byte* const Packet, const DWORD Si
 
 	size_t O = (size_t)&Packet[0];
 
-	const std::string ChannelName = ReadUleb(O,O + Size + 1);
+	const std::string ChannelName = ReadUleb(O,O + Size);
 
 
 	_Channel *c = GetChannelByName(ChannelName);
@@ -1857,7 +1865,7 @@ void Event_client_channelPart(_User *tP, const byte* const Packet, const DWORD S
 
 	size_t O = (size_t)&Packet[0];
 
-	const std::string ChannelName = ReadUleb(O,O + Size + 1);
+	const std::string ChannelName = ReadUleb(O,O + Size);
 
 	_Channel *c = GetChannelByName(ChannelName);
 
@@ -1886,10 +1894,11 @@ void Event_client_userStatsRequest(_User *tP, const byte* const Packet, const DW
 
 }
 void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD Size){
+
 	if (Size < 12)return;
 
 	size_t O = (size_t)&Packet[0];
-	const size_t End = O + Size + 1;
+	const size_t End = O + Size;
 
 	const byte n_actionID = *(byte*)O; O++;
 	const std::string n_ActionText = ReadUleb(O, End);
@@ -1915,6 +1924,7 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 	if(n_BeatmapID)tP->BeatmapID = n_BeatmapID;
 
 	tP->addQue(bPacket::UserStats(tP));
+
 }
 
 #include <fstream>
@@ -2042,15 +2052,13 @@ int getSetID_fHash(const std::string &H, _SQLCon* c){//Could combine getbeatmapi
 	return StringToInt32(t);
 }
 
-/*
-int getBeatmapID_fHash(std::string &H, _SQLCon* c) {
+
+int getBeatmapID_fHash(const std::string &H, _SQLCon* c) {
 
 	if (H.size() != 32)return 0;
 
 
 	if (c){
-
-		PrepareSQLString(H);
 
 		sql::ResultSet* res = c->ExecuteQuery("SELECT beatmap_id FROM beatmaps WHERE beatmap_md5 = '" + H + "' LIMIT 1");
 
@@ -2082,8 +2090,8 @@ int getBeatmapID_fHash(std::string &H, _SQLCon* c) {
 
 	//TODO add to database
 
-	return Safe_atoi(t.c_str());
-}*/
+	return StringToInt32(t);
+}
 
 #define AddDeci(s,o) if (*(byte*)(s + o) == 0) { *(USHORT*)(s + o - 1) = *(USHORT*)(s + o - 2); *(byte*)(s + o - 2) = '.'; return s;}
 
@@ -2126,7 +2134,6 @@ void BotMessaged(_User *tP, const std::string& Message){
 	if (Message.size() == 0)return;
 
 	if (Message[0] == '!'){
-
 
 		if (!MEM_CMP_START(Message, "!with") && !MEM_CMP_START(Message, "!acc")) {
 
@@ -2307,7 +2314,7 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 	if (Size < 7 || tP->isSilenced())return;
 
 	size_t O = (size_t)&Packet[0];
-	const size_t End = O + Size + 1;
+	const size_t End = O + Size;
 
 	/*const std::string Sender = */ReadUleb(O, End);
 	const std::string Message = ReadUleb(O, End);
@@ -2335,7 +2342,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 	if (Size < 7 || tP->isSilenced())return;
 
 	size_t O = (size_t)&Packet[0];
-	const size_t End = O + Size + 1;
+	const size_t End = O + Size;
 
 	/*const std::string Sender = */ReadUleb(O, End);
 	const std::string Message = [&]{
@@ -2477,7 +2484,7 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 	SpecTarget->qLock.lock();
 
 	SpecTarget->addQueNonLocking(bPacket::UserPanel(tP));
-	SpecTarget->addQueNonLocking(bPacket::UserStats(tP));
+	//SpecTarget->addQueNonLocking(bPacket::UserStats(tP));
 	SpecTarget->addQueNonLocking(bPacket4Byte(OPac::server_spectatorJoined, tP->UserID));
 
 	SpecTarget->qLock.unlock();
@@ -2574,7 +2581,7 @@ void Event_client_spectateFrames(_User *tP, const byte* const Packet, const DWOR
 __forceinline void ReadMatchData(_Match *m, const byte* const Packet,const DWORD Size, bool Safe = 0){
 
 	size_t O = (size_t)&Packet[0];
-	const size_t End = O + Size + 1;
+	const size_t End = O + Size;
 
 	/*m->MatchId = *(USHORT*)O;*/ O += 2;
 	/*m->inProgress = *(byte*)O;*/ O++;
@@ -2898,7 +2905,7 @@ void Event_client_matchChangeMods(_User *tP, const byte* const Packet, const DWO
 void Event_client_joinMatch(_User *tP, const byte* const Packet, const DWORD Size) {
 
 	size_t O = (size_t)&Packet[0];
-	const size_t End = O + Size + 1;
+	const size_t End = O + Size;
 	
 	if (O + 4 > End)return;
 
@@ -3487,8 +3494,6 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 		const byte* const Packet = (byte*)&PacketBundle[In];
 		In += PacketSize;
 
-		//std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
-
 		switch (PacketID){
 			
 		case 68://Client asking if certain beatmaps are ranked.
@@ -3525,7 +3530,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 			break;
 
 		case OPac::client_logout:
-			if (tP->LoginTime + 5000 > clock_ms())break;
+			if (tP->LoginTime + 5000 > tP->LastPacketTime)break;
 			debug_LogOutUser(tP);
 			break;
 
@@ -3715,9 +3720,9 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 	if (!choToken){//No token sent - Assume its the login request which only ever comes in once
 
-		std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
-
 		res.Body.pop_back();//Pops trailing new line
+
+		std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
 
 		const auto LoginData = EXPLODE_VEC(std::string,res.Body, '\n');
 

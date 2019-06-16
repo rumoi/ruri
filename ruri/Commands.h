@@ -76,7 +76,7 @@ std::string CFGExploit(const std::string &Target, std::string NewCFGLine){
 	return "Done.";
 }
 int getSetID_fHash(const std::string &H, _SQLCon* c);
-
+int getBeatmapID_fHash(const std::string &H, _SQLCon* c);
 
 bool IsBeatmapIDRanked(const DWORD ID, _SQLCon &SQL){
 
@@ -99,33 +99,37 @@ void RecalcSingleUserPP(const DWORD ID, _SQLCon &SQL){//This is relatively expen
 	if (!ID)return;
 	
 	//TODO add other modes
-	ezpp_t ez = ezpp_new();
-
 	const DWORD Mode = 0;
 
 	{
 		sql::ResultSet *res = SQL.ExecuteQuery("SELECT beatmap_md5,max_combo,mods,misses_count,accuracy,id FROM scores WHERE userid = " + std::to_string(ID) + " AND completed = 3 AND play_mode = " + std::to_string(Mode), 1);
 
-		ezpp_set_mode(ez, Mode);
 
-		while (res && res->next()) {
+		while (res && res->next()){
 
-			const DWORD BeatmapID = getSetID_fHash(res->getString(1), &SQL);
+			const DWORD BeatmapID = getBeatmapID_fHash(res->getString(1), &SQL);
 
-			if (!IsBeatmapIDRanked(BeatmapID,SQL))continue;
-
-			ezpp_set_combo(ez, res->getInt(2));
-			ezpp_set_mods(ez, res->getInt(3));
-			ezpp_set_nmiss(ez, res->getInt(4));
-			ezpp_set_accuracy_percent(ez, res->getDouble(5));
-
-			if (!OppaiCheckMapDownload(ez, BeatmapID))
+			if (!IsBeatmapIDRanked(BeatmapID, SQL))
 				continue;
 
+			ezpp_t ez = ezpp_new();//todo xd
+
+			ezpp_set_mode(ez, Mode);
+
+			ezpp_set_combo(ez, res->getUInt(2));
+			ezpp_set_mods(ez, res->getUInt(3));
+			ezpp_set_nmiss(ez, res->getInt(4));
+			ezpp_set_accuracy_percent(ez, res->getDouble(5));
+			
+			if (!OppaiCheckMapDownload(ez, BeatmapID)){
+				ezpp_free(ez);
+				continue;
+			}
+
 			const float PP = ezpp_pp(ez);
+			ezpp_free(ez);
 
 			SQL.ExecuteUPDATE("UPDATE scores SET pp = " + std::to_string(PP) + " WHERE id = " + std::to_string(res->getInt64(6)), 1);
-
 		}if (res)delete res;
 
 		_UserStats blank;
@@ -135,7 +139,6 @@ void RecalcSingleUserPP(const DWORD ID, _SQLCon &SQL){//This is relatively expen
 		UpdateUserStatsFromDB(&SQL, ID, Mode, blank);
 		printf("TotalEndPP: %i\n", blank.pp);		
 	}
-	ezpp_free(ez);
 }
 
 void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
@@ -167,7 +170,7 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 		BanPrivs = res->getUInt(2);
 		delete res;
 	}
-	if (BanPrivs == -1) {
+	if (BanPrivs == -1){
 
 		sql::ResultSet *res = SQL.ExecuteQuery("SELECT privileges FROM users WHERE id = " + std::to_string(ID) + " LIMIT 1", 1);
 
@@ -184,6 +187,12 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 
 	BanPrivs = BanPrivs | Privileges::UserPublic;
 	SQL.ExecuteUPDATE("UPDATE users SET privileges = " + std::to_string(BanPrivs) + " WHERE id = " + std::to_string(ID), 1);
+
+	_User* UnBanned = GetUserFromID(ID);
+	if (UnBanned){
+		UnBanned->privileges = BanPrivs;
+		UnBanned->choToken = 0;
+	}	
 
 	printf("Doing Full PP recalc on %i\n", ID);
 	const int sTime = clock_ms();
