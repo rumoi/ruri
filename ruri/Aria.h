@@ -306,16 +306,7 @@ struct _LeaderBoardCache{
 };
 std::shared_mutex SetIDAddMutex[8];
 
-enum RankStatus {
-	UNKNOWN = -2,
-	NOT_SUBMITTED = -1,
-	PENDING = 0,
-	NEED_UPDATE = 1,
-	RANKED = 2,
-	APPROVED = 3,
-	QUALIFIED = 4,
-	LOVED = 5
-};
+
 
 //I know this is sub optimal but ripple did not itterate to include beatmap sets properly
 //Which means that a lot of this is hacky just for a single feature (updateable vs un-submited). I would change the ripple API its self but that would require me to edit a lot more.
@@ -634,7 +625,7 @@ TryMap:
 	}else if(FirstTime){
 
 		//The server does not have the data we need. We need to ask the osu API for all current maps in the set ID and add them to our own database.
-		const std::string &ApiRes = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "s=" + std::to_string(SetID));
+		const std::string ApiRes = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "s=" + std::to_string(SetID));
 
 		if (ApiRes.size() != 0){
 
@@ -780,7 +771,7 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 
 		}
 
-	}else printf("Could not find the map at all.");
+	}else printf("Could not find the map at all.\n");
 
 	//Worst case scenario. The beatmap is not in the database and the osuapi can not be reached.
 
@@ -788,6 +779,7 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 
 	return 0;
 }
+
 
 std::mutex AriaThreadLock[ARIA_THREAD_COUNT];
 _SQLCon AriaSQL[ARIA_THREAD_COUNT];

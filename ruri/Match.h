@@ -286,8 +286,7 @@ struct _CommunityMatch{
 
 _Match* getMatchFromID(const USHORT ID) {
 
-	if (ID == 0)return 0;
-	if (ID >= MAX_MULTI_COUNT)return 0;
+	if (ID == 0 || ID >= MAX_MULTI_COUNT)return 0;
 
 	if (Match[ID - 1].PlayerCount)//TODO make sure this is thread safe.
 		return &Match[ID - 1];
@@ -438,6 +437,8 @@ namespace bPacket {
 
 }
 __forceinline void Event_client_matchStart(_User *tP);
+const std::string ProcessCommand(_User* u, const std::string &Command, DWORD &PrivateRes);
+
 
 std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWORD &PrivateRes, _Match* m) {
 

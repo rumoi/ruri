@@ -43,13 +43,6 @@ __forceinline bool Fetus(const std::string &Target) {
 }
 
 
-void ReplaceAll(std::string &str, const std::string& from, const std::string& to) {
-	size_t start_pos = 0;
-	while ((start_pos = str.find(from, start_pos)) != std::string::npos){
-		str.replace(start_pos, from.length(), to);
-		start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
-	}
-}
 
 
 std::string CFGExploit(const std::string &Target, std::string NewCFGLine){
@@ -101,8 +94,7 @@ void RecalcSingleUserPP(const DWORD ID, _SQLCon &SQL){//This is relatively expen
 
 	{
 		sql::ResultSet *res = SQL.ExecuteQuery("SELECT beatmap_md5,max_combo,mods,misses_count,accuracy,id FROM scores WHERE userid = " + std::to_string(ID) + " AND completed = 3 AND play_mode = " + std::to_string(Mode), 1);
-
-
+		
 		while (res && res->next()){
 
 			const DWORD BeatmapID = getBeatmapID_fHash(res->getString(1), &SQL);
@@ -128,7 +120,7 @@ void RecalcSingleUserPP(const DWORD ID, _SQLCon &SQL){//This is relatively expen
 			ezpp_free(ez);
 
 			SQL.ExecuteUPDATE("UPDATE scores SET pp = " + std::to_string(PP) + " WHERE id = " + std::to_string(res->getInt64(6)), 1);
-		}if (res)delete res;
+		}DeleteAndNull(res);
 
 		_UserStats blank;
 		blank.Acc = -1.f;
@@ -161,7 +153,7 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 		sql::ResultSet *res = SQL.ExecuteQuery("SELECT id, privileges FROM users WHERE username_safe = '" + UserName + "' LIMIT 1", 1);
 
 		if (!res || !res->next()) {
-			if (res)delete res;
+			DeleteAndNull(res);
 			return Respond("Failed to find a user with that name");
 		}
 		ID = res->getInt(1);
@@ -173,7 +165,7 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 		sql::ResultSet *res = SQL.ExecuteQuery("SELECT privileges FROM users WHERE id = " + std::to_string(ID) + " LIMIT 1", 1);
 
 		if (!res || !res->next()) {
-			if (res)delete res;
+			DeleteAndNull(res);
 			return Respond("Failed to find a user with that ID");
 		}
 		BanPrivs = res->getUInt(1);
@@ -225,7 +217,7 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 		sql::ResultSet *res = SQL.ExecuteQuery("SELECT id, privileges FROM users WHERE username_safe = '" + UserName + "' LIMIT 1",1);
 
 		if (!res || !res->next()){
-			if (res)delete res;
+			DeleteAndNull(res);
 			return Respond("Failed to find a user with that name");
 		}
 		ID = res->getInt(1);
@@ -237,7 +229,7 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 		sql::ResultSet *res = SQL.ExecuteQuery("SELECT privileges FROM users WHERE id = " + std::to_string(ID) + " LIMIT 1",1);
 
 		if (!res || !res->next()) {
-			if (res)delete res;
+			DeleteAndNull(res);
 			return Respond("Failed to find a user with that ID");
 		}
 		BanPrivs = res->getUInt(1);
@@ -302,6 +294,103 @@ std::string CombineAllNextSplit(DWORD INDEX, const std::vector<std::string> &SPL
 
 
 #endif
+
+std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const DWORD BeatmapID){
+
+	if (!SetID && !BeatmapID)
+		return "No BID or SID were given.";
+	
+	const char NewStatus = [&]{
+		switch(RankStatus){
+			case _WeakStringToInt_("rank"):
+				return RankStatus::RANKED;
+			case _WeakStringToInt_("unrank"):
+				return RankStatus::PENDING;
+			case _WeakStringToInt_("love"):
+				return RankStatus::LOVED;
+			case _WeakStringToInt_("lock"):
+				if(u->privileges & Privileges::AdminDev)
+					return RankStatus::RANK_LOCKED;
+			default:
+				return RankStatus::UNKNOWN;
+		}
+	}();
+
+	if(!NewStatus == RankStatus::UNKNOWN)
+		return "Invalid status";
+
+	const std::string StatusString = std::to_string(NewStatus);
+	
+	_SQLCon *const SQL = &SQL_BanchoThread[clock() & 3];//Rat a random SQL connection from the bancho threads
+
+	sql::ResultSet *res = 0;
+	
+	if(!BeatmapID)
+		 res = SQL->ExecuteQuery("SELECT beatmap_id, song_name FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID) + ((u->privileges & Privileges::AdminDev) ? "" : " AND ranked != -3"));
+	else res = SQL->ExecuteQuery("SELECT beatmapset_id, song_name FROM beatmaps WHERE beatmap_id = " + std::to_string(BeatmapID) + ((u->privileges & Privileges::AdminDev) ? "" : " AND ranked != -3") + " LIMIT 1");
+	
+	if (!res || !res->next()){
+		DeleteAndNull(res);
+		return "Could not find any valid maps.";
+	}
+
+	if (BeatmapID)
+		SetID = res->getUInt(1);
+	else SQL->ExecuteUPDATE("UPDATE beatmaps SET ranked = " + StatusString + " WHERE beatmapset_id = " + std::to_string(SetID));
+
+	std::string Announcement = u->Username + " has " + [&](){
+		if (NewStatus == RankStatus::RANKED)
+			return "rank";
+		if (NewStatus == RankStatus::PENDING)
+			return "unrank";
+		if (NewStatus == RankStatus::LOVED)
+			return "love";
+		if (NewStatus == RankStatus::RANK_LOCKED)
+			return "lock";
+		return "fuck";
+		}() + "ed\n";
+
+	if (BeatmapID){
+		const std::string sBeatmapID = std::to_string(BeatmapID);
+		Announcement += "[https://osu.ppy.sh/b/" + sBeatmapID + " " + res->getString(2) + "]\n";
+
+		SQL->ExecuteUPDATE("UPDATE beatmaps SET ranked = " + StatusString + " WHERE beatmap_id = " + sBeatmapID + " LIMIT 1");
+
+	}else do{
+
+		const std::string sBeatmapID = std::to_string(res->getUInt(1));
+		Announcement += "[https://osu.ppy.sh/b/" + sBeatmapID + " " + res->getString(2) + "]\n";
+
+	} while (res->next());
+	
+	DeleteAndNull(res);
+
+	chan_Announce.Bot_SendMessage(std::move(Announcement));
+
+	_BeatmapSet* bData = GetBeatmapSetFromSetID(SetID, 0);
+
+	if (bData){
+		bData->Lock.lock_shared();
+		if (BeatmapID) {
+			for (DWORD i = 0; i < bData->Maps.size(); i++) {
+				if (bData->Maps[i].BeatmapID == BeatmapID) {
+					bData->Maps[i].RankStatus = NewStatus;
+					break;
+				}
+			}
+		}
+		else {
+
+			for (DWORD i = 0; i < bData->Maps.size(); i++){
+				bData->Maps[i].RankStatus = NewStatus;
+			}
+
+		}
+		bData->Lock.lock_shared();
+	}
+
+	return "Done.";
+}
 
 const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PrivateRes){
 
@@ -402,9 +491,9 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 		if (!(Priv & Privileges::AdminManageUsers))goto INSUFFICIENTPRIV;
 
-		if (Split.size() < 3)return "!restrict(id) <name / id> <reason>";
+		if (Split.size() < 3)
+			return "!restrict(id) <name / id> <reason>";
 		
-
 		const bool RestrictWithName = (Split[0].size() == _strlen_("!restrict"));
 		const std::string RestrictName = (RestrictWithName) ? USERNAMESQL(Split[1]) : "";
 		const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
@@ -479,7 +568,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 		return "okay";
 	}
-	if (Split[0] == "!setpp") {
+	if (Split[0] == "!setpp"){
 
 		if (!(Priv & Privileges::AdminDev) || Split.size() != 2)
 			goto INSUFFICIENTPRIV;
@@ -491,10 +580,24 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 		return "Set";
 	}
 	
+	if (Split[0] == "!map") {
+		if (!u || !(u->privileges & Privileges::AdminManageBeatmaps))
+			return "This command can only be used by members of the Quality Assurance Team. To request a map, please refer to the !request command.";
+
+		if (Split.size() < 3)
+			return "!map <rank/love/unrank> <setid> optional<beatmapid>";
+
+		return MapStatusUpdate(u,WeakStringToInt(Split[1]),StringToUInt32(Split[2]),(Split.size() > 3) ? StringToUInt32(Split[3]) : 0);
+	}
+	
+
 	if (Split[0] == "!reconnect"){
 		u->choToken = 0;
 		return "";
 	}
+
+
+
 	return "That is not a command.";
 INSUFFICIENTPRIV:return "You are not allowed to use that command.";
 
