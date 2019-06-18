@@ -133,6 +133,7 @@ enum RankStatus {
 #define al_max(a, b) ((a) > (b) ? (a) : (b))
 
 #define MUTEX_LOCK(a) std::lock_guard<std::mutex> LOCKGUARD(a)
+#define SHARED_MUTEX_LOCK(a) std::shared_lock<std::shared_mutex> LOCKGUARD(a)
 
 #define CHO_VERSION 19
 
@@ -2022,6 +2023,7 @@ bool DownloadMapFromOsu(const int ID) {
 }
 
 #include "oppai.h"
+#include "pp/pp_base.h"
 
 bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 
@@ -2343,6 +2345,19 @@ void BotMessaged(_User *tP, const std::string& Message){
 	}
 
 WITHMODS:
+
+	/*
+	_RawBeatmap s;
+
+
+	std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
+	
+	pp_GetRawMapData(mapID, s);
+
+	const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
+	printf("Time: %f\n%i\n", double(double(TTime) * .000001),s.Notes.size());
+	*/
+
 
 	ezpp_t ez = ezpp_new();
 

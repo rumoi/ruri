@@ -85,7 +85,7 @@
 																						\
 	return (Negative) ? -r : r;}(s)
 
-#define CLAMP(v,minv,maxv) min(max(v,minv),maxv)
+#define CLAMP(v,minv,maxv) al_min(al_max(v,minv),maxv)
 
 #define PPFAIL_NOBEATMAP 1
 #define PPFAIL_HEADERFAIL 2
@@ -160,13 +160,17 @@ enum HitObjectType
 #include "pp_mania.h"
 
 
-#define conP(s)s&const
+#include <map>
+
+std::map<const DWORD, const _RawBeatmap> RawMap_Cache;
+
+std::shared_mutex RawMap_Cache_Lock;
 
 
-int pp_getRawMapData(const std::string &Input, _RawBeatmap &Output){
+int pp_ReadRawMapData(const std::string &Input, _RawBeatmap &Output){
 
 
-	std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
+	
 
 	const std::vector<byte> &RawMap = LOAD_FILE(Input);
 
@@ -177,18 +181,17 @@ int pp_getRawMapData(const std::string &Input, _RawBeatmap &Output){
 	const char* End = (char*)&RawMap[RawMap.size()];
 
 	const char* CO = Start + 17;
+	
+	_MapHeaders& Headers = Output.Headers;
 
+	byte& MapVersion = Headers.MapVersion;
+	byte& MapMode = Headers.MapMode;
 
-	conP(_MapHeaders) Headers = Output.Headers;
-
-	conP(byte) MapVersion = Headers.MapVersion;
-	conP(byte) MapMode = Headers.MapMode;
-
-	conP(float) CircleSize = Headers.CircleSize;
-	conP(float) OverallDifficulty = Headers.OverallDifficulty;
-	conP(float) ApproachRate = Headers.ApproachRate;
-	conP(double) SliderMultiplier = Headers.SliderMultiplier;
-	conP(double) SliderTickRate = Headers.SliderTickRate;
+	float& CircleSize = Headers.CircleSize;
+	float& OverallDifficulty = Headers.OverallDifficulty;
+	float& ApproachRate = Headers.ApproachRate;
+	double& SliderMultiplier = Headers.SliderMultiplier;
+	double& SliderTickRate = Headers.SliderTickRate;
 
 	while (CO != End && *CO >= '0' && *CO <= '9') {
 		MapVersion *= 10;
@@ -369,10 +372,34 @@ int pp_getRawMapData(const std::string &Input, _RawBeatmap &Output){
 	}
 	if (!RawBeatData.size())
 		return PPFAIL_NONOTES;
-
-	const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
-	
-	printf("Time: %f\n", double(double(TTime) * .000001));
 	//printf("Time: %f\nnNoteCount: %llu\n", double(double(TTime) * .000001), RawBeatData.size());
 	return 0;
+}
+
+int pp_GetRawMapData(const DWORD ID, _RawBeatmap &d){
+
+	{
+		SHARED_MUTEX_LOCK(RawMap_Cache_Lock);
+
+		auto it = RawMap_Cache.find(ID);
+
+		if (it != RawMap_Cache.end()){
+			d = it->second;
+			return 0;
+		}
+
+	}
+
+	const int res = pp_ReadRawMapData(BEATMAP_PATH + std::to_string(ID) + ".osu", d);
+
+	if (!res){
+
+		RawMap_Cache_Lock.lock();
+
+		RawMap_Cache.insert(std::pair<const DWORD, const _RawBeatmap>(ID, d));
+
+		RawMap_Cache_Lock.unlock();
+
+	}
+	return res;
 }

@@ -1,6 +1,5 @@
 #pragma once
 
-
 #define Roll(u,input)\
 	[&](const uint64_t Max)->const std::string{\
 		return u->Username + " rolled " + std::to_string(BR::GetRand64(0, (Max) ? Max : 100));\
@@ -41,9 +40,6 @@ __forceinline bool Fetus(const std::string &Target) {
 	u->qLock.unlock();
 	return 1;
 }
-
-
-
 
 std::string CFGExploit(const std::string &Target, std::string NewCFGLine){
 
@@ -356,12 +352,9 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 
 		SQL->ExecuteUPDATE("UPDATE beatmaps SET ranked = " + StatusString + " WHERE beatmap_id = " + sBeatmapID + " LIMIT 1");
 
-	}else do{
-
-		const std::string sBeatmapID = std::to_string(res->getUInt(1));
-		Announcement += "[https://osu.ppy.sh/b/" + sBeatmapID + " " + res->getString(2) + "]\n";
-
-	} while (res->next());
+	}else do
+		Announcement += "[https://osu.ppy.sh/b/" + res->getString(1) + " " + res->getString(2) + "]\n";
+	while (res->next());
 	
 	DeleteAndNull(res);
 
@@ -380,7 +373,6 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 			}
 		}
 		else {
-
 			for (DWORD i = 0; i < bData->Maps.size(); i++){
 				bData->Maps[i].RankStatus = NewStatus;
 			}
@@ -392,213 +384,194 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 	return "Done.";
 }
 
+
 const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PrivateRes){
+
+	if (!u || Command.size() == 0 || Command[0] != '!')
+		return "";
 
 	const DWORD Priv = u->privileges;
 
 	PrivateRes = 1;
 
-	if (Command.size() == 0 || Command[0] != '!')
-		return "";
-
 	const auto Split = EXPLODE_VEC(std::string, Command, ' ');
 
-	if (Split[0] == "!roll"){
-		PrivateRes = 0;
-		return Roll(u, (Split.size() > 1) ? StringToUInt64(Split[1]) : 100);
-	}
-	if (Split[0] == "!fetus"){
+	const int CommandHash = WeakStringToInt(Split[0]);
+	//User Commands
+	{
+		switch (CommandHash) {
 
-		if (!(Priv & Privileges::AdminDev))goto INSUFFICIENTPRIV;
+		case _WeakStringToInt_("!roll"):
+			PrivateRes = 0;
+			return Roll(u, (Split.size() > 1) ? StringToUInt64(Split[1]) : 100);
 
-		if (Fetus(USERNAMESAFE(CombineAllNextSplit(1, Split))))
-			return "deletus.";
+		case _WeakStringToInt_("!priv"):
+			return std::to_string(Priv);
+		case _WeakStringToInt_("!reconnect"):
+			u->choToken = 0;
+			return "";
 
-		return "Not completus. That user does not exist.";
-	}
-
-	if (MEM_CMP_START(Split[0], "!alert")){
-
-		if (!(Priv & Privileges::AdminDev))goto INSUFFICIENTPRIV;
-
-		const bool TargetAll = (Split[0].size() == _strlen_("!alert"));
-
-		const std::string Message = CombineAllNextSplit((TargetAll ? 1 : 2), Split);
-
-		if (Message.size() == 0)return "You can not alert nothing.";
-
-		const _BanchoPacket b = bPacket::Notification(std::move(Message));
-
-		if (TargetAll) {
-			for (DWORD i = 0; i < MAX_USER_COUNT; i++)
-				if (User[i].choToken)User[i].addQue(b);
-		}else{
-			_User*const Target = GetUserFromNameSafe(USERNAMESAFE(Split[1]));
-			if (!Target || !Target->choToken)return "User not found.";
-			Target->addQue(b);
+		default:
+			break;
 		}
-		return (TargetAll) ? "Alerted all online users." : "User has been alerted";
-	}
-	if (Split[0] == "!rtx"){
-
-		if (!(Priv & Privileges::AdminDev))goto INSUFFICIENTPRIV;
-
-		if (Split.size() < 2)return "No target given";
-
-		_User *const Target = GetUserFromNameSafe(USERNAMESAFE(Split[1]));
-
-		if (!Target || !Target->choToken)return "User not found.";
-
-		Target->addQue(bPacket::GenericString(0x69, CombineAllNextSplit(2, Split)));
-
-		return "You monster.";
-	}
-	if (Split[0] == "!b"){
-
-		if (!(Priv & Privileges::AdminDev))
-			goto INSUFFICIENTPRIV;
-		PrivateRes = 0;
-
-		return CombineAllNextSplit(1, Split);
-	}
-	if (Split[0] == "!br"){
-
-		const std::string TotalMessage = CombineAllNextSplit(1, Split);
-
-		std::string Return;
-
-		for (DWORD i = 0; i < TotalMessage.size(); i++)
-			Return += " " + std::to_string(byte(TotalMessage[i]));
-		
-		return Return;
 	}
 
-	if (Split[0] == "!priv")
-		return std::to_string(Priv);
+	if (!(u->privileges & Privileges::AdminManageBeatmaps))
+		return "That is not a command.";
+	//BAT Commands
+	if (CommandHash == _WeakStringToInt_("!map"))
+		return Split.size() > 2 ? MapStatusUpdate(u, WeakStringToInt(Split[1]), StringToUInt32(Split[2]), (Split.size() > 3) ? StringToUInt32(Split[3]) : 0)
+								: "!map <rank/love/unrank> <setid> optional<beatmapid>";
 
-	if (Split[0] == "!fcfg"){
+	if (!(u->privileges & Privileges::AdminManageUsers))
+		return "That is not a command.";
+	//Admin Commands
+	{
+		switch (CommandHash) {
 
-		if (!(Priv & Privileges::AdminDev))
-			goto INSUFFICIENTPRIV;
+		case _WeakStringToInt_("!restrict"):
+		case _WeakStringToInt_("!restrictid"):{
+			if (Split.size() < 3)
+				return "!restrict(id) <name / id> <reason>";
 
-		if (Split.size() > 2)
-			return CFGExploit(USERNAMESAFE(Split[1]), CombineAllNextSplit(2, Split));
+			const bool RestrictWithName = (Split[0].size() == _strlen_("!restrict"));
+			const std::string RestrictName = (RestrictWithName) ? USERNAMESQL(Split[1]) : "";
+			const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
 
-		return "!fcfg <username> <config lines>";
-	}
+			{
+				std::thread t(RestrictUser, u, std::move(RestrictName), RestrictID);
+				t.detach();
+			}
 
-	if (MEM_CMP_START(Split[0], "!restrict")) {
-
-		if (!(Priv & Privileges::AdminManageUsers))goto INSUFFICIENTPRIV;
-
-		if (Split.size() < 3)
-			return "!restrict(id) <name / id> <reason>";
-		
-		const bool RestrictWithName = (Split[0].size() == _strlen_("!restrict"));
-		const std::string RestrictName = (RestrictWithName) ? USERNAMESQL(Split[1]) : "";
-		const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
-		
-		{
-			std::thread t(RestrictUser, u, std::move(RestrictName), RestrictID);
-			t.detach();
+			return "";
 		}
 
-		return "";
-	}
-	if (MEM_CMP_START(Split[0], "!unrestrict")) {
+		case _WeakStringToInt_("!unrestrict"):
+		case _WeakStringToInt_("!unrestrictid"):{
+			if (Split.size() < 3)
+				return "!unrestrict(id) <name / id> <reason>";
 
-		if (!(Priv & Privileges::AdminManageUsers))goto INSUFFICIENTPRIV;
+			const bool RestrictWithName = (Split[0].size() == _strlen_("!unrestrict"));
+			const std::string RestrictName = (RestrictWithName) ? USERNAMESQL(Split[1]) : "";
+			const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
 
-		if (Split.size() < 3)return "!unrestrict(id) <name / id> <reason>";
+			{
+				std::thread t(unRestrictUser, u, std::move(RestrictName), RestrictID);
+				t.detach();
+			}
 
-
-		const bool RestrictWithName = (Split[0].size() == _strlen_("!unrestrict"));
-		const std::string RestrictName = (RestrictWithName) ? USERNAMESQL(Split[1]) : "";
-		const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
-
-		{
-			std::thread t(unRestrictUser, u, std::move(RestrictName), RestrictID);
-			t.detach();
-		}
-
-		return "";
-	}
-	if (Split[0] == "!silence") {
-
-		if (!(Priv & Privileges::AdminSilenceUsers))
-			goto INSUFFICIENTPRIV;
-		
-		if (Split.size() != 3)
-			return "!silence <username> <time>";
-
-		_User *const t = GetUserFromNameSafe(USERNAMESQL(Split[1]));
-
-		if (!t)
-			return "User not found.";
-
-		const int Length = StringToUInt32(Split[2]);
-
-		t->silence_end = time(0) + Length;
-		t->addQue(bPacket4Byte(OPac::server_silenceEnd, Length));
-
-		SQLExecQue.AddQue("UPDATE users SET silence_end = " + std::to_string(t->silence_end) + " WHERE id = " + std::to_string(t->UserID));
-
-		return "User has been silenced";
-	}
-
-	if (Split[0] == "!cbomb") {
-
-		if (!(Priv & Privileges::AdminDev) || Split.size() != 3)
-			goto INSUFFICIENTPRIV;
-
-		_User *t = GetUserFromNameSafe(USERNAMESAFE(Split[1]));
-
-		if (t){
-
-			const USHORT Count = USHORT(StringToInt32(Split[2]));
-
-			t->qLock.lock();
-
-			for (USHORT i = 0; i < Count; i++)
-				t->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "#" + std::to_string(i)));
-
-			t->qLock.unlock();
+			return "";
 
 		}
 
-		return "okay";
-	}
-	if (Split[0] == "!setpp"){
+		case _WeakStringToInt_("!silence"):{
+			if (Split.size() != 3)
+				return "!silence <username> <time>";
 
-		if (!(Priv & Privileges::AdminDev) || Split.size() != 2)
-			goto INSUFFICIENTPRIV;
-		
-		u->Stats[0].pp = StringToUInt32(Split[1]);
+			_User *const t = GetUserFromNameSafe(USERNAMESQL(Split[1]));
 
-		UpdateRank(u->UserID, 0, u->Stats[0].pp);
+			if (!t)
+				return "User not found.";
 
-		return "Set";
-	}
-	
-	if (Split[0] == "!map") {
-		if (!u || !(u->privileges & Privileges::AdminManageBeatmaps))
-			return "This command can only be used by members of the Quality Assurance Team. To request a map, please refer to the !request command.";
+			const int Length = StringToUInt32(Split[2]);
 
-		if (Split.size() < 3)
-			return "!map <rank/love/unrank> <setid> optional<beatmapid>";
+			t->silence_end = time(0) + Length;
+			t->addQue(bPacket4Byte(OPac::server_silenceEnd, Length));
 
-		return MapStatusUpdate(u,WeakStringToInt(Split[1]),StringToUInt32(Split[2]),(Split.size() > 3) ? StringToUInt32(Split[3]) : 0);
-	}
-	
+			SQLExecQue.AddQue("UPDATE users SET silence_end = " + std::to_string(t->silence_end) + " WHERE id = " + std::to_string(t->UserID));
 
-	if (Split[0] == "!reconnect"){
-		u->choToken = 0;
-		return "";
+			return "User has been silenced";
+		}
+
+		default:
+			break;
+		}
 	}
 
+	if (!(u->privileges & Privileges::AdminDev))
+		return "That is not a command.";
+	//Dev Commands
+	{
+		switch (CommandHash) {
 
+		case _WeakStringToInt_("!fetus"):
+			return Fetus(USERNAMESAFE(CombineAllNextSplit(1, Split))) ? "deletus." : "Not completus. The name you should collatus.";
+
+		case _WeakStringToInt_("!alert"):
+		case _WeakStringToInt_("!alertuser"): {
+
+			const char SingleTarget = Split[0].size() == _strlen_("!alertuser");
+
+			const _BanchoPacket b = bPacket::Notification(CombineAllNextSplit(SingleTarget + 1, Split));
+
+			if (!SingleTarget) {
+				for (DWORD i = 0; i < MAX_USER_COUNT; i++)
+					if (User[i].choToken)User[i].addQue(b);
+			}
+			else if (Split.size() > 1) {
+				_User*const Target = GetUserFromNameSafe(USERNAMESAFE(Split[1]));
+				if (Target)
+					Target->addQue(b);
+			}
+
+			return (!SingleTarget) ? "Alerted all online users." : "User has been alerted";
+		}
+
+		case _WeakStringToInt_("!rtx"): {
+
+			if (Split.size() < 2)return "No target given";
+
+			_User *const Target = GetUserFromNameSafe(USERNAMESAFE(Split[1]));
+
+			if (!Target || !Target->choToken)
+				return "User not found.";
+
+			Target->addQue(bPacket::GenericString(0x69, CombineAllNextSplit(2, Split)));
+
+			return "You monster.";
+		}
+
+		case _WeakStringToInt_("!b"):
+			PrivateRes = 0;
+			return CombineAllNextSplit(1, Split);
+
+		case _WeakStringToInt_("!fcfg"):
+			return (Split.size() > 2) ? CFGExploit(USERNAMESAFE(Split[1]), CombineAllNextSplit(2, Split)) : "!fcfg <username> <config lines>";
+
+		case _WeakStringToInt_("!cbomb"): {
+
+			if (Split.size() != 3)
+				return "!cbomb <username> <count>";
+
+			_User *const t = GetUserFromNameSafe(USERNAMESAFE(Split[1]));
+
+			if (t) {
+				const USHORT Count = USHORT(StringToInt32(Split[2]));
+
+				t->qLock.lock();
+
+				for (USHORT i = 0; i < Count; i++)
+					t->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "#" + std::to_string(i)));
+
+				t->qLock.unlock();
+			}
+
+			return "okay";
+		}
+
+		case _WeakStringToInt_("!setpp"): {
+			if (Split.size() != 2)
+				return "!cbomb <pp>";
+
+			u->Stats[0].pp = StringToUInt32(Split[1]);
+			UpdateRank(u->UserID, 0, u->Stats[0].pp);
+
+			return "Set";
+		}
+		default:
+			break;
+		}
+	}
 
 	return "That is not a command.";
-INSUFFICIENTPRIV:return "You are not allowed to use that command.";
-
 }

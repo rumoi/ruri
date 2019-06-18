@@ -545,21 +545,20 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQL, _BeatmapSet
 
 	auto MapSet = &BeatmapSetCache[Off];
 	if(!SET){
-		SetIDAddMutex[Off].lock_shared();
+
+		SHARED_MUTEX_LOCK(SetIDAddMutex[Off]);
 
 		auto it = MapSet->find(SetID);
-		if (it != MapSet->end()){
-			_BeatmapSet *s = it->second;
-			SetIDAddMutex[Off].unlock_shared();
-			return s;
-		}	
-		SetIDAddMutex[Off].unlock_shared();
+		if (it != MapSet->end())
+			return it->second;
 	}
 
 	if (!SQL)
 		return 0;
 
 	//Set ID is not in the cache. We need to add it.
+
+	
 	SetIDAddMutex[Off].lock();
 
 	//Attempt to get it again. Just incase there was another request that already handling it in the literal nano second of the lock switch
@@ -727,10 +726,13 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 	if (ValidMD5) {
 		const DWORD pOff = (*(DWORD*)&MD5[0]) % Cache_Pool_Size;
 
-		auto it = BeatmapCache_HASH[pOff].find(MD5);
+		{
 
-		if (it != BeatmapCache_HASH[pOff].end())//This is most likely not thread safe.
-			BS = it->second;
+			auto it = BeatmapCache_HASH[pOff].find(MD5);
+
+			if (it != BeatmapCache_HASH[pOff].end())//This is most likely not thread safe.
+				BS = it->second;
+		}
 	}
 
 	if (BS == &BeatmapSetDeleted)
