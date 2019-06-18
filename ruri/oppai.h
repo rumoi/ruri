@@ -1203,7 +1203,7 @@ void p_end(ezpp_t ez) {
 
 		if(ez->mods & MODS_RX)
 			scaling_factor *=
-			1.0f + al_min((CIRCLESIZE_BUFF_TRESHOLD - radius), 9.25f) / 22.5f;
+			1.0f + al_min((CIRCLESIZE_BUFF_TRESHOLD - radius), 7.125f) / 36.25f;
 		else scaling_factor *=
 			1.0f + al_min((CIRCLESIZE_BUFF_TRESHOLD - radius), 5.0f) / 50.0f;
 	}
