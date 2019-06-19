@@ -82,6 +82,8 @@ struct _SQLCon {
 	}
 
 	sql::ResultSet *ExecuteQuery(const std::string Query, const bool DontLock = 0){
+
+
 		if (!DontLock)Lock.lock();
 
 		sql::ResultSet *ret = 0;

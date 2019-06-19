@@ -1193,7 +1193,7 @@ struct _User{
 
 		for (DWORD i = 0; i < 32; i++)
 			if (Blocked[i] == ID)
-				return 1;
+				return !isFriend(ID);
 
 		return 0;
 	}
@@ -2447,7 +2447,10 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 	if (unlikely(!u))
 		return tP->addQue(bPacket4Byte(OPac::server_userLogout, ID));
 	
-	if(u->isBlocked(tP->UserID) || (u->FriendsOnlyChat && !u->isFriend(tP->UserID)))
+	if (u->isBlocked(tP->UserID))
+		return;
+
+	if(u->FriendsOnlyChat && !u->isFriend(tP->UserID))
 		tP->addQue([&] {//hmm yes im peppy this is a great system!!1m!1! I AM GEN I US PEPPPYYY
 		auto b = bPacket::Message(tP->Username, u->Username, "", tP->UserID);
 		b.Type = OPac::server_userPMBlocked;

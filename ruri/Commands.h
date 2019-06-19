@@ -384,8 +384,6 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 
 
 std::string BlockUser(_User* u, const std::string &Target, const bool UnBlock){
-	
-	USERNAMESQL(Target);
 
 	auto res = SQL_BanchoThread[clock() & 3].ExecuteQuery("SELECT id from users where username_safe = '" + USERNAMESQL(Target) + "' LIMIT 1");
 
@@ -396,7 +394,7 @@ std::string BlockUser(_User* u, const std::string &Target, const bool UnBlock){
 
 	DeleteAndNull(res);
 
-	if (!UserID)
+	if (UserID < 1000)
 		return "User not found.";
 
 	if (u->UserID == UserID)
@@ -407,10 +405,10 @@ std::string BlockUser(_User* u, const std::string &Target, const bool UnBlock){
 			if (u->Blocked[i] == UserID)
 				u->Blocked[i] = 0;
 
-		return "User with the ID " + std::to_string(UserID) + " is no longer blocked.";
+		return "UserID " + std::to_string(UserID) + " is no longer blocked.";
 	}
 	u->addQue(bPacket4Byte(OPac::server_userLogout,UserID));
-	return u->AddBlock(UserID) ? "User with the ID " + std::to_string(UserID) + " is now blocked." : "You can only block 32 players.";
+	return u->AddBlock(UserID) ? "UserID " + std::to_string(UserID) + " is now blocked." : "You can only block 32 players.";
 }
 
 const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PrivateRes){
