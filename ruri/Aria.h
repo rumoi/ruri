@@ -1299,6 +1299,10 @@ void osu_getScores(const _HttpRes &http, _Con s){
 					continue;
 
 				Rank++;
+
+				if (u->isBlocked(lScore->UserID))
+					continue;
+
 				Response += "\n" + std::to_string(lScore->ScoreID)//online id
 				         + "|" + GetUsernameFromCache(lScore->UserID)//player name
 				         + "|" + std::to_string((Mode >= 4) ? int(lScore->pp + 0.5f) : lScore->Score)//total score

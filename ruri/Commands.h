@@ -385,6 +385,24 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 }
 
 
+std::string BlockUser(_User* u, const DWORD UserID, const bool UnBlock){
+
+	if (u->UserID == UserID)
+		return "You can not block your self";
+	if (UserID < 1000)
+		return "This command takes their userid. Not their username.";
+
+	if (UnBlock){
+		for (byte i = 0; i < 32; i++)
+			if (u->Blocked[i] == UserID)
+				u->Blocked[i] = 0;
+
+		return "User with the ID " + std::to_string(UserID) + " is no longer blocked.";
+	}
+	u->addQue(bPacket4Byte(OPac::server_userLogout,UserID));
+	return u->AddBlock(UserID) ? std::to_string(UserID) + " is now blocked." : "You can only block 32 players.";
+}
+
 const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PrivateRes){
 
 	if (!u || Command.size() == 0 || Command[0] != '!')
@@ -410,7 +428,10 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 		case _WeakStringToInt_("!reconnect"):
 			u->choToken = 0;
 			return "";
-
+		case _WeakStringToInt_("!block"):
+			return BlockUser(u,StringToUInt32(Split[1]),0);
+		case _WeakStringToInt_("!unblock"):
+			return BlockUser(u, StringToUInt32(Split[1]), 1);
 		default:
 			break;
 		}
@@ -418,6 +439,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 	if (!(u->privileges & Privileges::AdminManageBeatmaps))
 		return "That is not a command.";
+
 	//BAT Commands
 	if (CommandHash == _WeakStringToInt_("!map"))
 		return Split.size() > 2 ? MapStatusUpdate(u, WeakStringToInt(Split[1]), StringToUInt32(Split[2]), (Split.size() > 3) ? StringToUInt32(Split[3]) : 0)
@@ -425,6 +447,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 	if (!(u->privileges & Privileges::AdminManageUsers))
 		return "That is not a command.";
+
 	//Admin Commands
 	{
 		switch (CommandHash) {
@@ -490,6 +513,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 	if (!(u->privileges & Privileges::AdminDev))
 		return "That is not a command.";
+
 	//Dev Commands
 	{
 		switch (CommandHash) {

@@ -143,7 +143,8 @@ struct _Channel{
 
 			_User *u = ConnectedUsers[i];
 
-			if (!u || u == Sender)continue;
+			if (!u || u == Sender || u->isBlocked(Sender->UserID))
+				continue;
 
 			if (!u->choToken){
 				PartChannel(u,i);

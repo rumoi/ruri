@@ -1103,6 +1103,24 @@ struct _User{
 	int LastSentBeatmap;
 	//_Menu Menu;
 	DWORD Friends[256];
+
+	DWORD Blocked[32];
+
+	bool FriendsOnlyChat;
+
+	bool AddBlock(const DWORD UID){
+		if (UID < 1000)return 0;
+
+		for (byte i = 0; i < 32; i++) {
+			if (!Blocked[i] || Blocked[i] == UID) {
+				Blocked[i] = UID;
+				return 1;
+			}
+		}
+
+		return 0;
+	}
+
 	_Achievement Ach;//TODO: thread this.
 
 	std::vector<_BanchoPacket> Que;
@@ -1167,6 +1185,16 @@ struct _User{
 
 		return 0;
 	}
+	bool isBlocked(const DWORD ID) const{
+		if (UserID < 1000 || ID == UserID)
+			return 0;
+
+		for (DWORD i = 0; i < 32; i++)
+			if (Blocked[i] == ID)
+				return 1;
+
+		return 0;
+	}
 
 	bool isSilenced()const{
 		return silence_end ? (time(0) <= silence_end) : 0;
@@ -1204,6 +1232,8 @@ struct _User{
 		HyperMode = 0;
 		LastSentBeatmap = 0;
 		ZeroMemory(&Friends[0], 256 << 2);
+		ZeroMemory(&Blocked[0], 32 << 2);
+		FriendsOnlyChat = 0;
 		silence_end = 0;
 		SlotLocked = 0;
 	}
@@ -1238,8 +1268,10 @@ struct _User{
 		comMatchPage = 0;
 		HyperMode = 0;
 		LastSentBeatmap = 0;
+		FriendsOnlyChat = 0;
 		//Menu = _Menu();
 		ZeroMemory(&Friends[0], 256 << 2);
+		ZeroMemory(&Blocked[0], 32 << 2);
 		c1Check.clear();
 		silence_end = 0;
 	}
@@ -2414,8 +2446,14 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 	if (unlikely(!u))
 		return tP->addQue(bPacket4Byte(OPac::server_userLogout, ID));
 	
-	
-	u->addQue(bPacket::Message(tP->Username, std::move(Target), std::move(Message), tP->UserID));
+	if (!u->FriendsOnlyChat || u->isFriend(tP->UserID))
+		u->addQue(bPacket::Message(tP->Username, std::move(Target), std::move(Message), tP->UserID));
+	else
+		tP->addQue([&]{//hmm yes im peppy this is a great system!!1m!1! I AM GEN I US PEPPPYYY
+			auto b = bPacket::Message(tP->Username, u->Username, "", tP->UserID);
+			b.Type = OPac::server_userPMBlocked;
+			return b;
+		}());
 }
 
 void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const DWORD Size) {
@@ -3940,6 +3978,8 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 				return cHash[3] + "|" + cHash[4];
 			}();
 
+			u->FriendsOnlyChat = (ClientData[4] == "1");
+
 			u->choToken = GenerateChoToken();
 			u->SlotLocked = 0;
 
@@ -4011,7 +4051,8 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			u->addQueNonLocking(USER_STATS(999, 0));
 			
 			for (DWORD i = 0; i < MAX_USER_COUNT; i++){
-				if (!User[i].choToken || &User[i] == u)continue;				
+				if (!User[i].choToken || &User[i] == u || u->isBlocked(User[i].UserID))
+					continue;				
 				u->addQueNonLocking(bPacket::UserPanel(User[i].UserID, UserID));
 				u->addQueNonLocking(USER_STATS(User[i].UserID, UserID));
 			}
