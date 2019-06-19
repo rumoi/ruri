@@ -2122,10 +2122,9 @@ int getSetID_fHash(const std::string &H, _SQLCon* c){//Could combine getbeatmapi
 
 		if (res)
 			delete res;
-	}	
-	const std::string &BeatmapData = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "h=" + H);
+	}
 
-
+	const std::string BeatmapData = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "h=" + H);
 
 	if (BeatmapData.size() <= 25)return 0;
 
@@ -3876,7 +3875,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 		int UserID = 0;
 		int Priv = 0;
 		int SilenceEnd = 0;
-
+		bool NewLogin = 0;
 		_User* u = GetUserFromNameSafe(Username_Safe,1);
 				
 		if (u && MD5CMP(u->Password, &cPassword[0])){
@@ -3886,7 +3885,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 		}else u = 0;
 
 		if(!u){
-
+			NewLogin = 1;
 			_SQLCon *const con = &SQL_BanchoThread[s.ID];
 
 			sql::ResultSet *res = con->ExecuteQuery("SELECT id, password_md5, username, privileges,silence_end FROM users WHERE username_safe = '" + Username_Safe + "' LIMIT 1");
@@ -3997,7 +3996,9 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			if (Username != GetUsernameFromCache(UserID))
 				UsernameCacheUpdateName(UserID, Username, &SQL_BanchoThread[s.ID]);
 			
-			u->Username = std::move(Username);
+			if(NewLogin)
+				u->Username = std::move(Username);
+
 			u->Username_Safe = std::move(Username_Safe);
 			memcpy(u->Password, &cPassword[0], 32);
 
@@ -4104,7 +4105,12 @@ void DisconnectUser(_User *u){
 	}
 
 	Event_client_stopSpectating(u);
+
+	u->Stats[0] = _UserStats();
 	
+	for (byte i = 1; i < 8; i++)
+		u->Stats[i] = u->Stats[0];
+
 	u->Spectators.clear();
 
 	u->qLock.lock();

@@ -22,8 +22,6 @@ struct _HttpRes {
 
 	const std::string GetHeaderValue(const std::string Name){
 
-		
-
 		for (DWORD i = 0; i < Headers.size(); i++)
 			if (Headers[i].Text == Name)
 				return Headers[i].Value;
