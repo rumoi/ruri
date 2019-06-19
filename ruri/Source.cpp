@@ -905,7 +905,9 @@ public:
 		GameRank = 0;
 		RankVersion = 0;
 	}
-
+	void reset(){
+		RankVersion = 0;
+	}
 };
 
 #define VEC(s) std::vector<s>
@@ -4078,7 +4080,6 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 void DisconnectUser(_User *u){
 
-
 	for (DWORD i = 0; i < MAX_CHAN_COUNT; i++) {
 
 		_Channel*const C = (_Channel*)u->ActiveChannels[i];
@@ -4106,10 +4107,8 @@ void DisconnectUser(_User *u){
 
 	Event_client_stopSpectating(u);
 
-	u->Stats[0] = _UserStats();
-	
-	for (byte i = 1; i < 8; i++)
-		u->Stats[i] = u->Stats[0];
+	for (byte i = 0; i < 8; i++)
+		u->Stats[i].reset();
 
 	u->Spectators.clear();
 
