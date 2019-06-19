@@ -334,17 +334,15 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 		SetID = res->getUInt(1);
 	else SQL->ExecuteUPDATE("UPDATE beatmaps SET ranked = " + StatusString + " WHERE beatmapset_id = " + std::to_string(SetID));
 
-	std::string Announcement = u->Username + " has " + [&](){
+	std::string Announcement = u->Username + " has " + [=](){
 		if (NewStatus == RankStatus::RANKED)
-			return "rank";
+			return "ranked\n";
 		if (NewStatus == RankStatus::PENDING)
-			return "unrank";
+			return "unranked\n";
 		if (NewStatus == RankStatus::LOVED)
-			return "love";
-		if (NewStatus == RankStatus::RANK_LOCKED)
-			return "lock";
-		return "fuck";
-		}() + "ed\n";
+			return "loved\n";
+		return "locked\n";
+		}();
 
 	if (BeatmapID){
 		const std::string sBeatmapID = std::to_string(BeatmapID);
@@ -385,12 +383,24 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 }
 
 
-std::string BlockUser(_User* u, const DWORD UserID, const bool UnBlock){
+std::string BlockUser(_User* u, const std::string &Target, const bool UnBlock){
+	
+	USERNAMESQL(Target);
+
+	auto res = SQL_BanchoThread[clock() & 3].ExecuteQuery("SELECT id from users where username_safe = '" + USERNAMESQL(Target) + "' LIMIT 1");
+
+	DWORD UserID = 0;
+
+	if (res && res->next())
+		UserID = res->getUInt(1);
+
+	DeleteAndNull(res);
+
+	if (!UserID)
+		return "User not found.";
 
 	if (u->UserID == UserID)
 		return "You can not block your self";
-	if (UserID < 1000)
-		return "This command takes their userid. Not their username.";
 
 	if (UnBlock){
 		for (byte i = 0; i < 32; i++)
@@ -400,7 +410,7 @@ std::string BlockUser(_User* u, const DWORD UserID, const bool UnBlock){
 		return "User with the ID " + std::to_string(UserID) + " is no longer blocked.";
 	}
 	u->addQue(bPacket4Byte(OPac::server_userLogout,UserID));
-	return u->AddBlock(UserID) ? std::to_string(UserID) + " is now blocked." : "You can only block 32 players.";
+	return u->AddBlock(UserID) ? "User with the ID " + std::to_string(UserID) + " is now blocked." : "You can only block 32 players.";
 }
 
 const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PrivateRes){
@@ -429,9 +439,9 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 			u->choToken = 0;
 			return "";
 		case _WeakStringToInt_("!block"):
-			return BlockUser(u,StringToUInt32(Split[1]),0);
+			return Split.size() > 1 ? BlockUser(u, Split[1],0) : "!block <username>";
 		case _WeakStringToInt_("!unblock"):
-			return BlockUser(u, StringToUInt32(Split[1]), 1);
+			return Split.size() > 1 ? BlockUser(u, Split[1], 1) : "!unblock <username>";
 		default:
 			break;
 		}
