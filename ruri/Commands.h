@@ -378,7 +378,7 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 			}
 
 		}
-		bData->Lock.lock_shared();
+		bData->Lock.unlock_shared();
 	}
 
 	return "Done.";
