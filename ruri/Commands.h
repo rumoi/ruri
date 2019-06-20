@@ -136,7 +136,7 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 
 	const auto Respond = [&](const std::string& Mess)->void {
 		SQL.Disconnect();
-		return Caller->addQue(bPacket::BotMessage(Caller->Username, std::move(Mess)));
+		return Caller->addQue(bPacket::Notification(std::move(Mess)));
 	};
 
 	if (!SQL.Connect())
@@ -200,7 +200,7 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 
 	auto Respond = [&](const std::string& Mess)->void{
 		SQL.Disconnect();
-		return Caller->addQue(bPacket::BotMessage(Caller->Username,std::move(Mess)));
+		return Caller->addQue(bPacket::Notification(std::move(Mess)));
 	};
 
 	if (!SQL.Connect())

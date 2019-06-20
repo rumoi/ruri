@@ -536,13 +536,14 @@ void UpdateUsernameCache(_SQLCon *SQL){
 				UsernameCache[ID - 1000] = res->getString(2);
 			}
 		}
-	}if (res)delete res;
+	}
+	DeleteAndNull(res);
 	
 	UsernameCacheLock.unlock();
 
 	printf("Updated %i usernames in the cache\n", Count);
 }
-
+//This will return [clan]username if clans are enabled.
 std::string GetUsernameFromCache(const DWORD UID){
 
 	if (UID < 1000)return "";
@@ -597,7 +598,7 @@ struct _SQLQue{
 	std::mutex Lock;
 	std::vector<std::string> Commands;
 
-	void AddQue(const std::string&s){
+	void AddQue(const std::string &s){
 
 		MUTEX_LOCK(Lock);
 
@@ -1791,7 +1792,7 @@ void debug_SendOnlineToAll(_User *p) {
 	const _BanchoPacket Stats = USER_STATS(p->UserID, 0);
 
 	for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
-
+		
 		if (!User[i].choToken || &User[i] == p)continue;
 
 		User[i].qLock.lock();
@@ -3488,6 +3489,10 @@ void Event_client_invite(_User *tP, const byte* const Packet, const DWORD Size){
 
 	tP->addQue(bPacket::BotMessage("#multiplayer", "Invited " + Target->Username + " to your match."));
 
+
+	if (Target->isBlocked(tP->UserID))
+		return;
+
 	_BanchoPacket b = bPacket::Message(tP->Username, Target->Username,"I have invited you to the multiplayer lobby \"[osump://" + std::to_string(m->MatchId) + "/" + m->Settings.Password +" " + m->Settings.Name + "]\".",tP->UserID);
 	//Users could fuck with the client [] url construction but its not dangerous in anyway so who cares.
 
@@ -3495,6 +3500,59 @@ void Event_client_invite(_User *tP, const byte* const Packet, const DWORD Size){
 
 	Target->addQue(b);
 }
+
+void Event_client_friendAdd(_User *tP, const byte* const Packet, const DWORD Size, _Con s) {
+
+	if (Size != 4)return;
+
+	const DWORD ID = *(DWORD*)Packet;
+
+	enum { ListFull, Added, AlreadyIn };
+
+	char Status = ListFull;
+
+	for (USHORT i = 0; i < 256; i++){
+		if (tP->Friends[i] == ID){
+			Status = AlreadyIn;
+			break;
+		}
+		if (!tP->Friends[i]){
+			Status = Added;
+			tP->Friends[i] = ID;
+			break;
+		}
+	}
+	if (Status == ListFull)
+		tP->addQue(bPacket::Notification("You may only have a maximum of 256 friends."));
+	else if (Status == Added)
+		SQLExecQue.AddQue("INSERT INTO users_relationships (user1, user2) VALUES (" + std::to_string(tP->UserID) + ", " + std::to_string(ID) + ")");
+
+}
+
+void Event_client_friendRemove(_User *tP, const byte* const Packet, const DWORD Size, _Con s) {
+
+	if (Size != 4)return;
+
+	const DWORD ID = *(DWORD*)Packet;
+
+	enum { NotRemoved, Removed};
+
+	char Status = NotRemoved;
+
+	for (USHORT i = 0; i < 256; i++) {
+		if (tP->Friends[i] == ID){
+			tP->Friends[i] = 0;
+			Status = Removed;
+			break;
+		}
+	}
+	
+	if (Status == Removed)
+		SQLExecQue.AddQue("DELETE FROM users_relationships WHERE user1 = " + std::to_string(tP->UserID) + " AND user2 = " + std::to_string(ID));
+	
+}
+
+
 
 __forceinline void debug_LogOutUser(_User *tP){
 
@@ -3756,6 +3814,12 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 		case client_invite:
 			Event_client_invite(tP, Packet, PacketSize);
 			break;
+		case client_friendAdd:
+			Event_client_friendAdd(tP, Packet, PacketSize,s);
+		case client_friendRemove:
+			Event_client_friendRemove(tP, Packet, PacketSize,s);
+			break;
+
 
 		default:
 			printf("PacketID:%i | Length:%i\n", PacketID, PacketSize);
@@ -3918,11 +3982,44 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			Priv = res->getInt(4);
 			SilenceEnd = res->getInt(5);
 
+			DeleteAndNull(res);
+
+			//#ifndef CLANS
+			if (Username != GetUsernameFromCache(UserID))
+				UsernameCacheUpdateName(UserID, Username, &SQL_BanchoThread[s.ID]);
+			/*#else
+
+			{
+				std::string ClanTag;
+
+				res = con->ExecuteQuery("SELECT clan FROM user_clan WHERE user = " + Username_Safe + " LIMIT 1");
+
+				if (res && res->next()){
+					const std::string ClanID = res->getString(1);
+					DeleteAndNull(res);
+
+					res = con->ExecuteQuery("SELECT tag FROM clans WHERE id = " + ClanID + " LIMIT 1");
+
+					if (res && res->next())
+						ClanTag = "[" + res->getString(1) + "]";
+
+				}
+				DeleteAndNull(res);
+
+				const std::string FullName = ClanTag + Username;
+
+				if (FullName != GetUsernameFromCache(UserID))
+					UsernameCacheUpdateName(UserID, FullName, &SQL_BanchoThread[s.ID]);
+				
+			}
+
+
+		#endif*/
+
+
 			const std::string TableName[] = {"users_stats","rx_stats"};
 
 			for(byte z = 0; z < 2; z++){
-
-				DeleteAndNull(res);
 
 				res = con->ExecuteQuery("SELECT ranked_score_std, playcount_std, total_score_std, avg_accuracy_std,pp_std,"
 					"ranked_score_taiko, playcount_taiko, total_score_taiko, avg_accuracy_taiko, pp_taiko,"
@@ -3945,9 +4042,10 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 					}
 				}
+				DeleteAndNull(res);
 			}
 
-			DeleteAndNull(res);
+			
 
 			res = con->ExecuteQuery("SELECT user2 FROM users_relationships WHERE user1 = " + std::to_string(UserID) + " LIMIT 256");
 			DWORD fCount = 0;
@@ -3998,9 +4096,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 			u->LastPacketTime = u->LoginTime;
 			u->UserID = UserID;
 			u->silence_end = SilenceEnd;
-			if (Username != GetUsernameFromCache(UserID))
-				UsernameCacheUpdateName(UserID, Username, &SQL_BanchoThread[s.ID]);
-			
+
 			if(NewLogin)
 				u->Username = std::move(Username);
 
@@ -4191,7 +4287,7 @@ void LazyThread(){
 			MUTEX_LOCK(SQLExecQue.Lock);
 
 			for (DWORD i = 0; i < SQLExecQue.Commands.size(); i++)
-				lThreadSQL.ExecuteUPDATE(SQLExecQue.Commands[i], 1);
+				lThreadSQL.ExecuteUPDATE(std::move(SQLExecQue.Commands[i]), 1);
 
 			SQLExecQue.Commands.clear();
 
@@ -4419,7 +4515,6 @@ int main(){
 	auto Config = EXPLODE_VEC(VEC(byte),ConfigBytes, '\n');
 
 	for (DWORD i = 0; i < Config.size(); i++){
-
 		if (SafeStartCMP(Config[i], "osu_API_Key"))
 			osu_API_KEY = ExtractConfigValue(Config[i]);
 		else if (SafeStartCMP(Config[i], "SQL_Password"))
