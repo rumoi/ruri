@@ -2044,7 +2044,8 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 	if (n_CheckSum.size() == 32)
 		memcpy(tP->ActionMD5, &n_CheckSum[0], 32);
 
-	tP->actionMods = n_Mods;
+	if(n_actionID != bStatus::sAfk)//Stop relax flickering.
+		tP->actionMods = n_Mods;
 	tP->GameMode = n_GameMode;
 	if(n_BeatmapID)tP->BeatmapID = n_BeatmapID;
 
