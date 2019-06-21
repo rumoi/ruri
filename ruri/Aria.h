@@ -1615,7 +1615,8 @@ void DownloadOSZ(const _HttpRes http, _Con s){
 }
 
 void UpdateOSU(const _HttpRes http, _Con s) {
-
+	
+	/*
 	std::string FileName(http.Host.begin() + _strlen_("/web/maps/"), http.Host.end() - _strlen_(".osu"));
 
 	if (FileName.size() < 4)
@@ -1623,41 +1624,6 @@ void UpdateOSU(const _HttpRes http, _Con s) {
 
 	ReplaceAll(FileName, "'", "''");
 	FileName = urlDecode(FileName);
-	/*Why not just fix their mistake directly :)
-	[&]()->void{//Because ripple decides to be actually autistic we have to remove the creator.
-
-		DWORD DiffStart = -1;
-		for (DWORD i = FileName.size() - 1; i > 0; i--) {
-			if (FileName[i] == '[') {
-				DiffStart = i;
-				break;
-			}
-		}
-
-		if (DiffStart == -1)
-			return;
-
-		DWORD TitleEnd = -1;
-
-		int Passed = 0;
-		for (int i = DiffStart - 2; i > 0; i--) {
-			if (Passed == 2 && FileName[i] == ' ') {
-				TitleEnd = i;
-				break;
-			}
-			else if (Passed == 0 && FileName[i] == ')')
-				Passed = 1;
-			else if (Passed == 1 && FileName[i] == '(')
-				Passed = 2;
-
-		}
-		if (TitleEnd == -1)return;
-		const DWORD EndLength = FileName.size() - DiffStart;
-		memcpy(&FileName[TitleEnd + 1], &FileName[DiffStart], EndLength);
-		FileName.resize(TitleEnd + 1 + EndLength);
-
-	}();
-	*/
 
 	auto res = AriaSQL[s.ID].ExecuteQuery("SELECT beatmap_id FROM beatmaps WHERE song_name = '" + FileName + "' LIMIT 1");
 
@@ -1670,9 +1636,9 @@ void UpdateOSU(const _HttpRes http, _Con s) {
 	printf("%s:%i\n",FileName.c_str(), ID);
 
 	if (!ID)
-		return s.Dis();
+		return s.Dis();*/
 
-	s.SendData(GET_WEB("old.ppy.sh", std::string("osu/" + std::to_string(ID))));//Their osu clients will unchunk the data for us :)
+	s.SendData(GET_WEB("old.ppy.sh", std::string(http.Host.begin() + 1, http.Host.end())));//Their osu clients will unchunk the data for us :)
 
 	return s.Dis();
 }
