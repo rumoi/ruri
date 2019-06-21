@@ -2453,7 +2453,8 @@ WITHMODS:
 
 void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const DWORD Size){
 
-	if (Size < 7 || tP->isSilenced())return;
+	if (Size < 7 || tP->isSilenced() || !(tP->privileges & Privileges::UserPublic))
+		return;
 
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size;
@@ -2574,6 +2575,9 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 		DWORD notVisible = 0;
 		const std::string Res = ProcessCommand(tP, std::move(Message), notVisible);
 
+		if (!(tP->privileges & Privileges::UserPublic))
+			notVisible = 1;
+
 		if (Res.size()){
 			if (notVisible)
 				tP->addQue(bPacket::BotMessage(c->ChannelName, std::move(Res)));
@@ -2584,7 +2588,8 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 		return;
 	}
 
-	c->SendPublicMessage(tP, bPacket::Message(tP->Username, std::move(Target), std::move(Message), tP->UserID));
+	if (tP->privileges & Privileges::UserPublic)
+		c->SendPublicMessage(tP, bPacket::Message(tP->Username, std::move(Target), std::move(Message), tP->UserID));
 }
 
 void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWORD Size){
@@ -2798,13 +2803,11 @@ __forceinline void ReadMatchData(_Match *m, const byte* const Packet,const DWORD
 	m->Seed = *(DWORD*)O;
 }
 
-void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD Size) {
+void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD Size){
 
-	if (tP->CurrentMatchID){//already in a match?
-		//Might want to kick them from the old one
-		tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));
-		return;
-	}
+	if (tP->CurrentMatchID || !(tP->privileges & UserPublic))//already in a match? Might want to kick them from the old one.
+		return tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));
+
 
 	_Match *const m = getEmptyMatch();
 
@@ -3055,6 +3058,10 @@ void Event_client_matchChangeMods(_User *tP, const byte* const Packet, const DWO
 }
 
 void Event_client_joinMatch(_User *tP, const byte* const Packet, const DWORD Size) {
+
+
+	if(!(tP->privileges & UserPublic))
+		return tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));
 
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size;

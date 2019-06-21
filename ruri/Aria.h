@@ -646,61 +646,100 @@ TryMap:
 
 		if (ApiRes.size() != 0){
 
-			DWORD RemovedMapsCount = SQL->ExecuteUPDATE("DELETE FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID));
+			/*DWORD RemovedMapsCount = SQL->ExecuteUPDATE("DELETE FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID));
 
 			if (RemovedMapsCount){
 				const std::string CountString = std::to_string(RemovedMapsCount) + " maps removed.";
 				LogMessage(CountString.c_str(), mName);
-			}
+			}*/
 
 			auto BeatmapData = JsonListSplit(ApiRes);
 
 			if (BeatmapData.size() != 0){
+
+				VEC(DWORD) AddedMaps;
+				AddedMaps.reserve(BeatmapData.size());
 
 				for (DWORD i = 0; i < BeatmapData.size(); i++){
 
 					const std::string MD5 = REMOVEQUOTES(GetJsonValue(BeatmapData[i], "file_md5"));
 					
 					if (MD5.size() == 32){
-
-						float diff_size = 0.f;
-						float diff_overall = 0.f;
-						float diff_approach = 0.f;
-						byte mode = 0;
-						int Length = 0;
-						int RankedStatus = 0;
-						int beatmap_id = 0;
-						int MaxCombo = 0;
-						int BPM = 0;
-
-						//"C++ needs exceptions!" - noone
-
-						try { diff_size = std::stof(GetJsonValue(BeatmapData[i], "diff_size")); }catch (...) {}
-						try { diff_overall = std::stof(GetJsonValue(BeatmapData[i], "diff_overall")); }catch (...) {}
-						try { diff_approach = std::stof(GetJsonValue(BeatmapData[i], "diff_approach")); }catch (...) {}
-						try { Length = std::stoi(GetJsonValue(BeatmapData[i], "hit_length")); }catch (...) {}
-						try { RankedStatus = std::stoi(GetJsonValue(BeatmapData[i], "approved")); }catch (...) {}
-						try { beatmap_id = std::stoi(GetJsonValue(BeatmapData[i], "beatmap_id")); }catch (...) {}
-						try { MaxCombo = std::stoi(GetJsonValue(BeatmapData[i], "max_combo")); }catch (...) {}
-						try { BPM = std::stoi(GetJsonValue(BeatmapData[i], "bpm")); }catch (...) {}
-
-						std::string Title = GetJsonValue(BeatmapData[i], "artist") + " - " + GetJsonValue(BeatmapData[i], "title") + " (" + GetJsonValue(BeatmapData[i], "creator") + ") [" + GetJsonValue(BeatmapData[i], "version") + "]";
-						FileNameClean(Title);
-						ReplaceAll(Title, "'", "''");
-
+						const DWORD beatmap_id = StringToUInt32(GetJsonValue(BeatmapData[i], "beatmap_id"));
 						if (beatmap_id){
+							float diff_size = 0.f;
+							float diff_overall = 0.f;
+							float diff_approach = 0.f;
+							byte mode = 0;
+							int Length = 0;
+							int RankedStatus = 0;
+						
+							int MaxCombo = 0;
+							int BPM = 0;
+
+							//"C++ needs exceptions!" - noone
+
+							try { diff_size = std::stof(GetJsonValue(BeatmapData[i], "diff_size")); }catch (...) {}
+							try { diff_overall = std::stof(GetJsonValue(BeatmapData[i], "diff_overall")); }catch (...) {}
+							try { diff_approach = std::stof(GetJsonValue(BeatmapData[i], "diff_approach")); }catch (...) {}
+							try { Length = std::stoi(GetJsonValue(BeatmapData[i], "hit_length")); }catch (...) {}
+							try { RankedStatus = std::stoi(GetJsonValue(BeatmapData[i], "approved")); }catch (...) {}
+							try { MaxCombo = std::stoi(GetJsonValue(BeatmapData[i], "max_combo")); }catch (...) {}
+							try { BPM = std::stoi(GetJsonValue(BeatmapData[i], "bpm")); }catch (...) {}
+
+							std::string Title = GetJsonValue(BeatmapData[i], "artist") + " - " + GetJsonValue(BeatmapData[i], "title") + " (" + GetJsonValue(BeatmapData[i], "creator") + ") [" + GetJsonValue(BeatmapData[i], "version") + "]";
+							FileNameClean(Title);
+							ReplaceAll(Title, "'", "''");
+
+						
 							if (RankedStatus == 1)
 								RankedStatus = 2;
 
 							//TODO calculate diff stars
+							#define TS(s)std::to_string(s)
 
-							//TODO: Might want to change this to an update instead of an INSERT
-							SQL->ExecuteUPDATE("INSERT INTO beatmaps (id, beatmap_id, beatmapset_id, beatmap_md5, song_name, ar, od, difficulty_std, difficulty_taiko, difficulty_ctb, difficulty_mania, max_combo, hit_length, bpm, ranked, latest_update, ranked_status_freezed) VALUES (NULL, "
-								+ std::to_string(beatmap_id) + ", " + std::to_string(SetID) + ", '" + MD5 + "', '" + Title + "', " + std::to_string(diff_approach) + ", " + std::to_string(diff_overall) + ", "
-								+ "0.0, 0.0, 0.0, 0.0, " + std::to_string(MaxCombo) + ", " + std::to_string(Length) + ", " + std::to_string(BPM) + ", " + std::to_string(RankedStatus) + ", 0 ,0 );");//TODO last updated
+							auto AlreadyThere = SQL->ExecuteQuery("SELECT id, ranked FROM beatmaps WHERE beatmap_id = " + TS(beatmap_id) + " LIMIT 1");
+
+							if (AlreadyThere && AlreadyThere->next()){
+								const int oldStatus = AlreadyThere->getInt(2);
+
+								if (oldStatus == 2)
+									RankedStatus = 2;//Never unrank a beatmap.
+
+								SQL->ExecuteUPDATE("UPDATE beatmaps SET beatmap_md5 = '" + MD5 + "',song_name ='" + Title + "',ar ="+TS(diff_approach)+",od = " + TS(diff_overall) + ",max_combo =" + 
+													TS(MaxCombo) + ",hit_length =" + TS(Length) + ",bpm =" + TS(BPM) + ",ranked =" + TS(RankedStatus)+" WHERE id =" + AlreadyThere->getString(1) + " LIMIT 1");
+
+							}else SQL->ExecuteUPDATE("INSERT INTO beatmaps (id, beatmap_id, beatmapset_id, beatmap_md5, song_name, ar, od, difficulty_std, difficulty_taiko, difficulty_ctb, difficulty_mania, max_combo, hit_length, bpm, ranked, latest_update, ranked_status_freezed) VALUES (NULL, "
+								+ TS(beatmap_id) + ", " + TS(SetID) + ", '" + MD5 + "', '" + Title + "', " + TS(diff_approach) + ", " + TS(diff_overall) + ", "
+								+ "0.0, 0.0, 0.0, 0.0, " + TS(MaxCombo) + ", " + TS(Length) + ", " + TS(BPM) + ", " + TS(RankedStatus) + ", 0 ,0 );");//TODO last updated
+
+							DeleteAndNull(AlreadyThere);
+							#undef TS
+							AddedMaps.push_back(beatmap_id);
 						}
 
 					}
+				}
+
+				{
+					std::string NewMaps;
+
+					for (const DWORD bID : AddedMaps)
+						NewMaps += std::to_string(bID) + ",";
+					
+					int DeletedDiffs = 0;
+					if (NewMaps.size()) {
+						NewMaps.pop_back();
+						
+						DeletedDiffs = SQL->ExecuteUPDATE("DELETE FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID) + " AND beatmap_id NOT IN ("+ NewMaps +")");
+
+					}else DeletedDiffs = SQL->ExecuteUPDATE("DELETE FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID));
+
+
+					const std::string CountString = std::to_string(DeletedDiffs) + " diffs removed.";
+					LogMessage(CountString.c_str(), mName);
+
+
 				}
 				LogMessage("Maps done", mName);
 				if (res)delete res;
