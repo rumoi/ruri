@@ -433,6 +433,26 @@ std::string GetJsonValue(const std::string &Input, const std::string Param) {
 	return std::string(Input.begin() + Start, Input.begin() + End);
 }
 
+int64_t GetJsonValueInt64(const std::string &Input, const std::string Param) {
+
+	DWORD Start = Input.find("\"" + Param + "\":\"");
+
+	if (Start == std::string::npos)
+		return 0;
+
+	Start += Param.size() + 4;
+	DWORD End = Input.size();
+	for (DWORD i = Start; i < Input.size(); i++) {
+		if ((Input[i] < '0' || Input[i] > '9') && Input[i] != '-') {
+			End = i;
+			break;
+		}
+	}
+
+	return MemToInt64(&Input[Start],End - Start);
+}
+
+
 std::vector<std::string> JsonListSplit(const std::string& Input) {
 	std::vector<std::string> Return;
 
@@ -481,8 +501,6 @@ std::vector<std::string> JsonListSplit(const std::string& Input) {
 
 	if (Current.size())
 		Return.push_back(Current);
-
-	Current.resize(0);
 
 	return Return;
 }
@@ -666,8 +684,8 @@ TryMap:
 						try { MaxCombo = std::stoi(GetJsonValue(BeatmapData[i], "max_combo")); }catch (...) {}
 						try { BPM = std::stoi(GetJsonValue(BeatmapData[i], "bpm")); }catch (...) {}
 
-						std::string Title = GetJsonValue(BeatmapData[i], "artist") + " - " + GetJsonValue(BeatmapData[i], "title") + " [" + GetJsonValue(BeatmapData[i], "version") + "]";
-						
+						std::string Title = GetJsonValue(BeatmapData[i], "artist") + " - " + GetJsonValue(BeatmapData[i], "title") + " (" + GetJsonValue(BeatmapData[i], "creator") + ") [" + GetJsonValue(BeatmapData[i], "version") + "]";
+						FileNameClean(Title);
 						ReplaceAll(Title, "'", "''");
 
 						if (beatmap_id){
@@ -1410,35 +1428,79 @@ void Handle_SearchSet(const _HttpRes http, _Con s){
 	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
 	return s.Dis();
 }
-void Handle_DirectSearch(const _HttpRes http, _Con s) {
 
-	const USHORT Key = *(USHORT*)"&r";
-	DWORD Start = 0;
+const std::string directToApiStatus(const std::string &directStatus) {//thank you ripple
+	if (!directStatus.size())
+		return "";
+	if (directStatus == "0" || directStatus == "7")
+		return "1";
+	if(directStatus == "8")
+		return "4";
+	if (directStatus == "3")
+		return "3";
+	if (directStatus == "2")
+		return "0";
+	if (directStatus == "5")
+		return "-2";
+	if (directStatus == "4")
+		return "";
 
-	for (DWORD i = 19; i < http.Host.size() - 2; i++){
-		if (*(USHORT*)&http.Host[i] == Key){
-			Start = i + 1;
-			break;
-		}
-	}
+	return "1";
+}
 
-	if (!Start)
-		return s.Dis();
+void Handle_DirectSearch(const _HttpRes http, _Con s){
+	
+	const std::string URL(http.Host.begin(), http.Host.end());
+	
+	const std::string r = GetParam(URL, "?r=");//Yes today I am ripple and im going to change the names for no reason. Yes.
+	const std::string q = GetParam(URL, "&q=");
+	//const std::string m = GetParam(URL, "&m=");
+	const std::string p = GetParam(URL, "&p=");
 
-	std::string Res;// GetMirrorResponse("api/search?" + std::string(http.Host.begin() + Start, http.Host.end()));
-
-	//UnChunk(Res);
+	std::string Res = GET_WEB_CHUNKED(MIRROR_IP, "api/search?query=" + q + "&offset=" + p + "&status=" + directToApiStatus(r));
 
 	if (Res.size() == 0){
 
-		std::string MirrorFailure = "1\n | |Could not contact the mirror|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0";
+		//std::string MirrorFailure = "1\n | |Could not contact the mirror|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0";
 
-		s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(MirrorFailure.begin(), MirrorFailure.end())));
+		s.SendData(ConstructResponse(200, Empty_Headers, Empty_Byte));
 
 		return s.Dis();
 	}
 
-	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
+	const auto JSON = JsonListSplit(Res);//Imagine being surrounded by people who dont know the own code they are running to the point where they do not even know how to NOT return JSON.
+
+	std::string Return = "1069";
+
+	for (DWORD i = 0; i < JSON.size(); i++){
+		Return += "\n";
+		const DWORD SetID = GetJsonValueInt64(JSON[i], "SetID");
+		const char RankedStatus = GetJsonValueInt64(JSON[i], "RankedStatus");
+		const std::string ApprovedDate = GetJsonValue(JSON[i], "ApprovedDate");
+		const std::string LastUpdate = GetJsonValue(JSON[i], "LastUpdate");
+		const std::string LastChecked = GetJsonValue(JSON[i], "LastChecked");
+		const std::string Artist = GetJsonValue(JSON[i], "Artist");
+		const std::string Title = GetJsonValue(JSON[i], "Title");
+		const std::string Creator = GetJsonValue(JSON[i], "Creator");
+		const std::string Source = GetJsonValue(JSON[i], "Source");
+		const std::string Tags = GetJsonValue(JSON[i], "Tags");
+		//HasVideo
+		const char Genre = GetJsonValueInt64(JSON[i], "Genre");
+		const char Language = GetJsonValueInt64(JSON[i], "Language");
+		const char Favourites = GetJsonValueInt64(JSON[i], "Favourites");
+
+
+		Return += std::to_string(SetID) + ".osz|" + Artist + "|" + Title + "|" + Creator + "|" + std::string(1, RankedStatus) + "|0.00|" + LastUpdate + "|" + std::to_string(SetID) +
+			"|" + std::to_string(SetID) + "|0|0|1337||blame maxi@0";
+
+
+		//const auto Diffs = JsonListSplit(JSON[i]);
+
+		Return += "|";
+	}
+
+
+	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Return.begin(), Return.end())));
 
 	return s.Dis();
 }
@@ -1486,17 +1548,93 @@ void DownloadOSZ(const _HttpRes http, _Con s){
 	const std::string URL(http.Host.begin(), http.Host.end());
 	const DWORD DataOff = URL.find('?');
 
-	std::string Res;// = GetMirrorResponse((DataOff == std::string::npos) ? URL : URL.substr(0, DataOff));
+	const DWORD MapID = MemToUInt32(&URL[0],((DataOff == std::string::npos) ? URL.size() : DataOff));
 
-	//UnChunk(Res);
+	const std::string Res = GET_WEB(MIRROR_IP, "d/" + std::to_string(MapID));
 
-	if (Res.size() < 100){
+	if (Res.find("\r\n\r\n") == std::string::npos || Res.size() < 150){
 		s.SendData(ConstructResponse(404, Empty_Headers, Empty_Byte));
+
+		const std::string Username = GetParam(URL, "?u=");
+		const std::string Password = GetParam(URL, "&h=");
+
+		if (Username.size() && Password.size() == 32) {
+
+			_User* u = GetUserFromNameSafe(USERNAMESAFE(Username));
+
+			if (u && MD5CMP(u->Password, &Password[0]))
+				u->addQue(bPacket::Notification(std::to_string(MapID) + " is not on the mirror sorry! There is nothing ruri can do :("));
+		}
+
+
 		return s.Dis();
 	}
 	
-	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
+	s.SendData(std::move(Res));
 	
+	return s.Dis();
+}
+
+void UpdateOSU(const _HttpRes http, _Con s) {
+
+	std::string FileName(http.Host.begin() + _strlen_("/web/maps/"), http.Host.end() - _strlen_(".osu"));
+
+	if (FileName.size() < 4)
+		return s.Dis();
+
+	ReplaceAll(FileName, "'", "''");
+	FileName = urlDecode(FileName);
+	/*Why not just fix their mistake directly :)
+	[&]()->void{//Because ripple decides to be actually autistic we have to remove the creator.
+
+		DWORD DiffStart = -1;
+		for (DWORD i = FileName.size() - 1; i > 0; i--) {
+			if (FileName[i] == '[') {
+				DiffStart = i;
+				break;
+			}
+		}
+
+		if (DiffStart == -1)
+			return;
+
+		DWORD TitleEnd = -1;
+
+		int Passed = 0;
+		for (int i = DiffStart - 2; i > 0; i--) {
+			if (Passed == 2 && FileName[i] == ' ') {
+				TitleEnd = i;
+				break;
+			}
+			else if (Passed == 0 && FileName[i] == ')')
+				Passed = 1;
+			else if (Passed == 1 && FileName[i] == '(')
+				Passed = 2;
+
+		}
+		if (TitleEnd == -1)return;
+		const DWORD EndLength = FileName.size() - DiffStart;
+		memcpy(&FileName[TitleEnd + 1], &FileName[DiffStart], EndLength);
+		FileName.resize(TitleEnd + 1 + EndLength);
+
+	}();
+	*/
+
+	auto res = AriaSQL[s.ID].ExecuteQuery("SELECT beatmap_id FROM beatmaps WHERE song_name = '" + FileName + "' LIMIT 1");
+
+	DWORD ID = 0;
+
+	if (res && res->next())
+		ID = res->getUInt(1);
+	DeleteAndNull(res);
+
+	printf("%s:%i\n",FileName.c_str(), ID);
+
+	if (!ID)
+		return s.Dis();
+
+	s.SendData(GET_WEB("old.ppy.sh", std::string("osu/" + std::to_string(ID))));//Their osu clients will unchunk the data for us :)
+
 	return s.Dis();
 }
 
@@ -1543,7 +1681,12 @@ void HandleAria(_Con s){
 		std::thread a(DownloadOSZ, res, s);
 		a.detach();
 		DontCloseConnection = 1;
-	}else SendAria404(s);
+	}else if (SafeStartCMP(res.Host, "/web/maps/")){//used when updating a single maps .osu
+		std::thread a(UpdateOSU, res, s);
+		a.detach();
+		DontCloseConnection = 1;
+	}
+	else SendAria404(s);
 
 	if (!DontCloseConnection){
 		s.Dis();
@@ -1657,7 +1800,7 @@ void Aria_Main(){
 	DWORD ID = 0;
 
 	while(1){
-
+		
 #ifndef LINUX
 		int clientSize = sizeof(client);
 		ZeroMemory(&client, clientSize);

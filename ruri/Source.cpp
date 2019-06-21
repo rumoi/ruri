@@ -122,7 +122,7 @@ enum RankStatus {
 #define BOT_LOCATION 38
 
 #define MIRROR_IP "5.9.151.156"
-#define MIRROR_PORT 8420
+#define MIRROR_PORT 80
 #define OSU_IP "1.1.1.1"
 
 #define MAX_USER_COUNT 256
@@ -321,6 +321,7 @@ constexpr size_t _strlen_(const char* s)noexcept{
 #define MemToUInt32(LOC,LEN)MemToData(DWORD, LOC, LEN)
 
 #define MemToUInt64(LOC,LEN)MemToData(uint64_t, LOC, LEN)
+#define MemToInt64(LOC,LEN)MemToData(int64_t, LOC, LEN)
 
 #define StringToInt32(s) MemToInt32(&s[0],s.size())
 #define StringToUInt32(s) MemToUInt32(&s[0],s.size())
@@ -610,11 +611,12 @@ struct _SQLQue{
 
 DWORD GetRank(const DWORD UserID, const DWORD GameMode){//Could use the cached pp to tell around where its supposed to be?
 
-	if (UserID < 1000 || GameMode >= 8 || RankList[GameMode].size() == 0)return 0;
-
-	RankUpdate[GameMode].lock_shared();
+	if (UserID < 1000 || GameMode >= 8 || RankList[GameMode].size() == 0)
+		return 0;
 
 	DWORD Rank = 0;
+	
+	RankUpdate[GameMode].lock_shared();	
 
 	for (DWORD i = 0; i < RankList[GameMode].size(); i++){
 		if (RankList[GameMode][i].ID == UserID){
@@ -636,6 +638,9 @@ void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
 	
 	std::vector<_RankList> &cRankList = RankList[GameMode];
 
+
+	enum { Nothing, Forward, Backward, NoUpdate };
+
 	byte Direction = 0;
 	DWORD OrigPos = 0;
 
@@ -643,18 +648,18 @@ void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
 
 	for (DWORD i = 0; i < cRankList.size(); i++) {
 		if (cRankList[i].ID == UserID) {
-			Direction = (cRankList[i].PP > PP) ? 2 : 1;
+			Direction = (cRankList[i].PP > PP) ? Backward : Forward;
 			if (cRankList[i].PP == PP)
-				Direction = 3;
+				Direction = NoUpdate;
 			OrigPos = i;
 			break;
 		}
 	}
 
-	if (Direction == 1 || Direction == 2){
+	if (Direction == Forward || Direction == Backward){
 
 		DWORD NewPos = 0;
-		if (Direction == 1){
+		if (Direction == Forward){
 			if (OrigPos){
 				for (DWORD i = OrigPos - 1; i > 0; i--)
 					if (cRankList[i].PP > PP){
@@ -669,7 +674,7 @@ void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
 
 			}else cRankList[0] = n;//Rank one improving themself requires no extra calculations.
 
-		}else if(Direction == 2){
+		}else if(Direction == Backward){
 			if (PP){
 				for (DWORD i = OrigPos; i < cRankList.size(); i++)
 					if (cRankList[i].PP < PP) {
@@ -693,7 +698,7 @@ void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
 			}
 
 		}
-	}else if (Direction == 0 && PP){//User is not currently in the rank cache.
+	}else if (Direction == Nothing && PP){//User is not currently in the rank cache.
 		cRankList.push_back(n);
 		std::sort(cRankList.begin(), cRankList.end(), [](const _RankList &i, const _RankList &j) {return (i.PP > j.PP); });//I am lazy.
 		RankListVersion[GameMode]++;
@@ -790,6 +795,28 @@ __forceinline void AddString(std::vector<byte> &v, const std::string &Value) {
 		v.resize(v.size() + Size);
 		memcpy(&v[v.size() - Size], &Value[0], Size);
 }
+__forceinline void AddString(std::vector<byte> &v, const char* Value, const DWORD Size){
+
+	if (Size == 0) {
+		v.push_back(0);
+		return;
+	}
+	int val = Size;
+	v.push_back(0x0b);
+
+	do {
+		byte b = val & 0x7f;
+		val >>= 7;
+
+		if (val != 0)
+			b |= 0x80;  // mark this byte to show that more bytes will follow
+
+		v.push_back(b);
+	} while (val != 0);
+
+	v.resize(v.size() + Size);
+	memcpy(&v[v.size() - Size], &Value[0], Size);
+}
 
 struct _BanchoPacket {
 	short Type;
@@ -885,11 +912,13 @@ public:
 	float Acc;
 	int PlayCount;
 
-	DWORD getRank(const DWORD GameMode, const DWORD UID) {
-		if (GameMode >= 8)return 0;
+	DWORD getRank(const DWORD GameMode, const DWORD UID){
+		if (GameMode >= 8)
+			return 0;
+
 		const DWORD cVersion = RankListVersion[GameMode];
 
-		if (cVersion != RankVersion) {
+		if (cVersion != RankVersion){
 			RankVersion = cVersion;
 			GameRank = GetRank(UID, GameMode);
 		}
@@ -993,8 +1022,8 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 	const std::string ScoreTableName = (GameMode >= 4) ? "scores_relax" : "scores";
 	const std::string StatsTableName = (GameMode >= 4) ? "rx_stats" : "users_stats";
 	
-	const std::string AccColName[] = {"avg_accuracy_std","avg_accuracy_taiko","avg_accuracy_ctb","avg_accuracy_mania"};
-	const std::string ppColName[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
+	const static std::string AccColName[] = {"avg_accuracy_std","avg_accuracy_taiko","avg_accuracy_ctb","avg_accuracy_mania"};
+	const static std::string ppColName[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
 
 	GameMode = GameMode % 4;
 
@@ -1009,7 +1038,7 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 		TotalPP += res->getDouble(2) * std::pow(0.95,double(Count));
 		Count++;
 	}
-	if (res)delete res;
+	DeleteAndNull(res);
 
 	const double ACC = (!Count) ? 0.f : (TotalAcc / double((Count > 50) ? 50 : Count));
 	
@@ -1024,8 +1053,7 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 		stats.pp = pp;
 		stats.Acc = acc;
 
-		//TODO: Might want to make a sql update pool thread.
-		SQL->ExecuteUPDATE("UPDATE " + StatsTableName + " SET " + AccColName[GameMode] + " = " + std::to_string(ACC) + ", "
+		SQLExecQue.AddQue("UPDATE " + StatsTableName + " SET " + AccColName[GameMode] + " = " + std::to_string(ACC) + ", "
 			+ ppColName[GameMode] + " = " + std::to_string(TotalPP)
 			+ " WHERE id = " + std::to_string(UserID) + " LIMIT 1");
 	}
@@ -1764,7 +1792,7 @@ namespace bPacket {
 		b.Data.push_back(tP->actionID);
 		AddString(b.Data, tP->ActionText);
 		if (tP->ActionMD5[0] == 0)AddString(b.Data, "");
-		else AddString(b.Data, std::string(tP->ActionMD5, 32));
+		else AddString(b.Data, tP->ActionMD5, 32);
 		AddInt(b.Data, tP->actionMods);
 		b.Data.push_back(tP->GameMode);
 		AddInt(b.Data, tP->BeatmapID);
@@ -1782,18 +1810,18 @@ namespace bPacket {
 }
 
 
-void debug_SendOnlineToAll(_User *p) {
+void debug_SendOnlineToAll(_User *p){
 
-	//can pre make and cache the request
-
-	if (!(p->privileges & UserPublic))return;//Do not even care about restricted users for now.
+	if (!(p->privileges & UserPublic))
+		return;//Do not even care about restricted users for now.
 
 	const _BanchoPacket Panel = bPacket::UserPanel(p->UserID, 0);
 	const _BanchoPacket Stats = USER_STATS(p->UserID, 0);
 
 	for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
 		
-		if (!User[i].choToken || &User[i] == p)continue;
+		if (!User[i].choToken || &User[i] == p)
+			continue;
 
 		User[i].qLock.lock();
 
@@ -2391,8 +2419,7 @@ WITHMODS:
 	const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
 	printf("Time: %f\n%i\n", double(double(TTime) * .000001),s.Notes.size());
 	*/
-
-
+	
 	ezpp_t ez = ezpp_new();
 
 	if (!ez)return;
@@ -3501,7 +3528,7 @@ void Event_client_invite(_User *tP, const byte* const Packet, const DWORD Size){
 	Target->addQue(b);
 }
 
-void Event_client_friendAdd(_User *tP, const byte* const Packet, const DWORD Size, _Con s) {
+void Event_client_friendAdd(_User *tP, const byte* const Packet, const DWORD Size) {
 
 	if (Size != 4)return;
 
@@ -3529,7 +3556,7 @@ void Event_client_friendAdd(_User *tP, const byte* const Packet, const DWORD Siz
 
 }
 
-void Event_client_friendRemove(_User *tP, const byte* const Packet, const DWORD Size, _Con s) {
+void Event_client_friendRemove(_User *tP, const byte* const Packet, const DWORD Size) {
 
 	if (Size != 4)return;
 
@@ -3815,9 +3842,9 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 			Event_client_invite(tP, Packet, PacketSize);
 			break;
 		case client_friendAdd:
-			Event_client_friendAdd(tP, Packet, PacketSize,s);
+			Event_client_friendAdd(tP, Packet, PacketSize);
 		case client_friendRemove:
-			Event_client_friendRemove(tP, Packet, PacketSize,s);
+			Event_client_friendRemove(tP, Packet, PacketSize);
 			break;
 
 

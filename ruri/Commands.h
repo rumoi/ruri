@@ -134,7 +134,7 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 
 	_SQLCon SQL;
 
-	const auto Respond = [&](const std::string& Mess)->void {
+	const auto Respond = [=,&SQL](const std::string& Mess)->void {
 		SQL.Disconnect();
 		return Caller->addQue(bPacket::Notification(std::move(Mess)));
 	};
@@ -191,6 +191,78 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 }
 
 
+void SanitizeBeatmaps(_User* Caller){
+	
+	_SQLCon SQL;
+
+	const auto Respond = [&](const std::string& Mess)->void {
+		SQL.Disconnect();
+		return Caller->addQue(bPacket::Notification(std::move(Mess)));
+	};
+
+	if (!SQL.Connect())
+		return Respond("Could not connect to the SQL");
+
+
+	auto res = SQL.ExecuteQuery("SELECT beatmapset_id FROM beatmaps WHERE 1", 1);
+
+	if(!res || !res->next())
+		return Respond("no beatmaps?");
+
+	VEC(DWORD) Sets;
+
+	do {
+
+		const DWORD SetID = res->getUInt(1);
+
+		for (DWORD i = 0; i < Sets.size(); i++)
+			if (Sets[i] == SetID)continue;
+
+		Sets.push_back(SetID);
+	} while (res->next());
+
+	DeleteAndNull(res);
+
+	const DWORD Total = Sets.size();
+
+	printf("Sets to update: %i\n", Total);
+
+	DWORD Count = 0;
+
+	for (DWORD zi = 0; zi < Sets.size(); zi++){
+
+		const std::string ApiRes = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "s=" + std::to_string(Sets[zi]));
+
+		auto BeatmapData = JsonListSplit(ApiRes);
+
+		if (BeatmapData.size() != 0) {
+
+			for (DWORD i = 0; i < BeatmapData.size(); i++) {
+
+				const std::string beatmap_id = GetJsonValue(BeatmapData[i], "beatmap_id");
+				if (!beatmap_id.size())
+					continue;
+				std::string Title = GetJsonValue(BeatmapData[i], "artist") + " - " + GetJsonValue(BeatmapData[i], "title") + " (" + GetJsonValue(BeatmapData[i], "creator") + ") [" + GetJsonValue(BeatmapData[i], "version") + "]";
+				FileNameClean(Title);
+				ReplaceAll(Title, "'", "''");
+				
+				SQL.ExecuteUPDATE("UPDATE beatmaps SET song_name = '" + Title + "' WHERE beatmap_id = " + beatmap_id + " LIMIT 1");
+			}
+
+
+		}
+
+		Count++;
+		if (!(Count % 10000)){
+			printf("%i/%i\n", Count, Total);
+		}
+	}
+
+
+	return Respond("COMPLETED");
+	
+}
+
 void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 	
 	if (!Caller || !(Caller->privileges & Privileges::AdminManageUsers) || (UserName.size() == 0 && !ID))
@@ -198,7 +270,7 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 	
 	_SQLCon SQL;
 
-	auto Respond = [&](const std::string& Mess)->void{
+	const auto Respond = [=, &SQL](const std::string& Mess)->void {
 		SQL.Disconnect();
 		return Caller->addQue(bPacket::Notification(std::move(Mess)));
 	};
@@ -600,6 +672,16 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 			return "Set";
 		}
+		case _WeakStringToInt_("!sanitizebeatmap"): {
+			{
+				std::thread t(SanitizeBeatmaps,u);
+				t.detach();
+			}
+
+			return "";
+
+		}
+
 		default:
 			break;
 		}
