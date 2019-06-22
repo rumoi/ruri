@@ -222,6 +222,24 @@ struct _LeaderBoardCache{
 		int LastRank = 0;
 		_ScoreCache LastScore;
 
+		VEC(_SQLKey) ScoreInsert = {
+			_SQLKey("beatmap_md5", MD5),
+			_SQLKey("userid", s.UserID),
+			_SQLKey("score", s.Score),
+			_SQLKey("max_combo", s.MaxCombo),
+			_SQLKey("full_combo", s.FullCombo),
+			_SQLKey("mods", s.Mods),
+			_SQLKey("300_count", s.count300),
+			_SQLKey("100_count", s.count100),
+			_SQLKey("50_count", s.count50),
+			_SQLKey("katus_count", s.countKatu),
+			_SQLKey("gekis_count", s.countGeki),
+			_SQLKey("misses_count", s.countMiss),
+			_SQLKey("time", s.Time),
+			_SQLKey("play_mode", s.GameMode),
+			_SQLKey("accuracy", std::to_string(s.GetAcc())),
+			_SQLKey("pp", std::to_string(s.pp))
+		};
 
 		for (DWORD i = 0; i < ScoreCache.size(); i++){
 			if (ScoreCache[i].UserID == s.UserID){
@@ -231,47 +249,41 @@ struct _LeaderBoardCache{
 
 					if (SQL){
 
+						ScoreInsert.push_back(_SQLKey("completed", "3"));
+
 						SQL->Lock.lock();
 
 						SQL->ExecuteUPDATE("UPDATE " + TableName + " SET completed = 2 WHERE id = " + std::to_string(ScoreCache[i].ScoreID) + " LIMIT 1",1);
+						
+						SQL->ExecuteUPDATE(SQL_INSERT(TableName,std::move(ScoreInsert)),1);
 
-						SQL->ExecuteUPDATE("INSERT INTO " + TableName + " (id, beatmap_md5, userid, score, max_combo, full_combo, mods, 300_count, 100_count, 50_count, katus_count, gekis_count, misses_count, time, play_mode, completed, accuracy, pp) VALUES (NULL"
-							", '" + MD5 + "', " + std::to_string(s.UserID) + ", " + std::to_string(s.Score) + ", " + std::to_string(s.MaxCombo) + ", " + std::to_string(s.FullCombo) +
-							", " + std::to_string(s.Mods) + ", " + std::to_string(s.count300) + ", " + std::to_string(s.count100) + ", " + std::to_string(s.count50) + ", " + std::to_string(s.countKatu) +
-							", " + std::to_string(s.countGeki) + ", " + std::to_string(s.countMiss) + ", " + std::to_string(s.Time) + ", " + std::to_string(s.GameMode) + ", 3, " + std::to_string(s.GetAcc()) +
-							", " + std::to_string(s.pp) + ")", 1);
-
-						sql::ResultSet* res = SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + TableName,1);
+						auto res = SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + TableName,1);
 
 						SQL->Lock.unlock();
 						
 						if (res && res->next())
 							s.ScoreID = res->getInt64(1);
-						if (res)delete res;
+						
+						DeleteAndNull(res);
 
 					}
 					ScoreCache[i] = s;
 					NewTop = 1;
 					LastRank = i + 1;
 				}else{
-					SQL->ExecuteUPDATE("INSERT INTO " + TableName + " (id, beatmap_md5, userid, score, max_combo, full_combo, mods, 300_count, 100_count, 50_count, katus_count, gekis_count, misses_count, time, play_mode, completed, accuracy, pp) VALUES (NULL"
-						", '" + MD5 + "', " + std::to_string(s.UserID) + ", " + std::to_string(s.Score) + ", " + std::to_string(s.MaxCombo) + ", " + std::to_string(s.FullCombo) +
-						", " + std::to_string(s.Mods) + ", " + std::to_string(s.count300) + ", " + std::to_string(s.count100) + ", " + std::to_string(s.count50) + ", " + std::to_string(s.countKatu) +
-						", " + std::to_string(s.countGeki) + ", " + std::to_string(s.countMiss) + ", " + std::to_string(s.Time) + ", " + std::to_string(s.GameMode) + ", 2, " + std::to_string(s.GetAcc()) +
-						", " + std::to_string(s.pp) + ")");
+					ScoreInsert.push_back(_SQLKey("completed", "2"));
+					SQL->ExecuteUPDATE(SQL_INSERT(TableName, std::move(ScoreInsert)));
 				}
 				break;
 			}
 		}
 		if (!Done){
 
+			ScoreInsert.push_back(_SQLKey("completed", "3"));
+
 			SQL->Lock.lock();
 
-			SQL->ExecuteUPDATE("INSERT INTO " + TableName + " (id, beatmap_md5, userid, score, max_combo, full_combo, mods, 300_count, 100_count, 50_count, katus_count, gekis_count, misses_count, time, play_mode, completed, accuracy, pp) VALUES (NULL"
-				", '" + MD5 + "', " + std::to_string(s.UserID) + ", " + std::to_string(s.Score) + ", " + std::to_string(s.MaxCombo) + ", " + std::to_string(s.FullCombo) +
-				", " + std::to_string(s.Mods) + ", " + std::to_string(s.count300) + ", " + std::to_string(s.count100) + ", " + std::to_string(s.count50) + ", " + std::to_string(s.countKatu) +
-				", " + std::to_string(s.countGeki) + ", " + std::to_string(s.countMiss) + ", " + std::to_string(s.Time) + ", " + std::to_string(s.GameMode) + ", 3, " + std::to_string(s.GetAcc()) +
-				", " + std::to_string(s.pp) + ")",1);
+			SQL->ExecuteUPDATE(SQL_INSERT(TableName, std::move(ScoreInsert)), 1);
 
 			sql::ResultSet* res = SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + TableName, 1);
 
@@ -709,9 +721,24 @@ TryMap:
 								SQL->ExecuteUPDATE("UPDATE beatmaps SET beatmap_md5 = '" + MD5 + "',song_name ='" + Title + "',ar ="+TS(diff_approach)+",od = " + TS(diff_overall) + ",max_combo =" + 
 													TS(MaxCombo) + ",hit_length =" + TS(Length) + ",bpm =" + TS(BPM) + ",ranked =" + TS(RankedStatus)+" WHERE id =" + AlreadyThere->getString(1) + " LIMIT 1");
 
-							}else SQL->ExecuteUPDATE("INSERT INTO beatmaps (id, beatmap_id, beatmapset_id, beatmap_md5, song_name, ar, od, difficulty_std, difficulty_taiko, difficulty_ctb, difficulty_mania, max_combo, hit_length, bpm, ranked, latest_update, ranked_status_freezed) VALUES (NULL, "
-								+ TS(beatmap_id) + ", " + TS(SetID) + ", '" + MD5 + "', '" + Title + "', " + TS(diff_approach) + ", " + TS(diff_overall) + ", "
-								+ "0.0, 0.0, 0.0, 0.0, " + TS(MaxCombo) + ", " + TS(Length) + ", " + TS(BPM) + ", " + TS(RankedStatus) + ", 0 ,0 );");//TODO last updated
+							}else SQL->ExecuteUPDATE(SQL_INSERT("beatmaps", {
+								_SQLKey("beatmap_id", beatmap_id),
+								_SQLKey("beatmapset_id", SetID),
+								_SQLKey("beatmap_md5", MD5),
+								_SQLKey("song_name", Title),
+								_SQLKey("ar", std::to_string(diff_approach)),
+								_SQLKey("od", std::to_string(diff_overall)),
+								_SQLKey("difficulty_std", 0),
+								_SQLKey("difficulty_taiko", 0),
+								_SQLKey("difficulty_ctb", 0),
+								_SQLKey("difficulty_mania", 0),
+								_SQLKey("max_combo", MaxCombo),
+								_SQLKey("hit_length",Length),
+								_SQLKey("bpm", BPM),
+								_SQLKey("ranked", RankedStatus),
+								_SQLKey("latest_update", "0"),
+								_SQLKey("ranked_status_freezed", "0")
+							}));
 
 							DeleteAndNull(AlreadyThere);
 							#undef TS
@@ -1661,9 +1688,7 @@ void HandleAria(_Con s){
 
 		ScoreServerHandle(res, s);
 
-		const unsigned long long Time = clock_ms() - sTime;
-
-		printf("Score Done in %ims\n", Time);
+		printf("Score Done in %ims\n", clock_ms() - sTime);
 
 	}else if (SafeStartCMP(res.Host, "/web/check-updates.php"))
 		osu_checkUpdates(res.Host, s);

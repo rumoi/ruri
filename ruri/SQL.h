@@ -216,3 +216,35 @@ struct _SQLCon {
 	}
 
 };
+
+struct _SQLKey {
+
+	const std::string Key;
+	const std::string Value;
+	const bool Text;
+
+	_SQLKey(const std::string &Key, const std::string &Value) : Key(Key), Value(Value), Text(1) {}
+	_SQLKey(const std::string &Key, const int64_t Value) : Key(Key), Value(std::to_string(Value)), Text(0) {}
+	//_SQLKey(const std::string &Key, const float Value) : Key(Key), Value(std::to_string(Value)), Text(0) {}
+
+
+};
+
+const std::string SQL_INSERT(const std::string &Table, const VEC(_SQLKey)& Values) {
+	return "INSERT INTO " + Table + " (" + [&] {
+		std::string Return;
+		for (const _SQLKey& v : Values)
+			Return += v.Key + ",";
+		if (Return.size())
+			Return.pop_back();
+		return Return;
+	}() + ") VALUES (" + [&] {
+		std::string Return;
+		for (const _SQLKey& v : Values)
+			if (v.Text)Return += "'" + v.Value + "',";
+			else Return += v.Value + ",";
+			if (Return.size())
+				Return.pop_back();
+			return Return;
+	}() + ");";
+}

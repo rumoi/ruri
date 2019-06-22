@@ -352,7 +352,6 @@ constexpr size_t _strlen_(const char* s)noexcept{
 		return 1;\
 	}()
 
-
 #define LOAD_FILE(FILENAME)													\
 	[&](){																	\
 		std::ifstream file(std::string(FILENAME), std::ios::binary | std::ios::ate);		\
@@ -370,6 +369,8 @@ constexpr size_t _strlen_(const char* s)noexcept{
 																			\
 		return rVec;														\
 	}()
+
+#define VEC(s) std::vector<s>
 
 const std::string BOT_NAME = "ruri";
 const std::string FAKEUSER_NAME = []{const char a[] = { 226,128,140,226,128,141,0 }; return std::string(a); }();
@@ -939,8 +940,6 @@ public:
 		RankVersion = 0;
 	}
 };
-
-#define VEC(s) std::vector<s>
 
 #define EXPLODE(TYPE,DATA,LEN,DELMNT)[](const char*const d,const size_t Size)->VEC(TYPE){\
 	VEC(TYPE) Output;\
