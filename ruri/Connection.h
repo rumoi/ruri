@@ -128,7 +128,7 @@ struct _Con{
 				else{
 					Body.resize(Body.size() + DATA[i].size() + 1);
 					memcpy(&Body[Body.size() - DATA[i].size()], &DATA[i][0], DATA[i].size());
-					Body[Body.size() - (DATA[i].size() + 1)] = 'r';
+					Body[Body.size() - (DATA[i].size() + 1)] = '\r';
 				}
 			}
 		}
