@@ -373,7 +373,7 @@ constexpr size_t _strlen_(const char* s)noexcept{
 #define VEC(s) std::vector<s>
 
 const std::string BOT_NAME = "ruri";
-const std::string FAKEUSER_NAME = []{const char a[] = { 226,128,140,226,128,141,0 }; return std::string(a); }();
+const std::string FAKEUSER_NAME = []{const byte a[] = { 226,128,140,226,128,141,0 }; return std::string((char*)a); }();
 
 #include <time.h>
 
@@ -762,11 +762,14 @@ __forceinline void AddShort(std::vector<byte> &v, const short Value) {
 	v.resize(v.size() + 2);
 	*(short*)&v[v.size() - 2] = Value;
 }
-__forceinline void AddVector(std::vector<byte> &v, const std::vector<byte> &Value) {
-	if (Value.size() == 0)return;
-	v.resize(v.size() + Value.size());
-	memcpy(&v[v.size() - Value.size()],&Value[0],Value.size());
-}
+
+#define AddVector(v,VALUE, TYPE)\
+	[&](const VEC(TYPE)& Value)->void{\
+		if(Value.size() == 0)return;\
+		v.resize(v.size() + Value.size());\
+		memcpy(&v[v.size() - Value.size()], &Value[0], Value.size());\
+	}(std::move(VALUE))
+
 __forceinline void AddMem(std::vector<byte> &v, const void* Value, const DWORD Size) {
 	if (Size == 0)return;
 	v.resize(v.size() + Size);
@@ -851,7 +854,7 @@ struct _BanchoPacket {
 		D[2] = Compression;
 		*(DWORD*)(D + 3) = Data.size();
 		AddMem(Bytes, D, 7);
-		AddVector(Bytes, Data);
+		AddVector(Bytes, Data, byte);
 	}
 	void GetBytesRaw(byte* &D) const{
 		
@@ -1184,23 +1187,20 @@ struct _User{
 	DWORD GetStatsOffset()const{
 
 		if (GameMode > 3)return 3;
-		
-		if (actionMods & Mods::Relax)return GameMode + 4;
 
-		return GameMode;
+		return (actionMods & Mods::Relax) ? GameMode + 4 : GameMode;
 	}
 
 	void SendToSpecs(const _BanchoPacket &b) {
 
+		if (!Spectators.size())
+			return;
+
 		SpecLock.lock();
 
-		for (DWORD i = 0; i < Spectators.size(); i++){
-
-			_User* Spec = Spectators[i];
-
+		for (_User*const Spec : Spectators)
 			if (Spec)
-				Spec->addQue(b);		
-		}
+				Spec->addQue(b);
 
 		SpecLock.unlock();
 	}
@@ -1313,6 +1313,19 @@ struct _User{
 		if(choToken)Que.push_back(b);
 		qLock.unlock();
 	}
+	void addQue(const VEC(_BanchoPacket) &b){
+		if (choToken && b.size()) {
+			qLock.lock();
+			for (const auto& p : b){
+				if (p.Type == NULL_PACKET)
+					continue;
+				Que.push_back(p);
+			}
+
+			qLock.unlock();
+		}
+	}
+
 	void addQueDelay(const _DelayedBanchoPacket &b) {
 
 		if (b.b.Type == NULL_PACKET || b.Time == 0 || !choToken)return;
@@ -1345,15 +1358,15 @@ struct _User{
 					
 			SendBytes.resize([&](){
 				size_t S = 0;
-				for (DWORD i = 0; i < Que.size(); i++)
-					S += Que[i].GetSize();
+				for (const auto& q : Que)
+					S += q.GetSize();
 				return S;
 			}());
 
-			byte* SBPointer = (byte*)&SendBytes[0];
+			byte* cPos = (byte*)&SendBytes[0];
 
-			for (DWORD i = 0; i < Que.size(); i++)
-				Que[i].GetBytesRaw(SBPointer);
+			for (const auto& q : Que)
+				q.GetBytesRaw(cPos);
 
 			Que.clear();
 		}
@@ -1364,7 +1377,7 @@ struct _User{
 
 			const int cTime = clock_ms();
 			bool NotEnd = 0;
-			for (int i = int(dQue.size()) - 1; i >= 0; i--){
+			for (size_t i = dQue.size() - 1; i < dQue.size(); i--){
 				if (dQue[i].Time == 1){//means do the next bancho frame.
 					dQue[i].Time = 0;
 					NotEnd = 1;
@@ -1831,47 +1844,48 @@ void debug_SendOnlineToAll(_User *p){
 	}
 }
 
-void Event_client_stopSpectating(_User *tP){
+void Event_client_stopSpectating(_User *u){
 	
-	tP->addQue(bPacket::GenericString(OPac::server_channelKicked, "#spectator"));
+	u->addQue(bPacket::GenericString(OPac::server_channelKicked, "#spectator"));
 
-	_User *SpecTarget = tP->CurrentlySpectating;
-
+	_User *const SpecTarget = u->CurrentlySpectating;
+	
 	if (!SpecTarget)return;
 
-	SpecTarget->SpecLock.lock();
-
-	for (DWORD i = 0; i < SpecTarget->Spectators.size(); i++) {
-		if (SpecTarget->Spectators[i] == tP){
-			SpecTarget->Spectators[i] = 0;
-			break;
-		}
-	}
+	u->CurrentlySpectating = 0;
 
 	bool AllEmptySpecs = 1;
 
-	const _BanchoPacket b = bPacket4Byte(OPac::server_fellowSpectatorLeft, tP->UserID);
+	_BanchoPacket b = bPacket4Byte(OPac::server_fellowSpectatorLeft, u->UserID);
 
-	for (DWORD i = 0; i < SpecTarget->Spectators.size(); i++){
+	{
+		SpecTarget->SpecLock.lock();
 
-		_User* FellowSpec = SpecTarget->Spectators[i];
+		for (_User*& Spec : SpecTarget->Spectators){
 
-		if (FellowSpec){
-			AllEmptySpecs = 0;
-			FellowSpec->addQue(b);
+			if (Spec == u){
+				Spec = 0;
+				break;
+			}
 		}
+		for (_User*const Spec : SpecTarget->Spectators) {
+			if (!Spec)continue;
+
+			Spec->addQue(b);
+
+			AllEmptySpecs = 0;
+		}
+
+		if (AllEmptySpecs)
+			SpecTarget->Spectators.clear();
+
+		SpecTarget->SpecLock.unlock();
 	}
-
-	if (AllEmptySpecs)SpecTarget->Spectators.clear();
-
-	SpecTarget->SpecLock.unlock();
-
-	SpecTarget->addQue(bPacket4Byte(OPac::server_spectatorLeft, tP->UserID));
+	b.Type = OPac::server_spectatorLeft;
+	SpecTarget->addQue(b);
 
 	if (AllEmptySpecs)
 		SpecTarget->addQue(bPacket::GenericString(OPac::server_channelKicked,"#spectator"));
-
-	tP->CurrentlySpectating = 0;
 }
 
 void Event_client_cantSpectate(_User *tP) {
@@ -2356,13 +2370,12 @@ void BotMessaged(_User *tP, const std::string& Message){
 						byte Com = 0;
 						std::string tNum;
 
-						for (DWORD z = 0; z < BotMessage[i].size(); z++){
-							const char C = BotMessage[i][z];
+						for (const char C : BotMessage[i]){
 							if ((C >= '0' && C <= '9'))
-								tNum.push_back(BotMessage[i][z]);
+								tNum.push_back(C);
 							else if (C == '.' && tNum.size() != 0 && Com != 2){
 								Com = 2;
-								tNum.push_back(BotMessage[i][z]);
+								tNum.push_back(C);
 							}else if ((C == 'x' || C == 'X') && Com != 2)
 								Com = 1;
 						}
@@ -2374,10 +2387,9 @@ void BotMessaged(_User *tP, const std::string& Message){
 					}
 				}
 
-				for (DWORD i = 0; i < AllMods.size(); i++) {
-					const char c = AllMods[i];
-					if (c >= 'A' && c <= 'Z')AllMods[i] = c + ('a' - 'A');
-				}
+				for (char& C :  AllMods)
+					if (C >= 'A' && C <= 'Z')
+						C += 'a' - 'A';
 
 				if (AllMods.find("hd") != std::string::npos)
 					Mods += Hidden;
@@ -2548,12 +2560,10 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 
 			SpecHost->SpecLock.lock();
 
-			for (DWORD i = 0; i < SpecHost->Spectators.size(); i++) {
+			for (_User *const s : SpecHost->Spectators)
+				if (s && s != tP)
+					s->addQue(b);
 
-				_User *s = SpecHost->Spectators[i];
-
-				if (s && s != tP)s->addQue(b);
-			}
 			SpecHost->SpecLock.unlock();
 
 			if (SpecHost != tP)
@@ -2621,18 +2631,19 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 	if(SpecTarget->Spectators.size() == 0)
 		SpecTarget->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess, "#spectator"));
 
-	for (DWORD i = 0; i < SpecTarget->Spectators.size(); i++){
+	for (_User*& fSpec : SpecTarget->Spectators){
 
-		_User* fSpec = SpecTarget->Spectators[i];
+		if (!fSpec) {
+			if(Add)fSpec = tP;
+			Add = 0;
+			continue;
+		}
 
-		if (fSpec && fSpec != tP){
+		if (fSpec != tP){
 			fSpec->addQue(b);
 			tP->addQue(bPacket4Byte(OPac::server_fellowSpectatorJoined, fSpec->UserID));
-		}
-		if (!fSpec && Add) {
-			Add = 0;
-			SpecTarget->Spectators[i] = tP;
-		}
+		}else Add = 0;
+
 	}
 
 	if (Add)
@@ -2660,70 +2671,13 @@ struct _ReplayFrame {
 
 void Event_client_spectateFrames(_User *tP, const byte* const Packet, const DWORD Size){
 
-	/*if (tP->SuspectedCheater){
-
-		DWORD O = (DWORD)&Packet[0];
-
-		DWORD Extra = *(DWORD*)O; O += 4;
-
-		USHORT frameCount = *(USHORT*)O; O += 2;
-
-		_ReplayFrame *Frames = new _ReplayFrame[frameCount];
-		for (USHORT i = 0; i < frameCount; i++){
-			Frames[i].ButtonState = *(byte*)O; O++;
-			Frames[i].bt = *(byte*)O; O++;
-			Frames[i].x = *(float*)O; O+=4;
-			Frames[i].y = *(float*)O; O+=4;
-			Frames[i].time = *(int*)O; O+=4;
-		}
-		byte Action = *(byte*)O;
-
-		if (!Action && frameCount > 25 && Frames[0].time > 5000){
-			if (tP->LastReplayBundleTime){
-
-				tP->qLock.lock();
-
-				int TotalDelta = 0;
-				for (USHORT i = 1; i < frameCount; i++)
-					TotalDelta += Frames[i].time - Frames[i - 1].time;
-
-				const int Delta = clock_ms() - tP->LastReplayBundleTime;
-
-				tP->TotalDelta += TotalDelta;
-				//tP->Delta += Delta;
-
-				double TimeWarp = double(tP->TotalDelta) / double(Delta);
-
-				std::string Mes = std::to_string(TimeWarp) + "	|" + std::to_string(tP->TotalDelta) + "-" + std::to_string(Delta);
-
-				printf("%s\n", Mes.c_str());
-				
-				tP->qLock.unlock();
-			}else{
-				tP->LastReplayBundleTime = clock_ms();
-				tP->TotalDelta = 0;
-				tP->Delta = 0;
-
-			}
-		}else{
-			tP->TotalDelta = 0;
-			tP->Delta = 0;
-
-			tP->LastReplayBundleTime = 0;
-		}
-
-		delete[] Frames;
-	}*/
-
 	if (tP->Spectators.size() == 0)return;
 
 	const _BanchoPacket b = bPacket::RawData(OPac::server_spectateFrames, Packet, Size);
 	const _BanchoPacket u = bPacket::UserStats(tP);
 
 	tP->SpecLock.lock();
-	for (DWORD i = 0; i < tP->Spectators.size(); i++){
-
-		_User *s = tP->Spectators[i];
+	for (_User *s :  tP->Spectators){
 
 		if (!s)continue;
 
@@ -3370,11 +3324,8 @@ void Event_client_matchLoadComplete(_User *tP) {
 		}
 	}
 
-	if (AllLoaded){
-
-		const std::vector<_BanchoPacket> b = { _BanchoPacket(OPac::server_matchAllPlayersLoaded),bPacket::bMatch(OPac::server_updateMatch, m, 1) };
-		m->sendUpdates(b);
-	}
+	if (AllLoaded)
+		m->sendUpdates({ _BanchoPacket(OPac::server_matchAllPlayersLoaded),bPacket::bMatch(OPac::server_updateMatch, m, 1) });
 
 	m->Lock.unlock();
 }
@@ -3438,12 +3389,10 @@ void Event_client_matchComplete(_User *tP) {
 
 		m->ClearPlaying();
 
-		const std::vector<_BanchoPacket> b = {
+		m->sendUpdates({
 			_BanchoPacket(OPac::server_matchComplete),
 			bPacket::bMatch(OPac::server_updateMatch, m, 1)
-		};
-
-		m->sendUpdates(b);
+		});
 	}
 
 	m->Lock.unlock();
@@ -3912,12 +3861,12 @@ __forceinline byte getCountryNum(const char *isoCode){
 const std::vector<byte> PACKET_INCORRECTLOGIN = []{return _BanchoPacket(OPac::server_userID, {0xff,0xff,0xff,0xff}).GetBytes();}();
 const std::vector<byte> PACKET_SERVERFULL = [] {
 	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, { 0xff,0xff,0xff,0xff }).GetBytes();
-	AddVector(packet, bPacket::Notification("Server is currenly full").GetBytes());
+	AddVector(packet, bPacket::Notification("Server is currenly full").GetBytes(),byte);
 	return packet;
 }();
 const std::vector<byte> PACKET_CLIENTOUTOFDATE = [] {
 	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, { 0xff,0xff,0xff,0xff }).GetBytes();
-	AddVector(packet, bPacket::Notification("Your client is out of date!\nPlease update it.").GetBytes());
+	AddVector(packet, bPacket::Notification("Your client is out of date!\nPlease update it.").GetBytes(),byte);
 	return packet;
 }();
 
@@ -4318,12 +4267,15 @@ void LazyThread(){
 
 		if (SQLExecQue.Commands.size()){
 
-			MUTEX_LOCK(SQLExecQue.Lock);
+			SQLExecQue.Lock.lock();
 
-			for (DWORD i = 0; i < SQLExecQue.Commands.size(); i++)
-				lThreadSQL.ExecuteUPDATE(std::move(SQLExecQue.Commands[i]), 1);
+			for (std::string& Command :  SQLExecQue.Commands)
+				lThreadSQL.ExecuteUPDATE(std::move(Command), 1);
 
 			SQLExecQue.Commands.clear();
+
+
+			SQLExecQue.Lock.unlock();
 
 		}
 

@@ -105,19 +105,16 @@ struct _Match{
 		}
 	}
 
-	__forceinline void sendUpdates(const std::vector<_BanchoPacket> &b, const _User* Sender = 0){
+	__forceinline void sendUpdates(const VEC(_BanchoPacket) &b, const _User* Sender = 0){
 
 		if (b.size() == 0)return;
-		if (b.size() == 1)return sendUpdate(b[0], Sender);
+		if (b.size() == 1)
+			return sendUpdate(std::move(b[0]), Sender);
 
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++){
 			_User *u = Slot[i].User;
-			if (u && u != Sender && u->choToken) {
-				u->qLock.lock();
-				for(DWORD z=0;z<b.size();z++)
-					u->addQueNonLocking(b[z]);
-				u->qLock.unlock();
-			}
+			if (u && u != Sender && u->choToken)
+				u->addQue(b);
 		}
 	}
 

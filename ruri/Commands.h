@@ -672,7 +672,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 			return "Set";
 		}
-		case _WeakStringToInt_("!sanitizebeatmap"): {
+		/*case _WeakStringToInt_("!sanitizebeatmap"): {
 			{
 				std::thread t(SanitizeBeatmaps,u);
 				t.detach();
@@ -680,7 +680,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 			return "";
 
-		}
+		}*/
 
 		default:
 			break;

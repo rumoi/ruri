@@ -184,13 +184,14 @@ struct _LeaderBoardCache{
 
 		_ScoreCache s;
 
-		if (UID == 0)return s;
+		if (UID == 0)
+			return s;
 
 		ScoreLock.lock_shared();
 
-		for (DWORD i = 0; i < ScoreCache.size(); i++) {
-			if (ScoreCache[i].UserID == UID) {
-				s = ScoreCache[i];
+		for (const auto& SC : ScoreCache) {
+			if (SC.UserID == UID) {
+				s = SC;
 				break;
 			}
 		}
@@ -445,7 +446,7 @@ std::string GetJsonValue(const std::string &Input, const std::string Param) {
 	return std::string(Input.begin() + Start, Input.begin() + End);
 }
 
-int64_t GetJsonValueInt64(const std::string &Input, const std::string Param) {
+int64_t GetJsonValueInt64(const std::string &Input, const std::string &Param) {
 
 	DWORD Start = Input.find("\"" + Param + "\":\"");
 
@@ -831,20 +832,17 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 
 		if(!BS->ID)
 			return &BeatmapNotSubmitted;
+		{
+			SHARED_MUTEX_LOCK(BS->Lock);
 
-		BS->Lock.lock_shared();
+			for (auto& Map : BS->Maps) {
 
-		for (DWORD i = 0; i < BS->Maps.size(); i++){
-
-			if ((ValidMD5 && BS->Maps[i].Hash == MD5) || (DiffNameGiven && BS->Maps[i].DiffName == DiffName)){//TODO: check if the servers md5 is out of date.
-				_BeatmapData *b = &BS->Maps[i];
-				BS->Lock.unlock_shared();
-				return b;
+				if ((ValidMD5 && Map.Hash == MD5) || 
+					(DiffNameGiven && Map.DiffName == DiffName))//TODO: check if the servers md5 is out of date.
+					return &Map;//This feels like returning a reference to a local.
 			}
 
 		}
-		BS->Lock.unlock_shared();
-
 		const DWORD cTime = clock_ms();
 
 		if (BS->LastUpdate + 14400000 < cTime){//Rate limit to every 4 hours
@@ -1534,26 +1532,27 @@ void Handle_DirectSearch(const _HttpRes http, _Con s){
 		return s.Dis();
 	}
 
-	const auto JSON = JsonListSplit(Res);//Imagine being surrounded by people who dont know the own code they are running to the point where they do not even know how to NOT return JSON.
+	//const auto JSON = JsonListSplit(Res);//Imagine being surrounded by people who dont know the own code they are running to the point where they do not even know how to NOT return JSON.
 
 	std::string Return = "1069";
 
-	for (DWORD i = 0; i < JSON.size(); i++){
+	for (const auto& JSON : JsonListSplit(Res)){
+
 		Return += "\n";
-		const DWORD SetID = GetJsonValueInt64(JSON[i], "SetID");
-		const char RankedStatus = GetJsonValueInt64(JSON[i], "RankedStatus");
-		const std::string ApprovedDate = GetJsonValue(JSON[i], "ApprovedDate");
-		const std::string LastUpdate = GetJsonValue(JSON[i], "LastUpdate");
-		const std::string LastChecked = GetJsonValue(JSON[i], "LastChecked");
-		const std::string Artist = GetJsonValue(JSON[i], "Artist");
-		const std::string Title = GetJsonValue(JSON[i], "Title");
-		const std::string Creator = GetJsonValue(JSON[i], "Creator");
-		const std::string Source = GetJsonValue(JSON[i], "Source");
-		const std::string Tags = GetJsonValue(JSON[i], "Tags");
+		const DWORD SetID = GetJsonValueInt64(JSON, "SetID");
+		const char RankedStatus = GetJsonValueInt64(JSON, "RankedStatus");
+		const std::string ApprovedDate = GetJsonValue(JSON, "ApprovedDate");
+		const std::string LastUpdate = GetJsonValue(JSON, "LastUpdate");
+		const std::string LastChecked = GetJsonValue(JSON, "LastChecked");
+		const std::string Artist = GetJsonValue(JSON, "Artist");
+		const std::string Title = GetJsonValue(JSON, "Title");
+		const std::string Creator = GetJsonValue(JSON, "Creator");
+		const std::string Source = GetJsonValue(JSON, "Source");
+		const std::string Tags = GetJsonValue(JSON, "Tags");
 		//HasVideo
-		const char Genre = GetJsonValueInt64(JSON[i], "Genre");
-		const char Language = GetJsonValueInt64(JSON[i], "Language");
-		const char Favourites = GetJsonValueInt64(JSON[i], "Favourites");
+		const char Genre = GetJsonValueInt64(JSON, "Genre");
+		const char Language = GetJsonValueInt64(JSON, "Language");
+		const char Favourites = GetJsonValueInt64(JSON, "Favourites");
 
 
 		Return += std::to_string(SetID) + ".osz|" + Artist + "|" + Title + "|" + Creator + "|" + std::string(1, RankedStatus) + "|0.00|" + LastUpdate + "|" + std::to_string(SetID) +

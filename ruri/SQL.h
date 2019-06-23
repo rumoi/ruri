@@ -47,15 +47,6 @@ __forceinline void PrepareSQLString(char* s){
 #define USERNAMESAFE(STR) [&]{std::string gccxd = STR; return DO_USERNAMESAFE(gccxd);}()
 #define REMOVEQUOTES(STR) [&]{std::string gccxd = STR; return DO_REMOVEQUOTES(gccxd);}()
 
-
-
-/*
-__forceinline void PrepareSQLString(std::string &s){
-	for (DWORD i = 0; i < s.size(); i++)
-		if (s[i] == '\"' || s[i] == '\'')
-			s[i] = '_';
-}*/
-
 std::string SQL_Password;
 std::string SQL_Username;
 std::string SQL_Schema;
@@ -225,8 +216,6 @@ struct _SQLKey {
 
 	_SQLKey(const std::string &Key, const std::string &Value) : Key(Key), Value(Value), Text(1) {}
 	_SQLKey(const std::string &Key, const int64_t Value) : Key(Key), Value(std::to_string(Value)), Text(0) {}
-	//_SQLKey(const std::string &Key, const float Value) : Key(Key), Value(std::to_string(Value)), Text(0) {}
-
 
 };
 
@@ -241,10 +230,10 @@ const std::string SQL_INSERT(const std::string &Table, const VEC(_SQLKey)& Value
 	}() + ") VALUES (" + [&] {
 		std::string Return;
 		for (const _SQLKey& v : Values)
-			if (v.Text)Return += "'" + v.Value + "',";
+			if(v.Text)Return += "'" + v.Value + "',";
 			else Return += v.Value + ",";
-			if (Return.size())
-				Return.pop_back();
-			return Return;
+		if (Return.size())
+			Return.pop_back();
+		return Return;
 	}() + ");";
 }
