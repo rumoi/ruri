@@ -210,7 +210,8 @@ struct _LeaderBoardCache{
 
 		MD5 = REMOVEQUOTES(MD5);
 
-		const std::string TableName = (s.Mods & Relax) ? "scores_relax" : "scores";
+
+		#define TableName std::string(s.Mods & Relax ? "scores_relax" : "scores")
 
 		if (MD5.size() != 32){
 			printf("AddScore Incorrect md5 length\n");//should never happen
@@ -254,9 +255,9 @@ struct _LeaderBoardCache{
 
 						SQL->Lock.lock();
 
-						SQL->ExecuteUPDATE("UPDATE " + TableName + " SET completed = 2 WHERE id = " + std::to_string(ScoreCache[i].ScoreID) + " LIMIT 1",1);
+						SQL->ExecuteUPDATE("UPDATE " + TableName +  " SET completed = 2 WHERE id = " + std::to_string(ScoreCache[i].ScoreID) + " LIMIT 1",1);
 						
-						SQL->ExecuteUPDATE(SQL_INSERT(TableName,std::move(ScoreInsert)),1);
+						SQL->ExecuteUPDATE(SQL_INSERT(TableName,_M(ScoreInsert)),1);
 
 						auto res = SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + TableName,1);
 
@@ -273,7 +274,7 @@ struct _LeaderBoardCache{
 					LastRank = i + 1;
 				}else{
 					ScoreInsert.push_back(_SQLKey("completed", "2"));
-					SQL->ExecuteUPDATE(SQL_INSERT(TableName, std::move(ScoreInsert)));
+					SQL->ExecuteUPDATE(SQL_INSERT(TableName, _M(ScoreInsert)));
 				}
 				break;
 			}
@@ -284,7 +285,7 @@ struct _LeaderBoardCache{
 
 			SQL->Lock.lock();
 
-			SQL->ExecuteUPDATE(SQL_INSERT(TableName, std::move(ScoreInsert)), 1);
+			SQL->ExecuteUPDATE(SQL_INSERT(TableName, _M(ScoreInsert)), 1);
 
 			sql::ResultSet* res = SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + TableName, 1);
 
@@ -297,6 +298,7 @@ struct _LeaderBoardCache{
 			ScoreCache.push_back(s);
 			NewTop = 1;
 		}
+		#undef TableName
 
 		if(NewTop)
 			std::sort(ScoreCache.begin(), ScoreCache.end() , (s.Mods & Relax) ? SortScoreCacheByPP : SortScoreCacheByScore);//Could optimize this by bounding it. Will do it if this ever becomes a problem (doubt it)
@@ -428,7 +430,7 @@ struct _BeatmapSet{
 std::map<const DWORD, _BeatmapSet*> BeatmapSetCache[Cache_Pool_Size];
 std::unordered_map<std::string, _BeatmapSet*> BeatmapCache_HASH[Cache_Pool_Size];
 
-std::string GetJsonValue(const std::string &Input, const std::string Param) {
+std::string GetJsonValue(const std::string &Input, const std::string &&Param) {
 	
 	DWORD Start = Input.find("\"" + Param + "\":\"");
 
@@ -709,9 +711,8 @@ TryMap:
 								RankedStatus = 2;
 
 							//TODO calculate diff stars
-							#define TS(s)std::to_string(s)
 
-							auto AlreadyThere = SQL->ExecuteQuery("SELECT id, ranked FROM beatmaps WHERE beatmap_id = " + TS(beatmap_id) + " LIMIT 1");
+							auto AlreadyThere = SQL->ExecuteQuery("SELECT id, ranked FROM beatmaps WHERE beatmap_id = " + std::to_string(beatmap_id) + " LIMIT 1");
 
 							if (AlreadyThere && AlreadyThere->next()){
 								const int oldStatus = AlreadyThere->getInt(2);
@@ -719,14 +720,26 @@ TryMap:
 								if (oldStatus == 2)
 									RankedStatus = 2;//Never unrank a beatmap.
 
-								SQL->ExecuteUPDATE("UPDATE beatmaps SET beatmap_md5 = '" + MD5 + "',song_name ='" + Title + "',ar ="+TS(diff_approach)+",od = " + TS(diff_overall) + ",max_combo =" + 
-													TS(MaxCombo) + ",hit_length =" + TS(Length) + ",bpm =" + TS(BPM) + ",ranked =" + TS(RankedStatus)+" WHERE id =" + AlreadyThere->getString(1) + " LIMIT 1");
+								//SQL->ExecuteUPDATE("UPDATE beatmaps SET beatmap_md5 = '" + MD5 + "',song_name ='" + Title + "',ar ="+TS(diff_approach)+",od = " + TS(diff_overall) + ",max_combo =" + 
+									//				TS(MaxCombo) + ",hit_length =" + TS(Length) + ",bpm =" + TS(BPM) + ",ranked =" + TS(RankedStatus)+" WHERE id =" + AlreadyThere->getString(1) + " LIMIT 1");
+								
+								SQL->ExecuteUPDATE(SQL_SETUPDATE("beatmaps", {
+								_SQLKey("beatmap_md5",MD5),
+								_SQLKey("song_name",std::move(Title)),
+								_SQLKey("ar",std::to_string(diff_approach)),
+								_SQLKey("od",std::to_string(diff_overall)),
+								_SQLKey("max_combo",MaxCombo),
+								_SQLKey("hit_length",Length),
+								_SQLKey("bpm",BPM),
+								_SQLKey("ranked",RankedStatus)
+								}, std::string("id =" + AlreadyThere->getString(1) + " LIMIT 1")));
+
 
 							}else SQL->ExecuteUPDATE(SQL_INSERT("beatmaps", {
 								_SQLKey("beatmap_id", beatmap_id),
 								_SQLKey("beatmapset_id", SetID),
 								_SQLKey("beatmap_md5", MD5),
-								_SQLKey("song_name", Title),
+								_SQLKey("song_name", std::move(Title)),
 								_SQLKey("ar", std::to_string(diff_approach)),
 								_SQLKey("od", std::to_string(diff_overall)),
 								_SQLKey("difficulty_std", 0),
@@ -741,8 +754,6 @@ TryMap:
 								_SQLKey("ranked_status_freezed", "0")
 							}));
 
-							DeleteAndNull(AlreadyThere);
-							#undef TS
 							AddedMaps.push_back(beatmap_id);
 						}
 
@@ -800,7 +811,7 @@ TryMap:
 }
 _BeatmapData BeatmapNotSubmitted(RankStatus::UNKNOWN);
 
-_BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::string &MD5, const std::string &DiffName, _SQLCon* SQL){
+_BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::string &MD5, const std::string &&DiffName, _SQLCon* SQL){
 
 	//if (GameMode >= 8)return 0;
 
@@ -990,7 +1001,7 @@ const USHORT RCNL = *(USHORT*)"\r\n";
 
 
 
-void ScoreServerHandle(const _HttpRes &res, _Con s){
+void ScoreServerHandle(const _HttpRes &&res, _Con s){
 	
 
 	/*std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
@@ -1219,12 +1230,26 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		s.SendData(ConstructResponse(200, Empty_Headers, FastVByteAlloc("error: no")));
 		s.Dis();
 
-		const std::string TableName = (sData.Mods & Relax) ? "scores_relax" : "scores";
-
-		AriaSQL[s.ID].ExecuteUPDATE("INSERT INTO " + TableName +" (id, beatmap_md5, userid, score, max_combo, full_combo, mods, 300_count, 100_count, 50_count, katus_count, gekis_count, misses_count, time, play_mode, completed, accuracy, pp) VALUES (NULL"
-			", '" + sData.BeatmapHash + "', " + std::to_string(UserID) + ", " + std::to_string(sData.Score) + ", " + std::to_string(sData.MaxCombo) + ", " + std::to_string(sData.FullCombo) +
-			", " + std::to_string(sData.Mods) + ", " + std::to_string(sData.count300) + ", " + std::to_string(sData.count100) + ", " + std::to_string(sData.count50) + ", " + std::to_string(sData.countKatu) +
-			", " + std::to_string(sData.countGeki) + ", " + std::to_string(sData.countMiss) + ", " + std::to_string(time(0)) + ", " + std::to_string(sData.GameMode) + ",0, " + std::to_string(sData.GetAcc()) + ", 0.0);");
+		AriaSQL[s.ID].ExecuteUPDATE(SQL_INSERT(sData.Mods & Relax ? "scores_relax" : "scores",
+		{
+		_SQLKey("beatmap_md5",sData.BeatmapHash),
+		_SQLKey("userid",UserID),
+		_SQLKey("score",sData.Score),
+		_SQLKey("max_combo",sData.MaxCombo),
+		_SQLKey("full_combo",sData.FullCombo),
+		_SQLKey("mods",sData.Mods),
+		_SQLKey("300_count",sData.count300),
+		_SQLKey("100_count",sData.count100),
+		_SQLKey("50_count",sData.count50),
+		_SQLKey("katus_count",sData.countKatu),
+		_SQLKey("gekis_count",sData.countGeki),
+		_SQLKey("misses_count",sData.countMiss),
+		_SQLKey("time",time(0)),
+		_SQLKey("play_mode",sData.GameMode),
+		_SQLKey("completed",0),
+		_SQLKey("accuracy",std::to_string(sData.GetAcc())),
+		_SQLKey("pp",0)
+		}));
 
 		return;
 	}
@@ -1259,7 +1284,7 @@ std::string urlDecode(const std::string &SRC) {
 	return ret;
 }
 
-void osu_getScores(const _HttpRes &http, _Con s){
+void osu_getScores(const _HttpRes &&http, _Con s){
 	const char* mName = "Aria";
 	const std::string URL(http.Host.begin(), http.Host.end());
 
@@ -1298,7 +1323,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	if (Mode >= 8)
 		Mode = 0;
 
-	_BeatmapData* BeatData = GetBeatmapCache(SetID,0, BeatmapMD5, DiffName,&AriaSQL[s.ID]);
+	_BeatmapData*const BeatData = GetBeatmapCache(SetID,0, BeatmapMD5, std::move(DiffName),&AriaSQL[s.ID]);
 
 	if (!BeatData || !BeatData->BeatmapID){
 
@@ -1411,7 +1436,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	s.Dis();
 }
 
-__forceinline const bool SafeStartCMP(const std::vector<byte> &b, const std::string &Check){
+__forceinline const bool SafeStartCMP(const std::vector<byte> &b, const std::string &&Check){
 	if (b.size() < Check.size())return 0;
 	return (memcmp(&b[0], &Check[0], Check.size()) == 0);
 }
@@ -1468,7 +1493,7 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 	else UpdateCache[CacheOffset] = c;
 }
 
-void Handle_SearchSet(const _HttpRes http, _Con s){
+void Handle_SearchSet(const _HttpRes &&http, _Con s){
 
 	DWORD Start = 0;
 
@@ -1512,7 +1537,7 @@ const std::string directToApiStatus(const std::string &directStatus) {//thank yo
 	return "1";
 }
 
-void Handle_DirectSearch(const _HttpRes http, _Con s){
+void Handle_DirectSearch(const _HttpRes &&http, _Con s){
 	
 	const std::string URL(http.Host.begin(), http.Host.end());
 	
@@ -1570,7 +1595,7 @@ void Handle_DirectSearch(const _HttpRes http, _Con s){
 	return s.Dis();
 }
 
-void GetReplay(const _HttpRes http, _Con s) {
+void GetReplay(const _HttpRes &&http, _Con s) {
 
 	const std::string URL(http.Host.begin(), http.Host.end());
 
@@ -1608,7 +1633,7 @@ void GetReplay(const _HttpRes http, _Con s) {
 	// katus_count, gekis_count, misses_count, time, play_mode
 }
 
-void DownloadOSZ(const _HttpRes http, _Con s){
+void DownloadOSZ(const _HttpRes &&http, _Con s){
 
 	const std::string URL(http.Host.begin(), http.Host.end());
 	const DWORD DataOff = URL.find('?');
@@ -1640,7 +1665,7 @@ void DownloadOSZ(const _HttpRes http, _Con s){
 	return s.Dis();
 }
 
-void UpdateOSU(const _HttpRes http, _Con s) {
+void UpdateOSU(const _HttpRes &&http, _Con s) {
 	
 	/*
 	std::string FileName(http.Host.begin() + _strlen_("/web/maps/"), http.Host.end() - _strlen_(".osu"));
@@ -1673,9 +1698,11 @@ void HandleAria(_Con s){
 
 	const char* mName = "Aria";
 
-	_HttpRes res;
+	bool Suc = 0;
 
-	if (!s.RecvData(res)){
+	const _HttpRes res = _M(s.RecvData(Suc));
+
+	if (!Suc){
 		s.Dis();
 		return LogError("Connection Lost", mName);
 	}
@@ -1685,33 +1712,33 @@ void HandleAria(_Con s){
 
 		const int sTime = clock_ms();
 
-		ScoreServerHandle(res, s);
+		ScoreServerHandle(_M(res), s);
 
 		printf("Score Done in %ims\n", clock_ms() - sTime);
 
 	}else if (SafeStartCMP(res.Host, "/web/check-updates.php"))
 		osu_checkUpdates(res.Host, s);
 	else if (SafeStartCMP(res.Host, "/web/osu-osz2-getscores.php"))
-		osu_getScores(res, s);
+		osu_getScores(_M(res), s);
 	else if (SafeStartCMP(res.Host, "/web/osu-search-set.php")){
-		std::thread a(Handle_SearchSet,res, s);
+		std::thread a(Handle_SearchSet, _M(res), s);
 		a.detach();
 		DontCloseConnection = 1;
 	}else if (SafeStartCMP(res.Host, "/web/osu-search.php")){
-		std::thread a(Handle_DirectSearch, res, s);
+		std::thread a(Handle_DirectSearch, _M(res), s);
 		a.detach();
 		DontCloseConnection = 1;
 	}
 	else if (SafeStartCMP(res.Host, "/web/osu-getreplay.php")){
-		std::thread a(GetReplay, res, s);
+		std::thread a(GetReplay, _M(res), s);
 		a.detach();
 		DontCloseConnection = 1;
 	}else if (SafeStartCMP(res.Host, "/d/")) {
-		std::thread a(DownloadOSZ, res, s);
+		std::thread a(DownloadOSZ, _M(res), s);
 		a.detach();
 		DontCloseConnection = 1;
 	}else if (SafeStartCMP(res.Host, "/web/maps/")){//used when updating a single maps .osu
-		std::thread a(UpdateOSU, res, s);
+		std::thread a(UpdateOSU, _M(res), s);
 		a.detach();
 		DontCloseConnection = 1;
 	}

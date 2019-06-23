@@ -10,17 +10,16 @@ struct _HttpHeader{
 	const std::string Text;
 	const std::string Value;
 
-	_HttpHeader(const std::string &Text,const std::string &Value): Text(Text),Value(Value){};
-
+	_HttpHeader(const std::string &&Text,const std::string &&Value): Text(_M(Text)),Value(_M(Value)){}
 };
 
 struct _HttpRes {
 
-	std::vector<byte> Body;
-	std::vector<byte> Host;
-	std::vector<_HttpHeader> Headers;
+	const std::vector<byte> Body;
+	const std::vector<byte> Host;
+	const std::vector<_HttpHeader> Headers;
 
-	const std::string GetHeaderValue(const std::string Name){
+	const std::string GetHeaderValue(const std::string &&Name)const {
 
 		for (DWORD i = 0; i < Headers.size(); i++)
 			if (Headers[i].Text == Name)
@@ -28,6 +27,10 @@ struct _HttpRes {
 
 		return "";
 	}
+
+	_HttpRes(const std::vector<byte> &&Host, const std::vector<_HttpHeader>&& Headers, const std::vector<byte> &&Body) :Host(_M(Host)), Headers(_M(Headers)), Body(_M(Body)) {}
+	_HttpRes(){}
+	//_HttpRes(_HttpRes&& a) : Body(_M(a.Body)), Host(_M(a.Host)), Headers(_M(a.Headers)) {}
 
 };
 
@@ -43,8 +46,8 @@ const std::string ConstructResponse(const DWORD Code, const std::vector<_HttpHea
 		return "HTTP/1.0 200 OK" MNL;
 	}();
 
-	for (DWORD i = 0; i < Headers.size(); i++)
-		Return += Headers[i].Text + ": " + Headers[i].Value + MNL;
+	for (const auto& H : Headers)
+		Return += H.Text + ": " + H.Value + MNL;
 	
 
 	Return += "Content-Length: " + std::to_string(Body.size()) + MNL + "Connection: close" + DMNL;
@@ -63,58 +66,52 @@ struct _Con{
 	SOCKET s;
 	DWORD ID;
 
-	bool RecvData(_HttpRes &res) {
-
-		if (!s)return 0;
-
-		res = _HttpRes();
-
-		res.Headers.reserve(32);
-
+	const _HttpRes RecvData(bool &Suc)const {
+		Suc = 0;
 		DWORD pSize = 0;
 		std::vector<byte> p;
 		p.reserve(USHORT(-1));
 
 		int pLength = MAX_PACKET_LENGTH;
-		do{
+		do {
 			p.resize(pSize + MAX_PACKET_LENGTH);
 
 			pLength = recv(s, (char*)&p[pSize], MAX_PACKET_LENGTH, 0);
 
-			if (pLength == SOCKET_ERROR)break;
+			if (pLength <= 0)break;
+
 			pSize += pLength;
 
 		} while (pLength == MAX_PACKET_LENGTH);
 
-		if (pSize == 0)return 0;
+		if (pSize == 0)
+			return _HttpRes();
 
-		const auto temp = EXPLODE(VEC(byte),&p[0], pSize, '\r');
+		const auto DATA = EXPLODE(VEC(byte),&p[0], pSize, '\r');
+
+		if (!DATA.size() || !DATA[0].size())
+			return _HttpRes();
+
+		const auto PageName = EXPLODE_VEC(VEC(byte), DATA[0], ' ');
 		
-		if (!temp.size() || !temp[0].size())return 0;
-
-		{
-			const auto PageName = EXPLODE_VEC(VEC(byte), temp[0], ' ');
-
-			if (PageName.size() > 1)
-				res.Host = std::move(PageName[1]);
-			
-		}
-
 		int CurrentOffset = 1;
 
+		std::vector<_HttpHeader> Headers; Headers.reserve(32);
+		std::vector<byte> Body;
+
 		{//Headers
-			for (DWORD i = CurrentOffset; i < temp.size(); i++) {
+			for (DWORD i = CurrentOffset; i < DATA.size(); i++) {
 
 				CurrentOffset = i;
 
-				if (temp[i].size() <= 1)
+				if (DATA[i].size() <= 1)
 					break;
 
-				const auto Head = EXPLODE(std::string,&temp[i][1],temp[i].size()-1,':');
+				const auto Head = EXPLODE(std::string, &DATA[i][1], DATA[i].size()-1,':');
 
 				if (Head.size() < 2 || !Head[0].size() || Head[1].size() <= 1)continue;
 
-				res.Headers.push_back(_HttpHeader(std::move(Head[0]), std::move(Head[1].substr(1,Head[1].size()-1))));
+				Headers.push_back(_HttpHeader(_M(Head[0]), Head[1].substr(1,Head[1].size()-1)));
 			}
 		}
 
@@ -122,24 +119,24 @@ struct _Con{
 			
 			bool FirstBody = 1;
 
-			for (DWORD i = CurrentOffset + 1; i < temp.size(); i++){
+			for (DWORD i = CurrentOffset + 1; i < DATA.size(); i++){
 
 				if(FirstBody){
 					FirstBody = 0;
-					res.Body = std::vector<byte>(temp[i].begin() + 1, temp[i].end());
+					Body = std::vector<byte>(DATA[i].begin() + 1, DATA[i].end());
 				}
 				else{
-					res.Body.push_back('\r');
-					res.Body.resize(res.Body.size() + temp[i].size());
-					memcpy(&res.Body[res.Body.size() - temp[i].size()], &temp[i][0], temp[i].size());
+					Body.resize(Body.size() + DATA[i].size() + 1);
+					memcpy(&Body[Body.size() - DATA[i].size()], &DATA[i][0], DATA[i].size());
+					Body[Body.size() - (DATA[i].size() + 1)] = 'r';
 				}
 			}
 		}
-		
-		return 1;
+		Suc = 1;
+		return _HttpRes((PageName.size() > 1) ? _M(PageName[1]) : std::vector<byte>{}, _M(Headers), _M(Body));
 	}
 
-	bool SendData(const std::string &Data) {;
+	bool SendData(const std::string &&Data) {;
 		if (!s)return 0;
 
 		DWORD Count = 0;

@@ -39,13 +39,13 @@ __forceinline void PrepareSQLString(char* s){
 	}(STR)
 #define USERNAMESQL(STR)\
 	[&]{\
-		std::string s = STR;\
+		std::string s(STR);\
 		DO_REMOVEQUOTES(s);\
 		return DO_USERNAMESAFE(s);\
 	}()\
 
-#define USERNAMESAFE(STR) [&]{std::string gccxd = STR; return DO_USERNAMESAFE(gccxd);}()
-#define REMOVEQUOTES(STR) [&]{std::string gccxd = STR; return DO_REMOVEQUOTES(gccxd);}()
+#define USERNAMESAFE(STR) [&]{std::string gccxd(STR); return DO_USERNAMESAFE(gccxd);}()
+#define REMOVEQUOTES(STR) [&]{std::string gccxd(STR); return DO_REMOVEQUOTES(gccxd);}()
 
 std::string SQL_Password;
 std::string SQL_Username;
@@ -72,7 +72,7 @@ struct _SQLCon {
 		}
 	}
 
-	sql::ResultSet *ExecuteQuery(const std::string Query, const bool DontLock = 0){
+	sql::ResultSet *ExecuteQuery(const std::string&& Query, const bool DontLock = 0){
 
 
 		if (!DontLock)Lock.lock();
@@ -90,7 +90,7 @@ struct _SQLCon {
 				LastMessage = clock_ms();
 				return 0;
 			}
-			ret = s->executeQuery(Query);
+			ret = s->executeQuery(_M(Query));
 
 		}catch (sql::SQLException &e) {
 			printf("SQLERROR:%i\n", e.getErrorCode());
@@ -102,7 +102,7 @@ struct _SQLCon {
 		LastMessage = clock_ms();
 		return ret;
 	}
-	bool ExecuteSQL(const std::string Query){
+	/*bool ExecuteSQL(const std::string&& Query){
 
 		Lock.lock();
 
@@ -129,9 +129,9 @@ struct _SQLCon {
 		LastMessage = clock_ms();
 
 		return ret;
-	}
+	}*/
 
-	int ExecuteUPDATE(const std::string &Query, const bool DontLock = 0) {
+	int ExecuteUPDATE(const std::string &&Query, const bool DontLock = 0) {
 		if(!DontLock)Lock.lock();
 
 		int ret = 0;
@@ -214,12 +214,12 @@ struct _SQLKey {
 	const std::string Value;
 	const bool Text;
 
-	_SQLKey(const std::string &Key, const std::string &Value) : Key(Key), Value(Value), Text(1) {}
-	_SQLKey(const std::string &Key, const int64_t Value) : Key(Key), Value(std::to_string(Value)), Text(0) {}
+	_SQLKey(const std::string &&Key, const std::string &Value) : Key(_M(Key)), Value(_M(Value)), Text(1) {}
+	_SQLKey(const std::string &&Key, const int64_t Value) : Key(_M(Key)), Value(std::to_string(Value)), Text(0) {}
 
 };
 
-const std::string SQL_INSERT(const std::string &Table, const VEC(_SQLKey)& Values) {
+const std::string SQL_INSERT(const std::string &&Table, const VEC(_SQLKey)&& Values) {
 	return "INSERT INTO " + Table + " (" + [&] {
 		std::string Return;
 		for (const _SQLKey& v : Values)
@@ -237,3 +237,15 @@ const std::string SQL_INSERT(const std::string &Table, const VEC(_SQLKey)& Value
 		return Return;
 	}() + ");";
 }
+const std::string SQL_SETUPDATE(const std::string &&Table, const VEC(_SQLKey) && Values, const std::string&& Condition) {
+	return "UPDATE " + Table + " SET " + [&]{
+		std::string Return;
+		for (const _SQLKey& v : Values)
+			if (v.Text)Return += v.Key + " = '" + v.Value + "',";
+			else Return += v.Key + " = " + v.Value+ ",";
+		if (Return.size())
+			Return.pop_back();
+		return Return;
+	}() + " WHERE " + Condition;
+}
+

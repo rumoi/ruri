@@ -137,6 +137,8 @@ enum RankStatus {
 
 #define CHO_VERSION 19
 
+#define _M(a) std::move(a)
+
 const int PING_TIMEOUT_OSU = 80000;//yes thanks peppy
 const bool USER_TEST = 0;
 
@@ -269,8 +271,6 @@ const int MAX_PACKET_LENGTH = 2816;
 #define RURIPORT 420
 #define ARIAPORT 421
 
-
-
 #define likely(x) x 
 #define unlikely(x) x 
 
@@ -391,17 +391,23 @@ _SQLCon SQL_BanchoThread[BANCHO_THREAD_COUNT];
 
 
 
-std::string GET_WEB(const std::string &HostName, const std::string &Page) {
+std::string GET_WEB(const std::string &&HostName, const std::string &Page) {
 
 	SOCKET Socket_WEB = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
-	if (!Socket_WEB)return "";
+	if (!Socket_WEB)
+		return "";
 	
+	struct hostent *hp = gethostbyname(HostName.c_str());
+
+	if (!hp)
+		return "";
+
 
 	SOCKADDR_IN SockAddr_WEB;
 	SockAddr_WEB.sin_family = AF_INET;
 	SockAddr_WEB.sin_port = htons(80);
-	SockAddr_WEB.sin_addr.s_addr = *(unsigned long*)gethostbyname(HostName.c_str())->h_addr;
+	SockAddr_WEB.sin_addr.s_addr = *(unsigned long*)hp->h_addr;
 		
 	if (connect(Socket_WEB, (SOCKADDR*)(&SockAddr_WEB), sizeof(SockAddr_WEB))){
 		closesocket(Socket_WEB);
@@ -417,8 +423,11 @@ std::string GET_WEB(const std::string &HostName, const std::string &Page) {
 	int tSize = 0; std::string Return_WEB(MAX_PACKET_LENGTH, '\0'); \
 		while (1) {
 			const int rByte = recv(Socket_WEB, &Return_WEB[tSize], MAX_PACKET_LENGTH, 0);
-			if (!rByte)
+			if (rByte == 0)
 				break;
+			if (rByte < 0)
+				return "";
+
 			Return_WEB.resize(Return_WEB.size() + rByte);
 			tSize += rByte;
 		}
@@ -440,9 +449,9 @@ int CharHexToDecimal(const char c) {
 	return 0;
 }
 
-std::string GET_WEB_CHUNKED(const std::string &HostName, const std::string &Page){
+std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &Page){
 
-	std::string rp = GET_WEB(HostName, Page);
+	const std::string rp = GET_WEB(_M(HostName), Page);
 
 	if (rp.size() == 0)
 		return "";
@@ -1903,7 +1912,7 @@ void Event_client_cantSpectate(_User *tP) {
 DWORD COUNT_REQUESTS = 0;
 DWORD COUNT_MULTIPLAYER = 0;
 
-void RenderHTMLPage(_Con s, _HttpRes &res){
+void RenderHTMLPage(_Con s, const _HttpRes &&res){
 
 	std::vector<byte> Body;
 
@@ -3878,7 +3887,7 @@ void BanchoServerFull(_Con s) {
 	s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", "0") }, PACKET_SERVERFULL));
 }
 
-void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
+void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 	if (res.Body.size() <= 1){
 		printf("Empty packet! (%s)\n",(char*)&res.Host[0]);
@@ -3887,8 +3896,6 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 	if (!choToken){//No token sent - Assume its the login request which only ever comes in once
 
-		res.Body.pop_back();//Pops trailing new line
-
 		std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
 
 		const auto LoginData = EXPLODE_VEC(std::string,res.Body, '\n');
@@ -3896,9 +3903,7 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 		if (LoginData.size() != 3)
 			return BanchoIncorrectLogin(s);
 
-		std::string Username = USERNAMESQL(LoginData[0]);
-
-		const std::string Username_Safe = Username;
+		std::string Username = USERNAMESQL(_M(LoginData[0]));
 
 		const std::string cPassword = REMOVEQUOTES(LoginData[1]);
 
@@ -3906,6 +3911,8 @@ void HandleBanchoPacket(_Con s, _HttpRes &res,const uint64_t choToken) {
 
 		if (ClientData.size() != 5 || Username.size() > MAX_USERNAME_LENGTH || cPassword.size() != 32)
 			return BanchoIncorrectLogin(s);
+
+		const std::string Username_Safe = Username;
 
 		const bool VersionFailed = [&]{
 
@@ -4201,10 +4208,9 @@ void DisconnectUser(_User *u){
 }
 
 void HandlePacket(_Con s){
+	bool Suc = 0;
 
-	_HttpRes res;
-
-	bool Suc = s.RecvData(res);
+	 const _HttpRes res = _M(s.RecvData(Suc));
 
 	if (!Suc){
 		LogMessage(KRED "Connection lost");
@@ -4225,12 +4231,12 @@ void HandlePacket(_Con s){
 		return;
 	}
 	if (UserAgent != "osu!" && !choToken){//If it is not found
-		RenderHTMLPage(s,res);
+		RenderHTMLPage(s,_M(res));
 		LogMessage("HTML page served");
 		return s.Dis();
 	}
 
-	HandleBanchoPacket(s, res, choToken);
+	HandleBanchoPacket(s, _M(res), choToken);
 
 	return s.Dis();
 }
@@ -4268,13 +4274,12 @@ void LazyThread(){
 		if (SQLExecQue.Commands.size()){
 
 			SQLExecQue.Lock.lock();
+			{
+				for (std::string& Command : SQLExecQue.Commands)
+					lThreadSQL.ExecuteUPDATE(std::move(Command), 1);
 
-			for (std::string& Command :  SQLExecQue.Commands)
-				lThreadSQL.ExecuteUPDATE(std::move(Command), 1);
-
-			SQLExecQue.Commands.clear();
-
-
+				SQLExecQue.Commands.clear();
+			}
 			SQLExecQue.Lock.unlock();
 
 		}
