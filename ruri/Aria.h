@@ -225,7 +225,7 @@ struct _LeaderBoardCache{
 		_ScoreCache LastScore;
 
 		VEC(_SQLKey) ScoreInsert = {
-			_SQLKey("beatmap_md5", MD5),
+			_SQLKey("beatmap_md5", std::string(MD5)),
 			_SQLKey("userid", s.UserID),
 			_SQLKey("score", s.Score),
 			_SQLKey("max_combo", s.MaxCombo),
@@ -569,7 +569,7 @@ void FileNameClean(std::string &S){
 }
 
 //Calling GetBeatmapSetFromSetID can collect setID information from the osu API if it misses in the database
-_BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQL, _BeatmapSet* SET = 0){
+_BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQL, _BeatmapSet* SET = 0 , bool ForceUpdate = 0){
 	const char* mName = "Aria";
 
 	if (SetID == 0)return 0;
@@ -577,7 +577,7 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQL, _BeatmapSet
 	const DWORD Off = SetID % Cache_Pool_Size;
 
 	auto MapSet = &BeatmapSetCache[Off];
-	if(!SET){
+	if(!SET && !ForceUpdate){
 
 		SHARED_MUTEX_LOCK(SetIDAddMutex[Off]);
 
@@ -586,16 +586,15 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQL, _BeatmapSet
 			return it->second;
 	}
 
-	if (!SQL)
+	if (!SQL && !ForceUpdate)
 		return 0;
 
 	//Set ID is not in the cache. We need to add it.
-
-	
+		
 	SetIDAddMutex[Off].lock();
 
 	//Attempt to get it again. Just incase there was another request that already handling it in the literal nano second of the lock switch
-	if(!SET){
+	if(!SET && !ForceUpdate){
 		auto it = MapSet->find(SetID);
 		if (it != MapSet->end()){
 			_BeatmapSet *s = it->second;
@@ -608,7 +607,7 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQL, _BeatmapSet
 	bool FirstTime = 1;
 	sql::ResultSet* res = 0;
 TryMap:
-	if(!SET || !FirstTime)
+	if((!SET && !ForceUpdate) || !FirstTime)
 		res = SQL->ExecuteQuery("SELECT ranked,beatmap_id,song_name,rating,beatmap_md5 FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID));
 
 	if (res && res->next()){
@@ -702,29 +701,40 @@ TryMap:
 							try { MaxCombo = std::stoi(GetJsonValue(BeatmapData[i], "max_combo")); }catch (...) {}
 							try { BPM = std::stoi(GetJsonValue(BeatmapData[i], "bpm")); }catch (...) {}
 
-							std::string Title = GetJsonValue(BeatmapData[i], "artist") + " - " + GetJsonValue(BeatmapData[i], "title") + " (" + GetJsonValue(BeatmapData[i], "creator") + ") [" + GetJsonValue(BeatmapData[i], "version") + "]";
+							std::string Title = GetJsonValue(BeatmapData[i], "artist") + " - " + GetJsonValue(BeatmapData[i], "title") + /*" (" + GetJsonValue(BeatmapData[i], "creator") + ")*/" [" + GetJsonValue(BeatmapData[i], "version") + "]";
 							FileNameClean(Title);
 							ReplaceAll(Title, "'", "''");
-
-						
-							if (RankedStatus == 1)
-								RankedStatus = 2;
+							//4 = loved, 3 = qualified, 2 = approved, 1 = ranked, 0 = pending, -1 = WIP, -2 = graveyard
+							enum {
+								osuapi_graveyard = -2,
+								osuapi_WIP = -1,
+								osuapi_pending = 0,
+								osuapi_ranked = 1,
+								osuapi_approved = 2,
+								osuapi_qualified = 3,
+								osuapi_loved = 4
+							};
+							
+							if (RankedStatus == osuapi_ranked)
+								RankedStatus = RANKED;
+							else if (RankedStatus == osuapi_qualified)
+								RankedStatus = QUALIFIED;
 
 							//TODO calculate diff stars
 
 							auto AlreadyThere = SQL->ExecuteQuery("SELECT id, ranked FROM beatmaps WHERE beatmap_id = " + std::to_string(beatmap_id) + " LIMIT 1");
 
 							if (AlreadyThere && AlreadyThere->next()){
+
 								const int oldStatus = AlreadyThere->getInt(2);
 
-								if (oldStatus == 2)
-									RankedStatus = 2;//Never unrank a beatmap.
+								if (oldStatus == RANKED)
+									RankedStatus = RANKED;//Never unrank a beatmap.
+								else if (oldStatus == LOVED)
+									RankedStatus = LOVED;
 
-								//SQL->ExecuteUPDATE("UPDATE beatmaps SET beatmap_md5 = '" + MD5 + "',song_name ='" + Title + "',ar ="+TS(diff_approach)+",od = " + TS(diff_overall) + ",max_combo =" + 
-									//				TS(MaxCombo) + ",hit_length =" + TS(Length) + ",bpm =" + TS(BPM) + ",ranked =" + TS(RankedStatus)+" WHERE id =" + AlreadyThere->getString(1) + " LIMIT 1");
-								
 								SQL->ExecuteUPDATE(SQL_SETUPDATE("beatmaps", {
-								_SQLKey("beatmap_md5",MD5),
+								_SQLKey("beatmap_md5",_M(MD5)),
 								_SQLKey("song_name",std::move(Title)),
 								_SQLKey("ar",std::to_string(diff_approach)),
 								_SQLKey("od",std::to_string(diff_overall)),
@@ -738,7 +748,7 @@ TryMap:
 							}else SQL->ExecuteUPDATE(SQL_INSERT("beatmaps", {
 								_SQLKey("beatmap_id", beatmap_id),
 								_SQLKey("beatmapset_id", SetID),
-								_SQLKey("beatmap_md5", MD5),
+								_SQLKey("beatmap_md5", _M(MD5)),
 								_SQLKey("song_name", std::move(Title)),
 								_SQLKey("ar", std::to_string(diff_approach)),
 								_SQLKey("od", std::to_string(diff_overall)),
@@ -811,6 +821,42 @@ TryMap:
 }
 _BeatmapData BeatmapNotSubmitted(RankStatus::UNKNOWN);
 
+
+bool CheckMapUpdate(_BeatmapData *BD, _SQLCon* SQL) {
+
+	if (!BD || !BD->SetID || BD->Hash.size() != 32 || !SQL)
+		return 0;
+	
+	const DWORD Off = BD->SetID % Cache_Pool_Size;
+
+	_BeatmapSet *BS = 0;
+
+	SetIDAddMutex[Off].lock_shared();
+
+	{
+		const DWORD pOff = (*(DWORD*)&BD->Hash[0]) % Cache_Pool_Size;
+
+		auto it = BeatmapCache_HASH[pOff].find(BD->Hash);
+
+		if (it != BeatmapCache_HASH[pOff].end())//This is most likely not thread safe.
+			BS = it->second;
+	}
+
+	SetIDAddMutex[Off].unlock_shared();
+	
+	if (!BS)
+		return 0;
+
+	const DWORD cTime = clock_ms();
+
+	if (BS->LastUpdate + 14400000 > cTime)
+		return 0;
+	BS->LastUpdate = cTime;
+	GetBeatmapSetFromSetID(BD->SetID, SQL, BS, 1);
+	return 1;
+}
+
+
 _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::string &MD5, const std::string &&DiffName, _SQLCon* SQL){
 
 	//if (GameMode >= 8)return 0;
@@ -819,8 +865,12 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 	bool DiffNameGiven = (DiffName.size() > 0);
 	_BeatmapSet *BS = 0;
 
-	if (ValidMD5) {
+	if (ValidMD5 && SetID) {
 		const DWORD pOff = (*(DWORD*)&MD5[0]) % Cache_Pool_Size;
+
+		const DWORD Off = SetID % Cache_Pool_Size;
+
+		SetIDAddMutex[Off].lock_shared();
 
 		{
 
@@ -829,6 +879,9 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 			if (it != BeatmapCache_HASH[pOff].end())//This is most likely not thread safe.
 				BS = it->second;
 		}
+
+		SetIDAddMutex[Off].unlock_shared();
+
 	}
 
 	if (BS == &BeatmapSetDeleted)
@@ -1001,7 +1054,7 @@ const USHORT RCNL = *(USHORT*)"\r\n";
 
 
 
-void ScoreServerHandle(const _HttpRes &&res, _Con s){
+void ScoreServerHandle(const _HttpRes &res, _Con s){
 	
 
 	/*std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
@@ -1012,7 +1065,7 @@ void ScoreServerHandle(const _HttpRes &&res, _Con s){
 
 	//LogMessage("Start reading score.", mName);
 
-	int FailTime = INT_MIN;
+	int FailTime = -1;
 	int Quit = -1;
 
 	std::string score,
@@ -1026,10 +1079,12 @@ void ScoreServerHandle(const _HttpRes &&res, _Con s){
 
 	const auto RawScoreData = EXPLODE_MULTI(std::string, &res.Body[0], res.Body.size(), "-------------------------------28947758029299\r\n");
 
-	if (RawScoreData.size() < 10)
-		return SendAria404(s);
-	else{
-		
+	if (RawScoreData.size() < 10){
+
+		printf("RawScoreData was under 10(%i)\n",RawScoreData.size());
+
+		return TryScoreAgain(s);
+	}else {
 		bool FirstScoreParam = 1;
 		for (DWORD i = 0; i < RawScoreData.size(); i++){
 
@@ -1097,11 +1152,14 @@ void ScoreServerHandle(const _HttpRes &&res, _Con s){
 				LogError("Failed score.","Aria");
 				return TryScoreAgain(s);
 		}
+		const bool OldClient = (FailTime == -1 || Quit == -1);
 
-		bool OldClient = (FailTime == INT_MIN || Quit == -1);
-
-		if (FailTime == INT_MIN)
+		if (FailTime == -1)
 			FailTime = 0;
+		if (Quit == -1)
+			Quit = 0;
+
+
 
 		iv = base64_decode(iv);
 		
@@ -1115,8 +1173,6 @@ void ScoreServerHandle(const _HttpRes &&res, _Con s){
 			LogError(&Error[0], "Aria");
 			return ScoreFailed(s);
 		}
-
-		
 
 		sData.BeatmapHash = REMOVEQUOTES(ScoreData[scoreOffset::score_FileCheckSum]);
 
@@ -1137,21 +1193,22 @@ void ScoreServerHandle(const _HttpRes &&res, _Con s){
 		if (sData.UserName.size() && sData.UserName[sData.UserName.size()-1] == ' ')
 			sData.UserName.pop_back();//Pops off supporter client check.
 
-		_User *const u = GetUserFromName(sData.UserName);
+		_UserRef u(GetUserFromNameSafe(USERNAMESAFE(sData.UserName)),1);
 
-		if (!u || !u->choToken){
+		if (!u.User || !u.User->choToken){
 			//They might still be logging in. Just abort the connection to let their client (hopefully) attempt again.
 			//Hopefully once they have an active ruri connection.
-			LogError("User does not appear to be online.","Aria");
+			printf("%s> is not online?\n", sData.UserName.c_str());
 			return TryScoreAgain(s);
 		}
-		const DWORD UserID = u->UserID;
-		if (!MD5CMP(u->Password, &pass[0]) || u->Username != sData.UserName){
-			s.SendData(ConstructResponse(200, Empty_Headers, FastVByteAlloc("error: pass")));
-			return;
+		u.User->Stats[(sData.Mods & Relax ? sData.GameMode + 4 : sData.GameMode) % 8].PlayCount++;
+		const DWORD UserID = u.User->UserID;
+		if (!MD5CMP(u.User->Password, &pass[0])){
+			printf("%s> password wrong\n", sData.UserName.c_str());
+			return TryScoreAgain(s);
 		}		
-				
-		if (u->privileges & UserPublic && !FailTime && !Quit){
+
+		if (u.User->privileges & UserPublic && !FailTime && !Quit){
 			byte lGameMode = sData.GameMode;
 
 			if (sData.Mods & Relax)lGameMode += 4;
@@ -1161,12 +1218,12 @@ void ScoreServerHandle(const _HttpRes &&res, _Con s){
 			_BeatmapData *BD = GetBeatmapCache(0, 0, sData.BeatmapHash, "", &AriaSQL[s.ID]);
 
 			if (!BD) {
-				LogError("Failed to find beatmap" "Aria");
+				printf(KRED"(%s) ScoreSubmit map failure\n" KRESET,sData.BeatmapHash.c_str());
 				return TryScoreAgain(s);
 			}
 			float PP = 0.f;
 			float MapStars = 0.f;
-			if (BD->RankStatus >= RANKED){
+			if (BD->RankStatus == RANKED){
 				ezpp_t ez = ezpp_new();
 
 				if (!ez) {
@@ -1178,12 +1235,14 @@ void ScoreServerHandle(const _HttpRes &&res, _Con s){
 				ezpp_set_nmiss(ez, sData.countMiss);
 				ezpp_set_accuracy(ez, sData.count100, sData.count50);
 				ezpp_set_combo(ez, sData.MaxCombo);
-				if (!OppaiCheckMapDownload(ez, BD->BeatmapID))
+				if (!OppaiCheckMapDownload(ez, BD->BeatmapID)){
+					printf("Could not download\n");
 					return TryScoreAgain(s);
+				}
 				PP = ezpp_pp(ez);
 				MapStars = (sData.Mods & (NoFail | Relax | Relax2)) ? 0.f : ezpp_stars(ez);
 			}
-			_ScoreCache sc(sData,u->UserID,PP);
+			_ScoreCache sc(sData,u.User->UserID,PP);
 			
 			std::string ClientScoreUpdate;
 
@@ -1206,8 +1265,8 @@ void ScoreServerHandle(const _HttpRes &&res, _Con s){
 				
 				_Achievement New = GetAchievementsFromScore(sData, MapStars);
 
-				CalculateAchievement(New, u->Ach, sData.GameMode, &achievements);//TODO Add ach to DB.
-				u->Ach = New;
+				CalculateAchievement(New, u.User->Ach, sData.GameMode, &achievements);//TODO Add ach to DB.
+				u.User->Ach = New;
 				if(achievements.size())
 					Charts += "|achievements-new: " + achievements + "\n";
 				else Charts += "\n";
@@ -1216,14 +1275,15 @@ void ScoreServerHandle(const _HttpRes &&res, _Con s){
 			s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Charts.begin(), Charts.end())));
 			s.Dis();
 
-			if(NewBest && UpdateUserStatsFromDB(&AriaSQL[s.ID], UserID, lGameMode, u->Stats[lGameMode]))
-				u->addQue(bPacket::UserStats(u));
+			if(NewBest && UpdateUserStatsFromDB(&AriaSQL[s.ID], UserID, lGameMode, u.User->Stats[lGameMode]))
+				u.User->addQue(bPacket::UserStats(u.User));
 
 			if (NewBest && sc.ScoreID && ReplayFile.size()){
 				//Might want to save the headers into the file its self.
 				//The only time having raw data would be nice is when someone changes their username. But is it really that big of an issue. Could leave the name as the userid and only resolve that (with the name cache) on fetch.
 				WriteAllBytes(REPLAY_PATH +std::to_string(sc.ScoreID) + ".osr", ReplayFile);
 			}
+
 			return;
 		}
 
@@ -1232,7 +1292,7 @@ void ScoreServerHandle(const _HttpRes &&res, _Con s){
 
 		AriaSQL[s.ID].ExecuteUPDATE(SQL_INSERT(sData.Mods & Relax ? "scores_relax" : "scores",
 		{
-		_SQLKey("beatmap_md5",sData.BeatmapHash),
+		_SQLKey("beatmap_md5",std::string(sData.BeatmapHash)),
 		_SQLKey("userid",UserID),
 		_SQLKey("score",sData.Score),
 		_SQLKey("max_combo",sData.MaxCombo),
@@ -1284,7 +1344,7 @@ std::string urlDecode(const std::string &SRC) {
 	return ret;
 }
 
-void osu_getScores(const _HttpRes &&http, _Con s){
+void osu_getScores(const _HttpRes &http, _Con s){
 	const char* mName = "Aria";
 	const std::string URL(http.Host.begin(), http.Host.end());
 
@@ -1295,12 +1355,12 @@ void osu_getScores(const _HttpRes &&http, _Con s){
 	if (BeatmapMD5.size() != 32)
 		return SendAria404(s);
 
-	const std::string UserName = GetParam(URL,"&us=");
+	const std::string UserName = urlDecode(GetParam(URL,"&us="));
 	const std::string Password = GetParam(URL, "&ha=");
 	//Might want to lock the user or something in the future. just incase
 
-	_User* u = GetUserFromName(UserName);
-	if (!u || Password.size() != 32 || !MD5CMP(&Password[0],u->Password))
+	_UserRef u(GetUserFromName(UserName),1);
+	if (!u.User || Password.size() != 32 || !MD5CMP(&Password[0],u.User->Password))
 		return SendAria404(s);
 
 	const DWORD Mods = StringToUInt32(GetParam(URL, "&mods="));
@@ -1309,13 +1369,13 @@ void osu_getScores(const _HttpRes &&http, _Con s){
 	const DWORD LType = StringToUInt32(GetParam(URL,"&v="));
 	const std::string ScoreTableName = (Mods & Relax) ? "scores_relax" : "scores";
 	const std::string DiffName = ExtractDiffName(urlDecode(GetParam(URL, "&f=")));
-	if ((u->actionMods & Relax) != (Mods & Relax)){//actionMods is outdated.
-		u->actionMods = Mods;
-		u->addQue(bPacket::UserStats(u));//Send the updates stats back to the client.
+	if ((u.User->actionMods & Relax) != (Mods & Relax)){//actionMods is outdated.
+		u.User->actionMods = Mods;
+		u.User->addQue(bPacket::UserStats(u.User));//Send the updates stats back to the client.
 	}
 	
-	if (u->actionID != bStatus::sPlaying && BeatmapMD5.size() == 32)
-		memcpy(&u->ActionMD5[0], &BeatmapMD5[0], 32);
+	if (u.User->actionID != bStatus::sPlaying && BeatmapMD5.size() == 32)
+		memcpy(&u.User->ActionMD5[0], &BeatmapMD5[0], 32);
 
 	if (Mods & Relax)
 		Mode += 4;
@@ -1342,6 +1402,10 @@ void osu_getScores(const _HttpRes &&http, _Con s){
 
 	const bool NeedUpdate = (BeatData && BeatData->Hash != BeatmapMD5);
 
+	if (NeedUpdate)
+		CheckMapUpdate(BeatData, &AriaSQL[s.ID]);//TODO: Should probably properly handle this instead of this hack.
+
+
 	_LeaderBoardCache *const LeaderBoard = BeatData->GetLeaderBoard(Mode, &AriaSQL[s.ID]);
 
 	const DWORD TotalScores = (LeaderBoard) ? LeaderBoard->ScoreCache.size() : 0;
@@ -1356,17 +1420,17 @@ void osu_getScores(const _HttpRes &&http, _Con s){
 			  + "\n" + std::to_string(BeatData->Rating) + "\n";//rating
 	//Personal best
 	if (!NeedUpdate && BeatData->RankStatus >= RANKED && LeaderBoard){
-		DWORD Rank = LeaderBoard->GetRankByUID(u->UserID);
+		DWORD Rank = LeaderBoard->GetRankByUID(u.User->UserID);
 
 		if (Rank){
 
 			_ScoreCache s = LeaderBoard->GetScoreByRank(Rank);
 
-			if (s.UserID != u->UserID)
-				s = LeaderBoard->GetScoreByUID(u->UserID);
+			if (s.UserID != u.User->UserID)
+				s = LeaderBoard->GetScoreByUID(u.User->UserID);
 			if (s.UserID != 0) {
 				Response += std::to_string(s.ScoreID);//online id
-				Response += "|" + u->Username;//player name
+				Response += "|" + u.User->Username;//player name
 				Response += "|" + std::to_string((Mode>=4) ? int(s.pp + 0.5f) : s.Score);//total score
 				Response += "|" + std::to_string(s.MaxCombo);//max combo
 				Response += "|" + std::to_string(s.count50);//count 50
@@ -1378,7 +1442,7 @@ void osu_getScores(const _HttpRes &&http, _Con s){
 				if (s.FullCombo)Response += "|1";//perfect
 				else Response += "|0";//perfect
 				Response += "|" + std::to_string(s.Mods);//mods
-				Response += "|" + std::to_string(u->UserID);//userid
+				Response += "|" + std::to_string(u.User->UserID);//userid
 				Response += "|" + std::to_string(Rank);//online rank
 				Response += "|" + std::to_string(s.Time);//date 
 				Response += "|1";//online replay
@@ -1402,12 +1466,12 @@ void osu_getScores(const _HttpRes &&http, _Con s){
 				if (LType == RankingType::SelectedMod && lScore->Mods != Mods)
 					continue;
 
-				if (LType == RankingType::Friends && !u->isFriend(lScore->UserID))
+				if (LType == RankingType::Friends && !u.User->isFriend(lScore->UserID))
 					continue;
 
 				Rank++;
 
-				if (u->isBlocked(lScore->UserID))
+				if (u.User->isBlocked(lScore->UserID))
 					continue;
 
 				Response += "\n" + std::to_string(lScore->ScoreID)//online id
@@ -1440,7 +1504,6 @@ __forceinline const bool SafeStartCMP(const std::vector<byte> &b, const std::str
 	if (b.size() < Check.size())return 0;
 	return (memcmp(&b[0], &Check[0], Check.size()) == 0);
 }
-
 
 struct _UpdateCache{
 	int Stream;
@@ -1492,8 +1555,8 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 		UpdateCache.push_back(c);
 	else UpdateCache[CacheOffset] = c;
 }
-
-void Handle_SearchSet(const _HttpRes &&http, _Con s){
+/*
+void Thread_Handle_SearchSet(_Con s){
 
 	DWORD Start = 0;
 
@@ -1516,7 +1579,7 @@ void Handle_SearchSet(const _HttpRes &&http, _Con s){
 
 	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
 	return s.Dis();
-}
+}*/
 
 const std::string directToApiStatus(const std::string &directStatus) {//thank you ripple
 	if (!directStatus.size())
@@ -1537,16 +1600,12 @@ const std::string directToApiStatus(const std::string &directStatus) {//thank yo
 	return "1";
 }
 
-void Handle_DirectSearch(const _HttpRes &&http, _Con s){
-	
-	const std::string URL(http.Host.begin(), http.Host.end());
+void Thread_Handle_DirectSearch(const std::string URL, _Con s){
 	
 	const std::string r = GetParam(URL, "?r=");//Yes today I am ripple and im going to change the names for no reason. Yes.
 	const std::string q = GetParam(URL, "&q=");
 	//const std::string m = GetParam(URL, "&m=");
-	const std::string p = GetParam(URL, "&p=");
-
-	std::string Res = GET_WEB_CHUNKED(MIRROR_IP, "api/search?query=" + q + "&offset=" + p + "&status=" + directToApiStatus(r));
+	std::string Res = GET_WEB_CHUNKED(MIRROR_IP, "api/search?query=" + q + "&offset=" + std::to_string(StringToInt32(GetParam(URL, "&p=")) * 50) + "&status=" + directToApiStatus(r));
 
 	if (Res.size() == 0){
 
@@ -1595,9 +1654,7 @@ void Handle_DirectSearch(const _HttpRes &&http, _Con s){
 	return s.Dis();
 }
 
-void GetReplay(const _HttpRes &&http, _Con s) {
-
-	const std::string URL(http.Host.begin(), http.Host.end());
+void Thread_GetReplay(const std::string URL, _Con s) {
 
 	const uint64_t ScoreID = StringToUInt64(GetParam(URL, "&c="));
 	if (!ScoreID)
@@ -1633,9 +1690,8 @@ void GetReplay(const _HttpRes &&http, _Con s) {
 	// katus_count, gekis_count, misses_count, time, play_mode
 }
 
-void DownloadOSZ(const _HttpRes &&http, _Con s){
+void Thread_DownloadOSZ(const std::string URL, _Con s){
 
-	const std::string URL(http.Host.begin(), http.Host.end());
 	const DWORD DataOff = URL.find('?');
 
 	const DWORD MapID = MemToUInt32(&URL[0],((DataOff == std::string::npos) ? URL.size() : DataOff));
@@ -1650,9 +1706,9 @@ void DownloadOSZ(const _HttpRes &&http, _Con s){
 
 		if (Username.size() && Password.size() == 32) {
 
-			_User* u = GetUserFromNameSafe(USERNAMESAFE(Username));
+			_UserRef u(GetUserFromNameSafe(USERNAMESAFE(Username)),1);
 
-			if (u && MD5CMP(u->Password, &Password[0]))
+			if (u.User && MD5CMP(u.User->Password, &Password[0]))
 				u->addQue(bPacket::Notification(std::to_string(MapID) + " is not on the mirror sorry! There is nothing ruri can do :("));
 		}
 
@@ -1665,7 +1721,7 @@ void DownloadOSZ(const _HttpRes &&http, _Con s){
 	return s.Dis();
 }
 
-void UpdateOSU(const _HttpRes &&http, _Con s) {
+void Thread_UpdateOSU(const std::string URL, _Con s) {
 	
 	/*
 	std::string FileName(http.Host.begin() + _strlen_("/web/maps/"), http.Host.end() - _strlen_(".osu"));
@@ -1689,7 +1745,7 @@ void UpdateOSU(const _HttpRes &&http, _Con s) {
 	if (!ID)
 		return s.Dis();*/
 
-	s.SendData(GET_WEB("old.ppy.sh", std::string(http.Host.begin() + 1, http.Host.end())));//Their osu clients will unchunk the data for us :)
+	s.SendData(GET_WEB("old.ppy.sh", _M(URL)));//Their osu clients will unchunk the data for us :)
 
 	return s.Dis();
 }
@@ -1698,11 +1754,9 @@ void HandleAria(_Con s){
 
 	const char* mName = "Aria";
 
-	bool Suc = 0;
+	_HttpRes res;
 
-	const _HttpRes res = _M(s.RecvData(Suc));
-
-	if (!Suc){
+	if (!s.RecvData(res)){
 		s.Dis();
 		return LogError("Connection Lost", mName);
 	}
@@ -1712,33 +1766,33 @@ void HandleAria(_Con s){
 
 		const int sTime = clock_ms();
 
-		ScoreServerHandle(_M(res), s);
+		ScoreServerHandle(res, s);
 
 		printf("Score Done in %ims\n", clock_ms() - sTime);
 
-	}else if (SafeStartCMP(res.Host, "/web/check-updates.php"))
+	}else if (SafeStartCMP(res.Host, "/web/check-updates.php")){
 		osu_checkUpdates(res.Host, s);
-	else if (SafeStartCMP(res.Host, "/web/osu-osz2-getscores.php"))
-		osu_getScores(_M(res), s);
-	else if (SafeStartCMP(res.Host, "/web/osu-search-set.php")){
-		std::thread a(Handle_SearchSet, _M(res), s);
+	}else if (SafeStartCMP(res.Host, "/web/osu-osz2-getscores.php"))
+		osu_getScores(res, s);
+	/*else if (SafeStartCMP(res.Host, "/web/osu-search-set.php")){
+		std::thread a(Handle_SearchSet,res, s);
 		a.detach();
 		DontCloseConnection = 1;
-	}else if (SafeStartCMP(res.Host, "/web/osu-search.php")){
-		std::thread a(Handle_DirectSearch, _M(res), s);
-		a.detach();
-		DontCloseConnection = 1;
+	}*/else if (SafeStartCMP(res.Host, "/web/osu-search.php")){
+		//std::thread a(Thread_Handle_DirectSearch, std::string(res.Host.begin(), res.Host.end()), s);
+		//a.detach();
+		//DontCloseConnection = 1;
 	}
 	else if (SafeStartCMP(res.Host, "/web/osu-getreplay.php")){
-		std::thread a(GetReplay, _M(res), s);
+		std::thread a(Thread_GetReplay, std::string(res.Host.begin(), res.Host.end()), s);
 		a.detach();
 		DontCloseConnection = 1;
 	}else if (SafeStartCMP(res.Host, "/d/")) {
-		std::thread a(DownloadOSZ, _M(res), s);
-		a.detach();
-		DontCloseConnection = 1;
+		//std::thread a(Thread_DownloadOSZ, std::string(res.Host.begin(), res.Host.end()), s);
+		//a.detach();
+		//DontCloseConnection = 1;
 	}else if (SafeStartCMP(res.Host, "/web/maps/")){//used when updating a single maps .osu
-		std::thread a(UpdateOSU, _M(res), s);
+		std::thread a(Thread_UpdateOSU, std::string(res.Host.begin()+1, res.Host.end()), s);
 		a.detach();
 		DontCloseConnection = 1;
 	}

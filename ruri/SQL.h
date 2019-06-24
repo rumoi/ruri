@@ -214,7 +214,7 @@ struct _SQLKey {
 	const std::string Value;
 	const bool Text;
 
-	_SQLKey(const std::string &&Key, const std::string &Value) : Key(_M(Key)), Value(_M(Value)), Text(1) {}
+	_SQLKey(const std::string &&Key, const std::string &&Value) : Key(_M(Key)), Value(_M(Value)), Text(1) {}
 	_SQLKey(const std::string &&Key, const int64_t Value) : Key(_M(Key)), Value(std::to_string(Value)), Text(0) {}
 
 };

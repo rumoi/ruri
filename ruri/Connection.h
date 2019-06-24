@@ -15,9 +15,9 @@ struct _HttpHeader{
 
 struct _HttpRes {
 
-	const std::vector<byte> Body;
-	const std::vector<byte> Host;
-	const std::vector<_HttpHeader> Headers;
+	std::vector<byte> Body;
+	std::vector<byte> Host;
+	std::vector<_HttpHeader> Headers;
 
 	const std::string GetHeaderValue(const std::string &&Name)const {
 
@@ -66,8 +66,8 @@ struct _Con{
 	SOCKET s;
 	DWORD ID;
 
-	const _HttpRes RecvData(bool &Suc)const {
-		Suc = 0;
+	const bool RecvData(_HttpRes &res)const{
+
 		DWORD pSize = 0;
 		std::vector<byte> p;
 		p.reserve(USHORT(-1));
@@ -85,12 +85,12 @@ struct _Con{
 		} while (pLength == MAX_PACKET_LENGTH);
 
 		if (pSize == 0)
-			return _HttpRes();
+			return 0;
 
 		const auto DATA = EXPLODE(VEC(byte),&p[0], pSize, '\r');
 
 		if (!DATA.size() || !DATA[0].size())
-			return _HttpRes();
+			return 0;
 
 		const auto PageName = EXPLODE_VEC(VEC(byte), DATA[0], ' ');
 		
@@ -132,12 +132,19 @@ struct _Con{
 				}
 			}
 		}
-		Suc = 1;
-		return _HttpRes((PageName.size() > 1) ? _M(PageName[1]) : std::vector<byte>{}, _M(Headers), _M(Body));
+
+
+		res.Host = (PageName.size() > 1) ? _M(PageName[1]) : std::vector<byte>{};
+		res.Headers = _M(Headers);
+		res.Body = _M(Body);
+
+		return 1;
 	}
 
-	bool SendData(const std::string &&Data) {;
-		if (!s)return 0;
+	bool SendData(const std::string &&Data){
+
+		if (!s)
+			return 0;
 
 		DWORD Count = 0;
 		const DWORD Size = Data.size();

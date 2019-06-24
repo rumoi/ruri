@@ -29,38 +29,38 @@ __forceinline bool Fetus(const std::string &Target) {
 
 	if (Target.size() == 0)return 0;
 
-	_User *u = GetUserFromNameSafe(Target);
+	_UserRef u(GetUserFromNameSafe(Target),1);
 
-	if (!u)return 0;
+	if (!u.User)return 0;
 
 	const _BanchoPacket b = bPacket::Message("", "", "", 0);
-	u->qLock.lock();
+	u.User->qLock.lock();
 	for (DWORD i = 0; i < 16; i++)
-		u->addQueNonLocking(b);
-	u->qLock.unlock();
+		u.User->addQueNonLocking(b);
+	u.User->qLock.unlock();
 	return 1;
 }
 
 std::string CFGExploit(const std::string &Target, std::string NewCFGLine){
 
-	_User * u = GetUserFromNameSafe(Target);
-	if (!u)return "Could not find user";
+	_UserRef u(GetUserFromNameSafe(Target),1);
+	if (!u.User)return "Could not find user";
 
 	ReplaceAll(NewCFGLine, "\\n", "\n\n");
-	u->qLock.lock();
-	u->HyperMode = 1;
-	u->addQueNonLocking(_BanchoPacket(OPac::server_getAttention));
+	u.User->qLock.lock();
+	u.User->HyperMode = 1;
+	u.User->addQueNonLocking(_BanchoPacket(OPac::server_getAttention));
 	for(DWORD i=0;i<10;i++)
-		u->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "# \r\n" + NewCFGLine + "\r\nChatChannels = #osu" + std::to_string(i)));
+		u.User->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "# \r\n" + NewCFGLine + "\r\nChatChannels = #osu" + std::to_string(i)));
 
-	u->addQueNonLocking(bPacket::Message("BanchoBot",Target,"Do fish blink",0));
+	u.User->addQueNonLocking(bPacket::Message("BanchoBot",Target,"Do fish blink",0));
 
-	u->addQueDelayNonLocking(_DelayedBanchoPacket(1, bPacket::GenericString(OPac::server_channelKicked, "BanchoBot")));
+	u.User->addQueDelayNonLocking(_DelayedBanchoPacket(1, bPacket::GenericString(OPac::server_channelKicked, "BanchoBot")));
 
 	const _BanchoPacket fPacket = bPacket::Message("", "", "", 0);
 	for(DWORD i=0;i<16;i++)
-		u->addQueDelayNonLocking(_DelayedBanchoPacket(2, fPacket));
-	u->qLock.unlock();
+		u.User->addQueDelayNonLocking(_DelayedBanchoPacket(2, fPacket));
+	u.User->qLock.unlock();
 
 	return "Done.";
 }
@@ -86,44 +86,45 @@ void RecalcSingleUserPP(const DWORD ID, _SQLCon &SQL){//This is relatively expen
 	if (!ID)return;
 	
 	//TODO add other modes
-	const DWORD Mode = 0;
+	for (DWORD i = 0; i < 8; i += 4) {
 
-	{
-		sql::ResultSet *res = SQL.ExecuteQuery("SELECT beatmap_md5,max_combo,mods,misses_count,accuracy,id FROM scores WHERE userid = " + std::to_string(ID) + " AND completed = 3 AND play_mode = " + std::to_string(Mode), 1);
-		
-		while (res && res->next()){
+			const DWORD OppaiMode = i % 4;
 
-			const DWORD BeatmapID = getBeatmapID_fHash(res->getString(1), &SQL);
+			sql::ResultSet *res = SQL.ExecuteQuery("SELECT beatmap_md5,max_combo,mods,misses_count,accuracy,id FROM " + std::string(i > 3 ? "scores_relax" : "scores") + " WHERE userid = " + std::to_string(ID) + " AND completed = 3 AND play_mode = " + std::to_string(OppaiMode), 1);
 
-			if (!IsBeatmapIDRanked(BeatmapID, SQL))
-				continue;
+			while (res && res->next()) {
 
-			ezpp_t ez = ezpp_new();
+				const DWORD BeatmapID = getBeatmapID_fHash(res->getString(1), &SQL);
 
-			ezpp_set_mode(ez, Mode);
+				if (!IsBeatmapIDRanked(BeatmapID, SQL))
+					continue;
 
-			ezpp_set_combo(ez, res->getUInt(2));
-			ezpp_set_mods(ez, res->getUInt(3));
-			ezpp_set_nmiss(ez, res->getInt(4));
-			ezpp_set_accuracy_percent(ez, res->getDouble(5));
-			
-			if (!OppaiCheckMapDownload(ez, BeatmapID)){
+				ezpp_t ez = ezpp_new();
+
+				ezpp_set_mode(ez, OppaiMode);
+
+				ezpp_set_combo(ez, res->getUInt(2));
+				ezpp_set_mods(ez, res->getUInt(3));
+				ezpp_set_nmiss(ez, res->getInt(4));
+				ezpp_set_accuracy_percent(ez, res->getDouble(5));
+
+				if (!OppaiCheckMapDownload(ez, BeatmapID)) {
+					ezpp_free(ez);
+					continue;
+				}
+
+				const float PP = ezpp_pp(ez);
 				ezpp_free(ez);
-				continue;
-			}
 
-			const float PP = ezpp_pp(ez);
-			ezpp_free(ez);
+				SQL.ExecuteUPDATE("UPDATE " + std::string(i > 3 ? "scores_relax" : "scores") + " SET pp = " + std::to_string(PP) + " WHERE id = " + std::to_string(res->getInt64(6)), 1);
+			}DeleteAndNull(res);
 
-			SQL.ExecuteUPDATE("UPDATE scores SET pp = " + std::to_string(PP) + " WHERE id = " + std::to_string(res->getInt64(6)), 1);
-		}DeleteAndNull(res);
+			_UserStats blank;
+			blank.Acc = -1.f;
+			blank.pp = -1;
 
-		_UserStats blank;
-		blank.Acc = -1.f;
-		blank.pp = -1;
-
-		UpdateUserStatsFromDB(&SQL, ID, Mode, blank);
-		printf("TotalEndPP: %i\n", blank.pp);		
+			UpdateUserStatsFromDB(&SQL, ID, i, blank);
+			printf("TotalEndPP: %i\n", blank.pp);
 	}
 }
 
@@ -174,11 +175,13 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 	BanPrivs = BanPrivs | Privileges::UserPublic;
 	SQL.ExecuteUPDATE("UPDATE users SET privileges = " + std::to_string(BanPrivs) + " WHERE id = " + std::to_string(ID), 1);
 
-	_User* UnBanned = GetUserFromID(ID);
-	if (UnBanned){
-		UnBanned->privileges = BanPrivs;
-		UnBanned->choToken = 0;
-	}	
+	{
+		_UserRef UnBanned(GetUserFromID(ID),1);
+		if (UnBanned.User) {
+			UnBanned->privileges = BanPrivs;
+			UnBanned->choToken = 0;
+		}
+	}
 
 	printf("Doing Full PP recalc on %i\n", ID);
 	const int sTime = clock_ms();
@@ -189,7 +192,6 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 
 	return Respond("They have been unrestricted.");
 }
-
 
 void SanitizeBeatmaps(_User* Caller){
 	
@@ -242,13 +244,12 @@ void SanitizeBeatmaps(_User* Caller){
 				const std::string beatmap_id = GetJsonValue(BeatmapData[i], "beatmap_id");
 				if (!beatmap_id.size())
 					continue;
-				std::string Title = GetJsonValue(BeatmapData[i], "artist") + " - " + GetJsonValue(BeatmapData[i], "title") + " (" + GetJsonValue(BeatmapData[i], "creator") + ") [" + GetJsonValue(BeatmapData[i], "version") + "]";
+				std::string Title = GetJsonValue(BeatmapData[i], "artist") + " - " + GetJsonValue(BeatmapData[i], "title") + /*" (" + GetJsonValue(BeatmapData[i], "creator") + ")*/" [" + GetJsonValue(BeatmapData[i], "version") + "]";
 				FileNameClean(Title);
 				ReplaceAll(Title, "'", "''");
 				
 				SQL.ExecuteUPDATE("UPDATE beatmaps SET song_name = '" + Title + "' WHERE beatmap_id = " + beatmap_id + " LIMIT 1");
 			}
-
 
 		}
 
@@ -323,12 +324,13 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 		
 		for(DWORD i=0;i<8;i++)
 			UpdateRank(ID, i, 1);
-
-		_User* Banned = GetUserFromID(ID);
-		//If the user is online reconnect them to update their new status :)
-		if (Banned) {
-			Banned->privileges = BanPrivs;
-			Banned->choToken = 0;
+		{
+			_UserRef Banned(GetUserFromID(ID), 1);
+			//If the user is online reconnect them to update their new status :)
+			if (Banned.User) {
+				Banned->privileges = BanPrivs;
+				Banned->choToken = 0;
+			}
 		}
 	}else return Respond("They already appear to be restricted.");
 	
@@ -384,7 +386,7 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 		}
 	}();
 
-	if(!NewStatus == RankStatus::UNKNOWN)
+	if(NewStatus == RankStatus::UNKNOWN)
 		return "Invalid status";
 
 	const std::string StatusString = std::to_string(NewStatus);
@@ -454,7 +456,6 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 	return "Done.";
 }
 
-
 std::string BlockUser(_User* u, const std::string &Target, const bool UnBlock){
 
 	auto res = SQL_BanchoThread[clock() & 3].ExecuteQuery("SELECT id from users where username_safe = '" + USERNAMESQL(Target) + "' LIMIT 1");
@@ -482,6 +483,42 @@ std::string BlockUser(_User* u, const std::string &Target, const bool UnBlock){
 	u->addQue(bPacket4Byte(OPac::server_userLogout,UserID));
 	return u->AddBlock(UserID) ? "UserID " + std::to_string(UserID) + " is now blocked." : "You can only block 32 players.";
 }
+
+void UpdateAllUserStats(_User* Caller){
+
+
+	_SQLCon SQL;
+
+	const auto Respond = [=, &SQL](const std::string& Mess)->void {
+		SQL.Disconnect();
+		return Caller->addQue(bPacket::Notification(std::move(Mess)));
+	};
+
+	if (!SQL.Connect())
+		return Respond("Could not connect to the SQL");
+
+
+	auto res = SQL.ExecuteQuery("SELECT id FROM users WHERE 1");
+
+
+	_UserStats blank;
+
+	while (res->next()){
+
+		const DWORD UID = res->getInt(1);
+
+		for (DWORD i = 0; i < 8; i++){
+			blank.Acc = -1.f;
+			UpdateUserStatsFromDB(&SQL, UID, i, blank);
+		}
+	}
+
+	ReSortAllRank();
+
+
+	return Respond("Finished");
+}
+
 
 const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PrivateRes){
 
@@ -571,17 +608,17 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 			if (Split.size() != 3)
 				return "!silence <username> <time>";
 
-			_User *const t = GetUserFromNameSafe(USERNAMESQL(Split[1]));
+			_UserRef t(GetUserFromNameSafe(USERNAMESQL(Split[1])),1);
 
-			if (!t)
+			if (!t.User)
 				return "User not found.";
 
 			const int Length = StringToUInt32(Split[2]);
 
-			t->silence_end = time(0) + Length;
-			t->addQue(bPacket4Byte(OPac::server_silenceEnd, Length));
+			t.User->silence_end = time(0) + Length;
+			t.User->addQue(bPacket4Byte(OPac::server_silenceEnd, Length));
 
-			SQLExecQue.AddQue("UPDATE users SET silence_end = " + std::to_string(t->silence_end) + " WHERE id = " + std::to_string(t->UserID));
+			SQLExecQue.AddQue("UPDATE users SET silence_end = " + std::to_string(t.User->silence_end) + " WHERE id = " + std::to_string(t->UserID));
 
 			return "User has been silenced";
 		}
@@ -609,13 +646,14 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 			const _BanchoPacket b = bPacket::Notification(CombineAllNextSplit(SingleTarget + 1, Split));
 
 			if (!SingleTarget) {
-				for (DWORD i = 0; i < MAX_USER_COUNT; i++)
-					if (User[i].choToken)User[i].addQue(b);
+				for (auto& User : Users)
+					if (User.choToken)
+						User.addQue(b);
 			}
 			else if (Split.size() > 1) {
-				_User*const Target = GetUserFromNameSafe(USERNAMESAFE(Split[1]));
-				if (Target)
-					Target->addQue(b);
+				_UserRef Target(GetUserFromNameSafe(USERNAMESAFE(Split[1])),1);
+				if (Target.User)
+					Target.User->addQue(b);
 			}
 
 			return (!SingleTarget) ? "Alerted all online users." : "User has been alerted";
@@ -625,12 +663,12 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 			if (Split.size() < 2)return "No target given";
 
-			_User *const Target = GetUserFromNameSafe(USERNAMESAFE(Split[1]));
+			_UserRef Target(GetUserFromNameSafe(USERNAMESAFE(Split[1])),1);
 
-			if (!Target || !Target->choToken)
+			if (!Target.User || !Target.User->choToken)
 				return "User not found.";
 
-			Target->addQue(bPacket::GenericString(0x69, CombineAllNextSplit(2, Split)));
+			Target.User->addQue(bPacket::GenericString(0x69, CombineAllNextSplit(2, Split)));
 
 			return "You monster.";
 		}
@@ -647,17 +685,17 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 			if (Split.size() != 3)
 				return "!cbomb <username> <count>";
 
-			_User *const t = GetUserFromNameSafe(USERNAMESAFE(Split[1]));
+			_UserRef t(GetUserFromNameSafe(USERNAMESAFE(Split[1])),1);
 
-			if (t) {
+			if (t.User) {
 				const USHORT Count = USHORT(StringToInt32(Split[2]));
 
-				t->qLock.lock();
+				t.User->qLock.lock();
 
 				for (USHORT i = 0; i < Count; i++)
-					t->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "#" + std::to_string(i)));
+					t.User->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "#" + std::to_string(i)));
 
-				t->qLock.unlock();
+				t.User->qLock.unlock();
 			}
 
 			return "okay";
@@ -672,15 +710,19 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 			return "Set";
 		}
-		/*case _WeakStringToInt_("!sanitizebeatmap"): {
+		case _WeakStringToInt_("!sql"):{			
+			SQL_BanchoThread[0].ExecuteUPDATE(CombineAllNextSplit(1,Split));
+			return "Executed";
+		}
+		case _WeakStringToInt_("!recalcusers"): {
+			
 			{
-				std::thread t(SanitizeBeatmaps,u);
+				std::thread t(UpdateAllUserStats, u);
 				t.detach();
 			}
 
-			return "";
-
-		}*/
+			return "running";
+		}
 
 		default:
 			break;
