@@ -72,7 +72,7 @@ struct _SQLCon {
 		}
 	}
 
-	sql::ResultSet *ExecuteQuery(const std::string&& Query, const bool DontLock = 0){
+	sql::ResultSet *ExecuteQuery(const std::string& Query, const bool DontLock = 0){
 
 
 		if (!DontLock)Lock.lock();
@@ -131,7 +131,7 @@ struct _SQLCon {
 		return ret;
 	}*/
 
-	int ExecuteUPDATE(const std::string &&Query, const bool DontLock = 0) {
+	int ExecuteUPDATE(const std::string &Query, const bool DontLock = 0) {
 		if(!DontLock)Lock.lock();
 
 		int ret = 0;

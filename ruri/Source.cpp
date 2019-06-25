@@ -622,7 +622,22 @@ void ReSortAllRank() {
 	}
 
 }
+void ReSortRank(const DWORD i) {
 
+	if (i >= 8)
+		return;
+
+	RankUpdate[i].lock();
+	RankListVersion[i]++;
+
+	std::sort(RankList[i].begin(), RankList[i].end(),
+		[](const _RankList& A, const _RankList &B) {
+		return A.PP > B.PP;
+	});
+
+	RankUpdate[i].unlock();
+
+}
 struct _SQLQue{
 	std::mutex Lock;
 	std::vector<std::string> Commands;
@@ -1215,6 +1230,11 @@ struct _User{
 		ref++;
 		RefLock.unlock();
 	}
+	void removeRef() {
+		RefLock.lock();
+		ref++;
+		RefLock.unlock();
+	}
 
 	DWORD GetStatsOffset()const{
 
@@ -1425,16 +1445,24 @@ struct _UserRef {
 	_UserRef(){User = 0;}
 	_UserRef(_User* U, bool AlreadyDoneRef): User(U){
 		if (!User || AlreadyDoneRef)return;
-		User->RefLock.lock();
-		User->ref++;
-		User->RefLock.unlock();
+
+		User->addRef();
 	}
 	~_UserRef() {
 		if (!User)
 			return;
-		User->RefLock.lock();
-		User->ref--;
-		User->RefLock.unlock();
+		User->removeRef();
+		User = 0;
+	}
+
+	void Reset(_User* NewUser, bool AlreadyDoneRef){
+		if (User)
+			User->removeRef();
+
+		User = NewUser;
+
+		if (User && !AlreadyDoneRef)
+			User->addRef();
 	}
 
 	_User* operator->() {
@@ -1447,7 +1475,7 @@ struct _UserRef {
 
 };
 
-#define UserDoubleCheck(s) if(!(s))continue;MUTEX_LOCK(User.RefLock);if(unlikely(!(s)))continue;User.ref++;
+#define UserDoubleCheck(s) if(!(s))continue;MUTEX_LOCK(User.RefLock);if(!(s))continue;User.ref++;
 
 
 _User* GetPlayerSlot_Safe(const std::string &UserName){
@@ -2099,12 +2127,12 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 
 #include <fstream>
 
-__forceinline bool FileExistCheck(const std::string &filename) {
+__forceinline DWORD FileExistCheck(const std::string &filename) {
 	std::ifstream ifs(filename, std::ios::binary | std::ios::ate);
 	if (ifs.is_open()) {
 		ifs.close();
 
-		return 1;
+		return ifs.tellg();
 	}
 	return 0;
 }
@@ -2137,18 +2165,36 @@ bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 
 	const std::string MapPath = BEATMAP_PATH + std::to_string(BID) + ".osu";
 
-	if (!FileExistCheck(MapPath) && !DownloadMapFromOsu(BID)) {
+	const DWORD Size = FileExistCheck(MapPath);
+
+	if (!Size && !DownloadMapFromOsu(BID)) {
 		printf(KRED "Failed to download %i.osu\n" KRESET, BID);
 		WriteAllBytes(MapPath, " ");//Stop it from trying it over and over again.
 		return 0;
 	}
+	if (Size < 100)
+		return 0;
 
-	int res = ezpp(ez, (char*)MapPath.c_str());
+	const int res = ezpp(ez, (char*)MapPath.c_str());
 
 	if (res < 0) {
 		printf(KMAG "oppai> " KRED "Failed with errorcode %i\n" KRESET, res);
 		return 0;
 	}
+
+	return 1;
+}
+
+bool OppaiCheckMapDownload_New(ezpp_t ez, const DWORD BID, const std::string &File) {
+
+	if (!FileExistCheck(File) && !DownloadMapFromOsu(BID)) {
+		printf(KRED "Failed to download %i.osu\n" KRESET, BID);
+		WriteAllBytes(File, " ");//Stop it from trying it over and over again.
+		return 0;
+	}
+
+	free_owned_map(ez);
+	ez->map = (char*)File.c_str();
 
 	return 1;
 }
@@ -2647,6 +2693,9 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 		tP->addQue(bPacket::Notification("Failed to find user."));
 		return;
 	}
+
+	if (tP->CurrentlySpectating)
+		Event_client_stopSpectating(tP);
 
 	bool Add = (tP->CurrentlySpectating != SpecTarget.User);
 
@@ -3983,7 +4032,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 			}
 			if (!u) {
 
-				u = _UserRef(GetPlayerSlot_Safe(Username_Safe),1);
+				u.Reset(GetPlayerSlot_Safe(Username_Safe),1);
 				if (!u) {
 					DeleteAndNull(res);
 					return BanchoServerFull(s);
@@ -4045,7 +4094,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 		{
 			if (!u){
 
-				u = _UserRef(GetPlayerSlot_Safe(Username_Safe), 1);
+				u.Reset(GetPlayerSlot_Safe(Username_Safe),1);
 
 				if (!u)
 					return BanchoServerFull(s);
@@ -4250,8 +4299,10 @@ void LazyThread(){
 		const int cTime = clock_ms();
 		
 		for (auto& User : Users){
-			if(User.choToken && User.LastPacketTime + PING_TIMEOUT_OSU < cTime)
-				debug_LogOutUser(&User);
+			if (User.choToken && User.LastPacketTime + PING_TIMEOUT_OSU < cTime){
+				_UserRef UF (&User,0);
+				debug_LogOutUser(UF.User);
+			}
 		}
 
 		Sleep(500);

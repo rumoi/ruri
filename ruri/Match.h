@@ -451,7 +451,8 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWOR
 		if (Split.size() < 2)return "";
 
 		if (Split[1] == "host"){
-			if (!(Priv & Privileges::AdminDev | Privileges::UserTournamentStaff))goto INSUFFICIENTPRIV;
+			if (!(Priv & (Privileges::AdminDev | Privileges::UserTournamentStaff)))
+				goto INSUFFICIENTPRIV;
 
 			m->Lock.lock();
 			

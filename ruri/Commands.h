@@ -193,77 +193,6 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 	return Respond("They have been unrestricted.");
 }
 
-void SanitizeBeatmaps(_User* Caller){
-	
-	_SQLCon SQL;
-
-	const auto Respond = [&](const std::string& Mess)->void {
-		SQL.Disconnect();
-		return Caller->addQue(bPacket::Notification(std::move(Mess)));
-	};
-
-	if (!SQL.Connect())
-		return Respond("Could not connect to the SQL");
-
-
-	auto res = SQL.ExecuteQuery("SELECT beatmapset_id FROM beatmaps WHERE 1", 1);
-
-	if(!res || !res->next())
-		return Respond("no beatmaps?");
-
-	VEC(DWORD) Sets;
-
-	do {
-
-		const DWORD SetID = res->getUInt(1);
-
-		for (DWORD i = 0; i < Sets.size(); i++)
-			if (Sets[i] == SetID)continue;
-
-		Sets.push_back(SetID);
-	} while (res->next());
-
-	DeleteAndNull(res);
-
-	const DWORD Total = Sets.size();
-
-	printf("Sets to update: %i\n", Total);
-
-	DWORD Count = 0;
-
-	for (DWORD zi = 0; zi < Sets.size(); zi++){
-
-		const std::string ApiRes = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "s=" + std::to_string(Sets[zi]));
-
-		auto BeatmapData = JsonListSplit(ApiRes);
-
-		if (BeatmapData.size() != 0) {
-
-			for (DWORD i = 0; i < BeatmapData.size(); i++) {
-
-				const std::string beatmap_id = GetJsonValue(BeatmapData[i], "beatmap_id");
-				if (!beatmap_id.size())
-					continue;
-				std::string Title = GetJsonValue(BeatmapData[i], "artist") + " - " + GetJsonValue(BeatmapData[i], "title") + /*" (" + GetJsonValue(BeatmapData[i], "creator") + ")*/" [" + GetJsonValue(BeatmapData[i], "version") + "]";
-				FileNameClean(Title);
-				ReplaceAll(Title, "'", "''");
-				
-				SQL.ExecuteUPDATE("UPDATE beatmaps SET song_name = '" + Title + "' WHERE beatmap_id = " + beatmap_id + " LIMIT 1");
-			}
-
-		}
-
-		Count++;
-		if (!(Count % 10000)){
-			printf("%i/%i\n", Count, Total);
-		}
-	}
-
-
-	return Respond("COMPLETED");
-	
-}
-
 void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 	
 	if (!Caller || !(Caller->privileges & Privileges::AdminManageUsers) || (UserName.size() == 0 && !ID))
@@ -484,13 +413,13 @@ std::string BlockUser(_User* u, const std::string &Target, const bool UnBlock){
 	return u->AddBlock(UserID) ? "UserID " + std::to_string(UserID) + " is now blocked." : "You can only block 32 players.";
 }
 
-void UpdateAllUserStats(_User* Caller){
-
-
+void UpdateAllUserStatsinGM(_User* Caller, const DWORD GM){
+	
 	_SQLCon SQL;
 
-	const auto Respond = [=, &SQL](const std::string& Mess)->void {
+	const auto Respond = [=, &SQL](const std::string&& Mess)->void {
 		SQL.Disconnect();
+		if (!Caller)return;
 		return Caller->addQue(bPacket::Notification(std::move(Mess)));
 	};
 
@@ -507,18 +436,103 @@ void UpdateAllUserStats(_User* Caller){
 
 		const DWORD UID = res->getInt(1);
 
-		for (DWORD i = 0; i < 8; i++){
-			blank.Acc = -1.f;
-			UpdateUserStatsFromDB(&SQL, UID, i, blank);
-		}
+		blank.Acc = -1.f;
+		UpdateUserStatsFromDB(&SQL, UID, GM, blank);
 	}
 
-	ReSortAllRank();
-
+	ReSortRank(GM);
 
 	return Respond("Finished");
 }
 
+
+void FullRecalcPP(const std::string GM){
+
+	_SQLCon SQL;
+
+	if (!SQL.Connect())
+		return;
+
+
+	SQL.ExecuteQuery("UPDATE scores SET pp = 0 WHERE completed = 3 AND pp > 0 AND play_mode = " + GM,1);
+	chan_Akatsuki.Bot_SendMessage("Set scores to 0");
+	SQL.ExecuteQuery("UPDATE scores_relax SET pp = 0 WHERE completed = 3 AND pp > 0 AND play_mode = " + GM,1);
+	chan_Akatsuki.Bot_SendMessage("Set scores_relax to 0");
+	
+	struct SD { const std::string Hash; const DWORD BID; };
+
+	std::vector<SD> Maps;
+
+	Maps.reserve(USHORT(-1));
+	{
+		auto res = SQL.ExecuteQuery("SELECT beatmap_md5, beatmap_id FROM beatmaps WHERE ranked = 2", 1);
+
+		while (res && res->next())
+			Maps.push_back({ res->getString(1),res->getUInt(2) });
+		DeleteAndNull(res);
+	}
+
+	chan_Akatsuki.Bot_SendMessage("Going through " + std::to_string(Maps.size()) + "@"+GM+" beatmaps.");
+
+	DWORD Count = 1;
+
+	for (const auto& Map : Maps) {
+
+		const std::string MapPath = BEATMAP_PATH + std::to_string(Map.BID) + ".osu";
+
+		Count++;
+		if (Count % 1000 == 0)
+			chan_Akatsuki.Bot_SendMessage("Score recalculation is " + RoundTo2((float(Count) / float(Maps.size())) * 100) + "% complete.");
+
+		const auto UpdateTable = [](const std::string&& TableName, _SQLCon &SQL,const SD& MAP, const std::string& MODE){
+			auto Score = SQL.ExecuteQuery("SELECT max_combo,mods,misses_count,accuracy,id FROM "+ TableName +" WHERE beatmap_md5 = '" + MAP.Hash + "' AND completed = 3 AND play_mode = " + MODE, 1);
+
+			if (!Score || !Score->next()){
+				DeleteAndNull(Score);
+				return;
+			}
+			do {
+
+				ezpp_t ezpp = ezpp_new();
+				ezpp_set_mode(ezpp, 0);
+				ezpp_set_combo(ezpp, Score->getUInt(1));
+				ezpp_set_mods(ezpp, Score->getUInt(2));
+				ezpp_set_nmiss(ezpp, Score->getUInt(3));
+				ezpp_set_accuracy_percent(ezpp, Score->getDouble(4));
+
+				if (OppaiCheckMapDownload(ezpp, MAP.BID))
+					SQL.ExecuteUPDATE("UPDATE "+ TableName +" SET pp = " + std::to_string(ezpp->pp) + " WHERE id = " + Score->getString(5),1);
+				else{ezpp_free(ezpp);break;}
+				ezpp_free(ezpp);
+
+			} while (Score->next());
+			DeleteAndNull(Score);
+		};
+		UpdateTable("scores",SQL, Map,GM);
+		UpdateTable("scores_relax", SQL, Map,GM);
+	}
+	chan_Akatsuki.Bot_SendMessage("Finished recalculating PP. Removing PP from banned users.");
+
+	{
+
+		auto res = SQL.ExecuteQuery("SELECT id from users WHERE NOT privileges & 1",1);
+
+		while (res && res->next()){
+			const std::string UserID = res->getString(1);
+			SQL.ExecuteUPDATE("UPDATE scores SET pp = 0 WHERE completed = 3 AND pp > 0 AND userid = " + UserID,1);
+			SQL.ExecuteUPDATE("UPDATE scores_relax SET pp = 0 WHERE completed = 3 AND pp > 0 AND userid = " + UserID,1);
+			SQL.ExecuteUPDATE("UPDATE users_stats SET pp_std = 0 AND pp_taiko = 0 AND pp_ctb = 0 AND pp_mania = 0 WHERE id = " + UserID, 1);
+			SQL.ExecuteUPDATE("UPDATE rx_stats SET pp_std = 0 AND pp_taiko = 0 AND pp_ctb = 0 AND pp_mania = 0 WHERE id = " + UserID, 1);
+		}
+		DeleteAndNull(res);		
+	}
+	SQL.Disconnect();
+
+	chan_Akatsuki.Bot_SendMessage("Updating ranks");
+	UpdateAllUserStatsinGM(0, StringToUInt32(GM));
+
+	chan_Akatsuki.Bot_SendMessage("Fully Completed :)");
+}
 
 const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PrivateRes){
 
@@ -717,7 +731,17 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 		case _WeakStringToInt_("!recalcusers"): {
 			
 			{
-				std::thread t(UpdateAllUserStats, u);
+				std::thread t(UpdateAllUserStatsinGM, u, 0);
+				t.detach();
+			}
+
+			return "running";
+		}
+		case _WeakStringToInt_("!fullrecalcpp"): {
+
+			chan_Akatsuki.Bot_SendMessage("A full pp recalc has been started by " + u->Username);
+			{
+				std::thread t(FullRecalcPP,"0");
 				t.detach();
 			}
 

@@ -209,8 +209,7 @@ struct _LeaderBoardCache{
 		bool NewTop = 0;
 
 		MD5 = REMOVEQUOTES(MD5);
-
-
+		
 		#define TableName std::string(s.Mods & Relax ? "scores_relax" : "scores")
 
 		if (MD5.size() != 32){
@@ -336,7 +335,7 @@ struct _BeatmapData{
 	std::string DiffName;
 	std::string Hash;
 	_LeaderBoardCache* lBoard[8];
-	char RankStatus;
+	int RankStatus;
 
 	_BeatmapData() {
 		BeatmapID = 0;
@@ -352,7 +351,7 @@ struct _BeatmapData{
 		lBoard[6] = 0;
 		lBoard[7] = 0;
 	}
-	_BeatmapData(const DWORD Status) {
+	_BeatmapData(const int Status) {
 		BeatmapID = 0;
 		SetID = 0;
 		RankStatus = Status;
@@ -1369,6 +1368,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	const DWORD LType = StringToUInt32(GetParam(URL,"&v="));
 	const std::string ScoreTableName = (Mods & Relax) ? "scores_relax" : "scores";
 	const std::string DiffName = ExtractDiffName(urlDecode(GetParam(URL, "&f=")));
+
 	if ((u.User->actionMods & Relax) != (Mods & Relax)){//actionMods is outdated.
 		u.User->actionMods = Mods;
 		u.User->addQue(bPacket::UserStats(u.User));//Send the updates stats back to the client.
@@ -1387,13 +1387,11 @@ void osu_getScores(const _HttpRes &http, _Con s){
 
 	if (!BeatData || !BeatData->BeatmapID){
 
-		char Status = RankStatus::NOT_SUBMITTED;
-
 		if (!BeatData) {
 			LogError(std::string("Failed to get the beatmap with md5 " + BeatmapMD5).c_str(), "Aria");
 		}
 
-		std::string BeatmapFailed = std::to_string(Status) + "|0";
+		std::string BeatmapFailed = "-1|0";
 
 		s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(BeatmapFailed.begin(), BeatmapFailed.end())));
 		return s.Dis();
@@ -1410,7 +1408,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 
 	const DWORD TotalScores = (LeaderBoard) ? LeaderBoard->ScoreCache.size() : 0;
 	
-	std::string Response = (NeedUpdate) ? "1" : std::to_string(BeatData->RankStatus);
+	std::string Response = (NeedUpdate) ? "1" : std::to_string(al_max(BeatData->RankStatus,0));
 	Response += "|false"//server osz
 				"|" + std::to_string(BeatData->BeatmapID)//beatmap id
 			  + "|" + std::to_string(BeatData->SetID)//set id
@@ -1624,7 +1622,6 @@ void Thread_Handle_DirectSearch(const std::string URL, _Con s){
 
 		Return += "\n";
 		const DWORD SetID = GetJsonValueInt64(JSON, "SetID");
-		const char RankedStatus = GetJsonValueInt64(JSON, "RankedStatus");
 		const std::string ApprovedDate = GetJsonValue(JSON, "ApprovedDate");
 		const std::string LastUpdate = GetJsonValue(JSON, "LastUpdate");
 		const std::string LastChecked = GetJsonValue(JSON, "LastChecked");
@@ -1639,7 +1636,7 @@ void Thread_Handle_DirectSearch(const std::string URL, _Con s){
 		const char Favourites = GetJsonValueInt64(JSON, "Favourites");
 
 
-		Return += std::to_string(SetID) + ".osz|" + Artist + "|" + Title + "|" + Creator + "|" + std::string(1, RankedStatus) + "|0.00|" + LastUpdate + "|" + std::to_string(SetID) +
+		Return += std::to_string(SetID) + ".osz|" + Artist + "|" + Title + "|" + Creator + "|" + std::to_string(GetJsonValueInt64(JSON, "RankedStatus")) + "|0.00|" + LastUpdate + "|" + std::to_string(SetID) +
 			"|" + std::to_string(SetID) + "|0|0|1337||blame maxi@0";
 
 
