@@ -3891,7 +3891,7 @@ __forceinline byte getCountryNum(const char *isoCode){
 const std::vector<byte> PACKET_INCORRECTLOGIN = []{return _BanchoPacket(OPac::server_userID, {0xff,0xff,0xff,0xff}).GetBytes();}();
 const std::vector<byte> PACKET_SERVERFULL = [] {
 	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, { 0xff,0xff,0xff,0xff }).GetBytes();
-	AddVector(packet, bPacket::Notification("Server is currenly full").GetBytes(),byte);
+	AddVector(packet, bPacket::Notification("Server is currently full").GetBytes(),byte);
 	return packet;
 }();
 const std::vector<byte> PACKET_CLIENTOUTOFDATE = [] {
