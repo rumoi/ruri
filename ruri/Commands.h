@@ -747,6 +747,9 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 			return "running";
 		}
+		case _WeakStringToInt_("!rCount"):{
+			return std::to_string(u->ref) + "| Slot: " + std::to_string((size_t(u) - size_t(&Users[0])) / sizeof(_User));
+		}
 
 		default:
 			break;

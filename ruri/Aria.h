@@ -1553,6 +1553,7 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 		UpdateCache.push_back(c);
 	else UpdateCache[CacheOffset] = c;
 }
+
 /*
 void Thread_Handle_SearchSet(_Con s){
 
@@ -1651,40 +1652,20 @@ void Thread_Handle_DirectSearch(const std::string URL, _Con s){
 	return s.Dis();
 }
 
-void Thread_GetReplay(const std::string URL, _Con s) {
+void GetReplay(const std::string &URL, _Con s) {
 
 	const uint64_t ScoreID = StringToUInt64(GetParam(URL, "&c="));
 	if (!ScoreID)
 		return s.Dis();
 
-	std::vector<byte> Data = LOAD_FILE(REPLAY_PATH + std::to_string(ScoreID) + ".osr");
+	const std::vector<byte> Data = LOAD_FILE_RAW(REPLAY_PATH + std::to_string(ScoreID) + ".osr");
 
 	if (!Data.size())
 		return s.Dis();
 
-	Data.pop_back();
-
-	s.SendData(ConstructResponse(200, Empty_Headers, Data));
+	s.SendData(ConstructResponse(200, Empty_Headers, _M(Data)));
 	
 	return s.Dis();
-	/*
-	_SQLCon sql;
-
-	if (!sql.Connect())
-		return s.close();
-
-	//TODO: decide what to do about the **disgusting** legacy solution to relax.
-
-	sql::ResultSet *res = sql.ExecuteQuery("SELECT userid, beatmap_md5, score, max_combo, full_combo, mods, 300_count, 100_count, 50_count, "
-		"katus_count, gekis_count, misses_count, time, play_mode from scores WHERE id = " + std::to_string(ScoreID));
-
-	if (!res || !res->next()) {
-		if (res)delete res;
-		return s.close();
-	}*/
-
-	//beatmap_md5, score, max_combo, full_combo, mods, 300_count, 100_count, 50_count,
-	// katus_count, gekis_count, misses_count, time, play_mode
 }
 
 void Thread_DownloadOSZ(const std::string URL, _Con s){
@@ -1718,6 +1699,73 @@ void Thread_DownloadOSZ(const std::string URL, _Con s){
 	return s.Dis();
 }
 
+uint64_t UnixToDateTime(const int Unix) {	
+	return 0x89F7FF5F7B58000 + (int64_t(Unix) * int64_t(10000000));
+}
+
+void Thread_WebReplay(const uint64_t ID, _Con s) {
+
+	if (!ID)
+		return s.Dis();
+
+	_SQLCon *SQL = &SQL_BanchoThread[clock() & 3];
+
+	auto res = SQL->ExecuteQuery("SELECT userid,play_mode, beatmap_md5,300_count, 100_count, 50_count, gekis_count,katus_count, misses_count, score, max_combo, full_combo, mods, time FROM scores" + std::string(ID > 500000000u ? "" : "_relax")
+		+ " WHERE id = " + std::to_string(ID));
+
+	if (!res || !res->next()){
+		DeleteAndNull(res);
+		return s.Dis();
+	}
+	const std::vector<byte> Data = LOAD_FILE_RAW(REPLAY_PATH + std::to_string(ID) + ".osr");
+
+	if (!Data.size()) {
+		DeleteAndNull(res);
+		return s.Dis();
+	}
+
+	const std::vector<byte> Total = [&] {
+
+		std::vector<byte> Ret;
+		Ret.reserve(256 + Total.size());
+		
+		Ret.push_back(res->getInt(2));//PlayMode
+		AddInt(Ret, 20190101);//osu version
+		AddString(Ret,res->getString(3));//beatmap md5
+		AddString(Ret, GetUsernameFromCache(res->getInt(1)));//Username
+		AddString(Ret, res->getString(3));//checksum
+		AddShort(Ret, res->getInt(4));//count300
+		AddShort(Ret, res->getInt(5));//count100
+		AddShort(Ret, res->getInt(6));//count50
+		AddShort(Ret, res->getInt(7));//countGeki
+		AddShort(Ret, res->getInt(8));//countKatu
+		AddShort(Ret, res->getInt(9));//countMiss
+		AddInt(Ret, res->getUInt(10));//totalScore
+		AddShort(Ret, res->getInt(11));//MaxCombo
+		Ret.push_back(res->getBoolean(12));//Perfect
+		AddInt(Ret, res->getUInt(13));//Mods
+		AddString(Ret, "");//life
+		AddLong(Ret, UnixToDateTime(res->getUInt(14)));//Date
+		AddInt(Ret,Data.size());
+		AddVector(Ret, Data, byte);
+
+		AddLong(Ret, ID);
+
+		return Ret;
+	}();
+
+	DeleteAndNull(res);
+
+	s.SendData(ConstructResponse(200, {
+		_HttpHeader("Content-type","application/octet-stream"),
+		_HttpHeader("Content-length",std::to_string(Total.size())),
+		_HttpHeader("Content-Description","File Transfer"),
+		_HttpHeader("Content-Disposition","attachment; filename=\"" + std::to_string(ID) + ".osr\"")
+	}, Total));
+
+	return s.Dis();
+}
+
 void Thread_UpdateOSU(const std::string URL, _Con s) {
 	
 	/*
@@ -1747,6 +1795,15 @@ void Thread_UpdateOSU(const std::string URL, _Con s) {
 	return s.Dis();
 }
 
+void UploadScreenshot(const _HttpRes &res, _Con s) {
+
+
+	res.Body
+
+
+	return s.Dis();
+}
+
 void HandleAria(_Con s){
 
 	const char* mName = "Aria";
@@ -1759,7 +1816,7 @@ void HandleAria(_Con s){
 	}
 
 	bool DontCloseConnection = 0;
-	if (SafeStartCMP(res.Host, "/web/osu-submit-modular-selector.php")){
+	if (SafeStartCMP(res.Host, "/web/osu-submit-modular-selector.php")) {
 
 		const int sTime = clock_ms();
 
@@ -1767,29 +1824,34 @@ void HandleAria(_Con s){
 
 		printf("Score Done in %ims\n", clock_ms() - sTime);
 
-	}else if (SafeStartCMP(res.Host, "/web/check-updates.php")){
+	}
+	else if (SafeStartCMP(res.Host, "/web/check-updates.php")) {
 		osu_checkUpdates(res.Host, s);
-	}else if (SafeStartCMP(res.Host, "/web/osu-osz2-getscores.php"))
+	}
+	else if (SafeStartCMP(res.Host, "/web/osu-osz2-getscores.php"))
 		osu_getScores(res, s);
 	/*else if (SafeStartCMP(res.Host, "/web/osu-search-set.php")){
 		std::thread a(Handle_SearchSet,res, s);
 		a.detach();
 		DontCloseConnection = 1;
-	}*/else if (SafeStartCMP(res.Host, "/web/osu-search.php")){
-		//std::thread a(Thread_Handle_DirectSearch, std::string(res.Host.begin(), res.Host.end()), s);
-		//a.detach();
-		//DontCloseConnection = 1;
+	}*/else if (SafeStartCMP(res.Host, "/web/osu-search.php")) {
+	//std::thread a(Thread_Handle_DirectSearch, std::string(res.Host.begin(), res.Host.end()), s);
+	//a.detach();
+	//DontCloseConnection = 1;
 	}
-	else if (SafeStartCMP(res.Host, "/web/osu-getreplay.php")){
-		std::thread a(Thread_GetReplay, std::string(res.Host.begin(), res.Host.end()), s);
-		a.detach();
-		DontCloseConnection = 1;
-	}else if (SafeStartCMP(res.Host, "/d/")) {
+	else if (SafeStartCMP(res.Host, "/web/osu-getreplay.php"))
+		GetReplay(std::string(res.Host.begin(), res.Host.end()), s);
+	else if (SafeStartCMP(res.Host, "/d/")) {
 		//std::thread a(Thread_DownloadOSZ, std::string(res.Host.begin(), res.Host.end()), s);
 		//a.detach();
 		//DontCloseConnection = 1;
 	}else if (SafeStartCMP(res.Host, "/web/maps/")){//used when updating a single maps .osu
 		std::thread a(Thread_UpdateOSU, std::string(res.Host.begin()+1, res.Host.end()), s);
+		a.detach();
+		DontCloseConnection = 1;
+	}
+	else if (SafeStartCMP(res.Host, "/web/replays/")) {//used when updating a single maps .osu
+		std::thread a(Thread_WebReplay, MemToUInt64(&res.Host[_strlen_("/web/replays/")],res.Host.size() - _strlen_("/web/replays/")), s);
 		a.detach();
 		DontCloseConnection = 1;
 	}

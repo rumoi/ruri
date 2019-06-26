@@ -28,14 +28,14 @@ struct _Channel{
 	int ChannelCount;
 	std::mutex Lock;
 	
-	_User* ConnectedUsers[MAX_USER_COUNT];
+	std::array<_User*, MAX_USER_COUNT> IRCUsers;
 
 	int ViewLevel;
 	int WriteLevel;
 	int NameSum;
 	bool AutoJoin;
 
-	_Channel(const std::string Name, const std::string Desc, const int viewlevel, const int writeLevel, const bool AJ = 0) {
+	_Channel(const std::string Name, const std::string Desc, const int viewlevel, const int writeLevel, const bool AJ = 0) :IRCUsers({0}) {
 		NameSum = WeakStringToInt(Name);
 		ChannelName = Name;
 		ChannelDesc = Desc;
@@ -46,7 +46,7 @@ struct _Channel{
 		AutoJoin = AJ;
 	}
 
-	void CreateChannel(const std::string Name, const std::string Desc, const int viewlevel, const int writeLevel, const bool AJ = 0) {
+	void CreateChannel(const std::string Name, const std::string Desc, const int viewlevel, const int writeLevel, const bool AJ = 0){
 		NameSum = WeakStringToInt(Name);
 		ChannelName = Name;
 		ChannelDesc = Desc;
@@ -54,22 +54,30 @@ struct _Channel{
 		ViewLevel = viewlevel;
 		WriteLevel = writeLevel;
 		AutoJoin = AJ;
+
+		IRCUsers.fill(0);
 	}
 
-	void CleanChannel(){
+	bool CleanChannel(){
 
-		_User* NewUsers[MAX_USER_COUNT];
-		ZeroMemory(NewUsers, sizeof(_User*) * MAX_USER_COUNT);
+		std::array<_User*, MAX_USER_COUNT> NewUsers = { 0 };
+		
 		DWORD NOffset = 0;
 
-		for (DWORD i = 0; i < MAX_USER_COUNT; i++){
-			if (ConnectedUsers[i] && ConnectedUsers[i]->choToken){
-				NewUsers[NOffset] = ConnectedUsers[i];
-				NOffset++;
-			}
+		for (auto& u : IRCUsers) {
+			if (!u || !u->choToken)
+				continue;
+			NewUsers[NOffset] = u;
+			NOffset++;
 		}
 
-		memcpy(ConnectedUsers, NewUsers, sizeof(_User*) * MAX_USER_COUNT);
+		if (memcmp(&NewUsers[0], &IRCUsers[0],sizeof(_User*) * MAX_USER_COUNT))
+			return 0;
+
+		IRCUsers = std::move(NewUsers);
+		ChannelCount = NOffset;
+
+		return 1;
 	}
 
 	void JoinChannel(_User* u){
@@ -78,115 +86,128 @@ struct _Channel{
 
 		Lock.lock();
 
-		bool NotIn = 1;
+		bool NeedToAdd = 1;
 
-		for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
-			if (ConnectedUsers[i] == u){
-				NotIn = 0;
+		for(const auto& User : IRCUsers)
+			if (User == u){
+				NeedToAdd = 0;
 				break;
 			}
-		}
+		
+		do {
 
-		if (NotIn) {
+			if (NeedToAdd){
+				for (auto& User : IRCUsers)
+					if (!User) {
 
-			for (DWORD i = 0; i < MAX_USER_COUNT; i++) {
-				if (ConnectedUsers[i] == 0) {
-					NotIn = 0;
-					u->AddChannel((size_t)this);
-					ConnectedUsers[i] = u;
-					ChannelCount++;
-					break;
-				}
+						u->AddChannel((size_t)this);
+
+						User = u;
+						ChannelCount++;
+
+						NeedToAdd = 0;
+						break;
+					}
 			}
 
-		}
-		if (NotIn) {
-			CleanChannel();
-			for (DWORD i = 0; i < MAX_USER_COUNT; i++){
-				if (ConnectedUsers[i] == 0){
-					u->AddChannel((size_t)this);
-					ConnectedUsers[i] = u;
-					ChannelCount++;
-					break;
-				}
-			}
-
-		}
+		} while (NeedToAdd && CleanChannel());
+		
 		Lock.unlock();
 	}
 
 	void PartChannel(_User* u, const DWORD Offset = 0){
 
+		if (Offset > MAX_USER_COUNT)
+			return;
+
 		Lock.lock();
 
-		if (Offset && ConnectedUsers[Offset] == u){
-			ConnectedUsers[Offset] = 0;
-			u->RemoveChannel((size_t)this);
+		if (Offset && IRCUsers[Offset] == u){
+
+			IRCUsers[Offset] = 0;
 			ChannelCount--;
-		}else{
-			for (DWORD i = 0; i < MAX_USER_COUNT; i++)
-				if (ConnectedUsers[i] == u){
-					u->RemoveChannel((size_t)this);
-					ConnectedUsers[i] = 0;
-					ChannelCount--;
-					break;
-				}
-		}
+			u->RemoveChannel((size_t)this);
+
+		}else for (auto& User : IRCUsers)
+			if (User == u){
+				User = 0;
+				ChannelCount--;
+				u->RemoveChannel((size_t)this);
+				break;
+			}
+
 		Lock.unlock();
 	}
 
-	void SendPublicMessage(_User* Sender, const _BanchoPacket b){
+	void SendPublicMessage(_User* Sender, const _BanchoPacket &b){
 		
 		if (!ChannelCount || WriteLevel > GetMaxPerm(Sender->privileges))return;
 
-		for (DWORD i = 0; i < MAX_USER_COUNT; i++){
+		const DWORD& ID = Sender->UserID;
 
-			_User *u = ConnectedUsers[i];
-
-			if (!u || u == Sender || u->isBlocked(Sender->UserID))
+		for (auto& User : IRCUsers){
+			if (!User || !User->choToken || User == Sender || User->isBlocked(ID))
 				continue;
 
-			if (!u->choToken){
-				PartChannel(u,i);
+			/*if (!User->choToken) {
+				PartChannel(User, (size_t(&User) - size_t(&IRCUsers[0])) / sizeof(_User*));
 				continue;
-			}
+			}*/
 
-			u->addQue(b);
+			User->addQue(b);
+
 		}
 
 	}
-
-	void Bot_SendMessage(const std::string &message) {
+	/*
+	template <typename T>
+	void Bot_SendMessage_Conditional(const std::string &&message, const T Cond){
 
 		if (!ChannelCount)return;
 
 		const _BanchoPacket b = bPacket::Message(BOT_NAME, ChannelName, message, 999);
 
-		for (DWORD i = 0; i < MAX_USER_COUNT; i++){
+		for (auto& User : IRCUsers) {
+			
+			if (!User || !User->choToken || !Cond(User))
+				continue;
+			
+			User->addQue(b);
 
-			_User *u = ConnectedUsers[i];
+		}
+	}*/
 
-			if (!u || !u->choToken)
+
+	void Bot_SendMessage(const std::string &&message){
+
+		if (!ChannelCount)return;
+
+		const _BanchoPacket b = bPacket::Message(BOT_NAME, ChannelName, message, 999);
+
+		for (auto& User : IRCUsers){
+
+			if (!User)
 				continue;
 
-			if (!u->choToken){
-				PartChannel(u);
+			if (!User->choToken){
+				PartChannel(User, (size_t(&User) - size_t(&IRCUsers[0])) / sizeof(_User*));
 				continue;
 			}
 
-			u->addQue(b);
+			User->addQue(b);
 		}
 
 	}
 
-	_Channel() {
+	_Channel():IRCUsers({ 0 }) {
 		ViewLevel = 0;
 		WriteLevel = 0;
 		NameSum = 0;
-		ZeroMemory(ConnectedUsers, sizeof(_User*) * MAX_USER_COUNT);
 	}
 
 };
+
+
 
 _Channel chan_Akatsuki("#akatsuki","Akatsuki General.", IRC_Public, IRC_Public,1);
 _Channel chan_Announce("#announce", "Public announcements.", IRC_Public, IRC_Admin);//Announcement being an option is on purpose

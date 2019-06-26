@@ -140,6 +140,7 @@ enum RankStatus {
 #define _M(a) std::move(a)
 
 const int PING_TIMEOUT_OSU = 80000;//yes thanks peppy
+const int FREE_SLOT_TIME = 1800000;
 const bool USER_TEST = 0;
 
 enum OPac {
@@ -370,6 +371,23 @@ constexpr size_t _strlen_(const char* s)noexcept{
 																			\
 		return rVec;														\
 	}()
+#define LOAD_FILE_RAW(FILENAME)													\
+	[&](){																	\
+		std::ifstream file(std::string(FILENAME), std::ios::binary | std::ios::ate);		\
+		if (!file.is_open())												\
+			return std::vector<byte>();										\
+																			\
+		const size_t pos = file.tellg();									\
+		if(!pos)return std::vector<byte>();									\
+		std::vector<byte> rVec(pos);										\
+																			\
+		file.seekg(0, std::ios::beg);										\
+		file.read((char*)&rVec[0], pos);									\
+		file.close();														\
+																			\
+		return rVec;														\
+	}()
+
 
 #define VEC(s) std::vector<s>
 
@@ -1232,7 +1250,7 @@ struct _User{
 	}
 	void removeRef() {
 		RefLock.lock();
-		ref++;
+		ref--;
 		RefLock.unlock();
 	}
 
@@ -1299,13 +1317,13 @@ void reset() {
 		lat = 0.f;
 		lon = 0.f;
 		ActionText.clear();
-		LastPacketTime = 0;
 		LoginTime = 0;
 		CurrentlySpectating = 0;
 		CurrentMatchID = 0;
 		inLobby = 0;
 		Spectators.clear();
 		Que.clear();
+		dQue.clear();
 		comMatchPage = 0;
 		HyperMode = 0;
 		LastSentBeatmap = 0;
@@ -1320,6 +1338,7 @@ void reset() {
 		Spectators.reserve(16);
 		Que.reserve(512);
 		ref = 0;
+		LastPacketTime = INT_MIN;
 	}
 	
 
@@ -1486,7 +1505,6 @@ _User* GetPlayerSlot_Safe(const std::string &UserName){
 	for (auto& User : Users){
 
 		UserDoubleCheck(User.Username_Safe == UserName)
-
 		return &User;
 	}
 
@@ -1494,8 +1512,10 @@ _User* GetPlayerSlot_Safe(const std::string &UserName){
 
 	for (auto& User : Users){
 
-		UserDoubleCheck(!User.ref)
+		UserDoubleCheck(User.ref == 0 && User.LastPacketTime == INT_MIN)
 		User.reset();
+
+		User.LastPacketTime = 0;
 
 		return &User;
 	}
@@ -3625,8 +3645,7 @@ __forceinline void debug_LogOutUser(_User *tP){
 	if (!UID)return;
 
 	const _BanchoPacket b = bPacket4Byte(OPac::server_userLogout, UID);
-
-
+	
 	for (auto& User : Users)
 		if (User.choToken)
 			User.addQue(b);
@@ -4299,10 +4318,19 @@ void LazyThread(){
 		const int cTime = clock_ms();
 		
 		for (auto& User : Users){
-			if (User.choToken && User.LastPacketTime + PING_TIMEOUT_OSU < cTime){
-				_UserRef UF (&User,0);
-				debug_LogOutUser(UF.User);
-			}
+
+			if (User.LastPacketTime == INT_MIN)
+				continue;
+
+			if (User.choToken){
+				if (User.LastPacketTime + PING_TIMEOUT_OSU < cTime) {
+					_UserRef UF(&User, 0);
+					debug_LogOutUser(UF.User);
+				}
+			}else if (User.LastPacketTime + FREE_SLOT_TIME < cTime)//Free slots after 30 minutes of logging out.
+				User.LastPacketTime = INT_MIN;
+
+
 		}
 
 		Sleep(500);
