@@ -65,9 +65,11 @@ struct _Channel{
 		DWORD NOffset = 0;
 
 		for (auto& u : IRCUsers) {
-			if (!u || !u->choToken)
+			_User*const User = u;
+
+			if (!User || !User->choToken)
 				continue;
-			NewUsers[NOffset] = u;
+			NewUsers[NOffset] = User;
 			NOffset++;
 		}
 
@@ -98,7 +100,7 @@ struct _Channel{
 
 			if (NeedToAdd){
 				for (auto& User : IRCUsers)
-					if (!User) {
+					if (!User){
 
 						u->AddChannel((size_t)this);
 
@@ -145,7 +147,8 @@ struct _Channel{
 
 		const DWORD& ID = Sender->UserID;
 
-		for (auto& User : IRCUsers){
+		for (auto const User : IRCUsers){
+
 			if (!User || !User->choToken || User == Sender || User->isBlocked(ID))
 				continue;
 
@@ -184,7 +187,7 @@ struct _Channel{
 
 		const _BanchoPacket b = bPacket::Message(BOT_NAME, ChannelName, message, 999);
 
-		for (auto& User : IRCUsers){
+		for (auto const User : IRCUsers){
 
 			if (!User)
 				continue;

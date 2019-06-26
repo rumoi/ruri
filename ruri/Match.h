@@ -97,7 +97,7 @@ struct _Match{
 
 	_BanchoPacket LobbyCache;
 
-	__forceinline void sendUpdate(const _BanchoPacket b, const _User* Sender = 0) {
+	__forceinline void sendUpdate(const _BanchoPacket &b, const _User* Sender = 0) {
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++){
 			_User *u = Slot[i].User;
 			if (u && u != Sender && u->choToken)
@@ -105,11 +105,11 @@ struct _Match{
 		}
 	}
 
-	__forceinline void sendUpdates(const VEC(_BanchoPacket) &b, const _User* Sender = 0){
+	__forceinline void sendUpdates(const VEC(_BanchoPacket) &&b, const _User* Sender = 0){
 
 		if (b.size() == 0)return;
 		if (b.size() == 1)
-			return sendUpdate(std::move(b[0]), Sender);
+			return sendUpdate(_M(b[0]), Sender);
 
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++){
 			_User *u = Slot[i].User;
@@ -287,14 +287,6 @@ _Match* getMatchFromID(const USHORT ID) {
 
 	if (Match[ID - 1].PlayerCount)//TODO make sure this is thread safe.
 		return &Match[ID - 1];
-	/*MatchAdd.lock();
-	for (DWORD i = 0; i < Matchs.size(); i++) {
-		if (Matchs[i] && Matchs[i]->MatchId == ID && Matchs[i]->PlayerCount != 0){
-			MatchAdd.unlock();
-			return Matchs[i];
-		}
-	}
-	MatchAdd.unlock();*/
 
 	return 0;
 }

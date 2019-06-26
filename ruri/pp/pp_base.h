@@ -379,7 +379,7 @@ int pp_ReadRawMapData(const std::string &Input, _RawBeatmap &Output){
 int pp_GetRawMapData(const DWORD ID, _RawBeatmap &d){
 
 	{
-		SHARED_MUTEX_LOCK(RawMap_Cache_Lock);
+		S_MUTEX_SHARED_LOCKGUARD(RawMap_Cache_Lock);
 
 		auto it = RawMap_Cache.find(ID);
 

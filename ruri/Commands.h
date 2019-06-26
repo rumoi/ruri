@@ -429,15 +429,11 @@ void UpdateAllUserStatsinGM(_User* Caller, const DWORD GM){
 
 	auto res = SQL.ExecuteQuery("SELECT id FROM users WHERE 1");
 
-
-	_UserStats blank;
-
 	while (res->next()){
 
 		const DWORD UID = res->getInt(1);
 
-		blank.Acc = -1.f;
-		UpdateUserStatsFromDB(&SQL, UID, GM, blank);
+		UpdateUserStatsFromDB(&SQL, UID, GM, RecalculatingStats);
 	}
 
 	ReSortRank(GM);

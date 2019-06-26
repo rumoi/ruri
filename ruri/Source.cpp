@@ -132,8 +132,9 @@ enum RankStatus {
 #define al_min(a, b) ((a) < (b) ? (a) : (b))
 #define al_max(a, b) ((a) > (b) ? (a) : (b))
 
-#define MUTEX_LOCK(a) std::lock_guard<std::mutex> LOCKGUARD(a)
-#define SHARED_MUTEX_LOCK(a) std::shared_lock<std::shared_mutex> LOCKGUARD(a)
+#define MUTEX_LOCKGUARD(a) std::lock_guard<std::mutex> LOCKGUARD(a)
+#define S_MUTEX_SHARED_LOCKGUARD(a) std::shared_lock<std::shared_mutex> LOCKGUARD(a)
+#define S_MUTEX_LOCKGUARD(a) std::lock_guard<std::shared_mutex> LOCKGUARD(a)
 
 #define CHO_VERSION 19
 
@@ -662,7 +663,7 @@ struct _SQLQue{
 
 	void AddQue(const std::string &s){
 
-		MUTEX_LOCK(Lock);
+		MUTEX_LOCKGUARD(Lock);
 
 		Commands.push_back(s);
 	}
@@ -1076,6 +1077,9 @@ __forceinline void AddStringToVector(std::vector<byte> &v, const std::string &s)
 std::vector<_HttpHeader> Empty_Headers;
 std::vector<byte> Empty_Byte;
 
+
+_UserStats RecalculatingStats;
+
 bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _UserStats &stats){
 
 	if (GameMode >= 8)return 0;
@@ -1106,9 +1110,9 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 	const float acc = (!Count) ? 0.f : ACC / 100.f;
 	const int pp = (int)round(TotalPP);
 
-	if (acc != stats.Acc || pp != stats.pp){
+	if (acc != stats.Acc || pp != stats.pp || &stats == &RecalculatingStats){
 
-		if (pp != stats.pp)
+		if (pp != stats.pp && &stats != &RecalculatingStats)
 			UpdateRank(UserID, RawGameMode, pp);
 
 		stats.pp = pp;
@@ -1361,6 +1365,18 @@ void reset() {
 			qLock.unlock();
 		}
 	}
+	void addQue(const VEC(_BanchoPacket) &&b) {
+		if (choToken && b.size()) {
+			qLock.lock();
+			for (auto&& p : b) {
+				if (p.Type == NULL_PACKET)
+					continue;
+				Que.push_back(_M(p));
+			}
+
+			qLock.unlock();
+		}
+	}
 
 	void addQueDelay(const _DelayedBanchoPacket &b) {
 
@@ -1494,7 +1510,7 @@ struct _UserRef {
 
 };
 
-#define UserDoubleCheck(s) if(!(s))continue;MUTEX_LOCK(User.RefLock);if(!(s))continue;User.ref++;
+#define UserDoubleCheck(s) if(!(s))continue;MUTEX_LOCKGUARD(User.RefLock);if(!(s))continue;User.ref++;
 
 
 _User* GetPlayerSlot_Safe(const std::string &UserName){
@@ -1979,6 +1995,7 @@ void Event_client_cantSpectate(_User *tP) {
 	SpecHost->addQue(std::move(b));
 }
 
+DWORD COUNT_CURRENTONLINE = 0;
 DWORD COUNT_REQUESTS = 0;
 DWORD COUNT_MULTIPLAYER = 0;
 
@@ -1987,7 +2004,7 @@ void RenderHTMLPage(_Con s, const _HttpRes &&res){
 	std::vector<byte> Body;
 
 	AddStringToVector(Body, "<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/567292020104888320/unknown.png\">"
-		"<br>" + std::to_string(COUNT_REQUESTS) + " connections handled."
+		"<br> Online users: "+std::to_string(COUNT_CURRENTONLINE) + " | " + std::to_string(COUNT_REQUESTS) + " total connections handled."
 		"<br>"+ std::to_string(COUNT_MULTIPLAYER) + " currently active multiplayer games.</HTML>");
 
 	s.SendData(ConstructResponse(405, {_HttpHeader("Content-Type", "text/html; charset=utf-8")}, Body));
@@ -2648,7 +2665,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 		return;
 	}else if ((tP->CurrentlySpectating || tP->Spectators.size()) && Target == "#spectator"){
 
-		_User *SpecHost = (tP->Spectators.size()) ? tP : tP->CurrentlySpectating;
+		_User *const SpecHost = (tP->Spectators.size()) ? tP : tP->CurrentlySpectating;
 
 		if (SpecHost){
 
@@ -2750,13 +2767,10 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 	
 	SpecTarget->SpecLock.unlock();
 
-	SpecTarget->qLock.lock();
-
-	SpecTarget->addQueNonLocking(bPacket::UserPanel(tP));
-	//SpecTarget->addQueNonLocking(bPacket::UserStats(tP));
-	SpecTarget->addQueNonLocking(bPacket4Byte(OPac::server_spectatorJoined, tP->UserID));
-
-	SpecTarget->qLock.unlock();
+	SpecTarget->addQue({
+		bPacket::UserPanel(tP),
+		bPacket4Byte(OPac::server_spectatorJoined, tP->UserID)
+	});
 
 }
 
@@ -3424,7 +3438,10 @@ void Event_client_matchLoadComplete(_User *tP) {
 	}
 
 	if (AllLoaded)
-		m->sendUpdates({ _BanchoPacket(OPac::server_matchAllPlayersLoaded),bPacket::bMatch(OPac::server_updateMatch, m, 1) });
+		m->sendUpdates({
+			_BanchoPacket(OPac::server_matchAllPlayersLoaded),
+			bPacket::bMatch(OPac::server_updateMatch, m, 1)
+		});
 
 	m->Lock.unlock();
 }
@@ -4327,12 +4344,15 @@ void LazyThread(){
 
 		const int cTime = clock_ms();
 		
+		DWORD PCount = 0;
+
 		for (auto& User : Users){
 
 			if (User.LastPacketTime == INT_MIN)
 				continue;
 
 			if (User.choToken){
+				PCount++;
 				if (User.LastPacketTime + PING_TIMEOUT_OSU < cTime) {
 					_UserRef UF(&User, 0);
 					debug_LogOutUser(UF.User);
@@ -4342,6 +4362,7 @@ void LazyThread(){
 
 
 		}
+		COUNT_CURRENTONLINE = PCount;
 
 		Sleep(500);
 

@@ -200,7 +200,7 @@ struct _LeaderBoardCache{
 		return s;
 	}
 
-	bool AddScore(_ScoreCache &s,std::string MD5, _SQLCon *SQL = 0, std::string *Ret = 0){
+	bool AddScore(_ScoreCache &s,const DWORD BID,std::string MD5, _SQLCon *SQL = 0, std::string *Ret = 0){
 		
 		PlayCount++;
 		PassCount++;//dont really care about this getting malformed..
@@ -306,6 +306,9 @@ struct _LeaderBoardCache{
 		
 		ScoreLock.unlock();
 
+		if (NewRank == 1 && ScoreCache.size() > 5)
+			chan_Announce.Bot_SendMessage("[https://osu.ppy.sh/b/" + std::to_string(BID) +" "+ GetUsernameFromCache(s.UserID) + " has achieved a new #1]");		
+
 		printf("ScoreID: %llu\n", s.ScoreID);
 
 		if (Ret){
@@ -403,7 +406,7 @@ struct _BeatmapData{
 
 		if (!L)return 0;
 
-		return L->AddScore(s, Hash, Con,Ret);
+		return L->AddScore(s, BeatmapID, Hash, Con,Ret);
 	}
 
 };
@@ -578,7 +581,7 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQL, _BeatmapSet
 	auto MapSet = &BeatmapSetCache[Off];
 	if(!SET && !ForceUpdate){
 
-		SHARED_MUTEX_LOCK(SetIDAddMutex[Off]);
+		S_MUTEX_SHARED_LOCKGUARD(SetIDAddMutex[Off]);
 
 		auto it = MapSet->find(SetID);
 		if (it != MapSet->end())
@@ -589,15 +592,14 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQL, _BeatmapSet
 		return 0;
 
 	//Set ID is not in the cache. We need to add it.
-		
-	SetIDAddMutex[Off].lock();
+
+	S_MUTEX_LOCKGUARD(SetIDAddMutex[Off]);
 
 	//Attempt to get it again. Just incase there was another request that already handling it in the literal nano second of the lock switch
 	if(!SET && !ForceUpdate){
 		auto it = MapSet->find(SetID);
 		if (it != MapSet->end()){
 			_BeatmapSet *s = it->second;
-			SetIDAddMutex[Off].unlock();
 			return s;
 		}
 	}
@@ -640,16 +642,20 @@ TryMap:
 				continue;
 			}
 
-			Set->Maps.push_back(l);
+			if (!SET)
+				Set->Maps.push_back(l);
+			else {
+				Set->Lock.lock();
+				Set->Maps.push_back(l);
+				Set->Lock.unlock();
+			}
 			BeatmapCache_HASH[(*(DWORD*)&l.Hash[0]) % Cache_Pool_Size].insert(std::pair<std::string, _BeatmapSet*>(l.Hash, Set));
 
 		} while (res && res->next());
 
 		MapSet->insert(std::pair<const DWORD, _BeatmapSet*>(SetID,Set));
 
-		SetIDAddMutex[Off].unlock();
-
-		if (res)delete res;
+		DeleteAndNull(res);
 
 		return Set;
 	}else if(FirstTime){
@@ -790,7 +796,7 @@ TryMap:
 
 				}
 				LogMessage("Maps done", mName);
-				if (res)delete res;
+				DeleteAndNull(res);
 				LogMessage("Got data. Attempting grab again.", mName);
 				FirstTime = 0;
 				
@@ -812,9 +818,7 @@ TryMap:
 		}
 	}
 
-	SetIDAddMutex[Off].unlock();
-
-	if (res)delete res;
+	DeleteAndNull(res);
 
 	return 0;
 }
@@ -896,7 +900,7 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 		if(!BS->ID)
 			return &BeatmapNotSubmitted;
 		{
-			SHARED_MUTEX_LOCK(BS->Lock);
+			S_MUTEX_SHARED_LOCKGUARD(BS->Lock);
 
 			for (auto& Map : BS->Maps) {
 
@@ -1173,6 +1177,11 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			return ScoreFailed(s);
 		}
 
+		sData.Mods = StringToUInt32(ScoreData[score_Mods]);
+
+		if (sData.Mods & (Mods::Relax2 | Mods::Autoplay | (1 << 29)))
+			return ScoreFailed(s);
+
 		sData.BeatmapHash = REMOVEQUOTES(ScoreData[scoreOffset::score_FileCheckSum]);
 
 		sData.UserName = ScoreData[scoreOffset::score_PlayerName];
@@ -1186,12 +1195,11 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		sData.MaxCombo = StringToInt32(ScoreData[score_maxCombo]);
 		sData.FullCombo = (ScoreData[score_Perfect] == "True") ? 1 : 0;
 		sData.GameMode = StringToInt32(ScoreData[score_playMode]);
-		sData.Mods = StringToUInt32(ScoreData[score_Mods]);
 		//Score Data is ready to read.
 
 		if (sData.UserName.size() && sData.UserName[sData.UserName.size()-1] == ' ')
 			sData.UserName.pop_back();//Pops off supporter client check.
-
+		
 		_UserRef u(GetUserFromNameSafe(USERNAMESAFE(sData.UserName)),1);
 
 		if (!u.User || !u.User->choToken){
@@ -1554,13 +1562,13 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 	else UpdateCache[CacheOffset] = c;
 }
 
-/*
-void Thread_Handle_SearchSet(_Con s){
+
+void Thread_Handle_SearchSet(const std::string URL, _Con s){
 
 	DWORD Start = 0;
 
-	for (DWORD i = 19; i < http.Host.size() - 1; i++) {
-		if (http.Host[i] == '&'  && http.Host[i+1] != 'u' && http.Host[i+1] != 'h') {
+	for (DWORD i = URL.size() - 1; i < URL.size(); i--) {
+		if (URL[i] < '0' || URL[1] > '9') {
 			Start = i + 1;
 			break;
 		}
@@ -1569,16 +1577,9 @@ void Thread_Handle_SearchSet(_Con s){
 	if (!Start)
 		return s.Dis();
 
-	std::string Res;// GetMirrorResponse("api/set?" + std::string(http.Host.begin() + Start, http.Host.end()));
-
-	//UnChunk(Res);
-
-	if (!Res.size())
-		return s.Dis();
-
-	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Res.begin(), Res.end())));
+	s.SendData(GET_WEB(MIRROR_IP, "api/set?" + std::string(URL.begin() + Start, URL.end())));
 	return s.Dis();
-}*/
+}
 
 const std::string directToApiStatus(const std::string &directStatus) {//thank you ripple
 	if (!directStatus.size())
@@ -1600,54 +1601,22 @@ const std::string directToApiStatus(const std::string &directStatus) {//thank yo
 }
 
 void Thread_Handle_DirectSearch(const std::string URL, _Con s){
-	
-	const std::string r = GetParam(URL, "?r=");//Yes today I am ripple and im going to change the names for no reason. Yes.
-	const std::string q = GetParam(URL, "&q=");
-	//const std::string m = GetParam(URL, "&m=");
-	std::string Res = GET_WEB_CHUNKED(MIRROR_IP, "api/search?query=" + q + "&offset=" + std::to_string(StringToInt32(GetParam(URL, "&p=")) * 50) + "&status=" + directToApiStatus(r));
 
-	if (Res.size() == 0){
+	const USHORT Key = *(USHORT*)"&r";
+	DWORD Start = 0;
 
-		//std::string MirrorFailure = "1\n | |Could not contact the mirror|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0";
+	for (DWORD i = _strlen_("/web/osu-search.php"); i < URL.size() - 2; i++) {
+		if (*(USHORT*)&URL[i] == Key) {
+			Start = i + 1;
+			break;
+		}
+	}
 
-		s.SendData(ConstructResponse(200, Empty_Headers, Empty_Byte));
-
+	if (!Start)
 		return s.Dis();
-	}
-
-	//const auto JSON = JsonListSplit(Res);//Imagine being surrounded by people who dont know the own code they are running to the point where they do not even know how to NOT return JSON.
-
-	std::string Return = "1069";
-
-	for (const auto& JSON : JsonListSplit(Res)){
-
-		Return += "\n";
-		const DWORD SetID = GetJsonValueInt64(JSON, "SetID");
-		const std::string ApprovedDate = GetJsonValue(JSON, "ApprovedDate");
-		const std::string LastUpdate = GetJsonValue(JSON, "LastUpdate");
-		const std::string LastChecked = GetJsonValue(JSON, "LastChecked");
-		const std::string Artist = GetJsonValue(JSON, "Artist");
-		const std::string Title = GetJsonValue(JSON, "Title");
-		const std::string Creator = GetJsonValue(JSON, "Creator");
-		const std::string Source = GetJsonValue(JSON, "Source");
-		const std::string Tags = GetJsonValue(JSON, "Tags");
-		//HasVideo
-		const char Genre = GetJsonValueInt64(JSON, "Genre");
-		const char Language = GetJsonValueInt64(JSON, "Language");
-		const char Favourites = GetJsonValueInt64(JSON, "Favourites");
 
 
-		Return += std::to_string(SetID) + ".osz|" + Artist + "|" + Title + "|" + Creator + "|" + std::to_string(GetJsonValueInt64(JSON, "RankedStatus")) + "|0.00|" + LastUpdate + "|" + std::to_string(SetID) +
-			"|" + std::to_string(SetID) + "|0|0|1337||blame maxi@0";
-
-
-		//const auto Diffs = JsonListSplit(JSON[i]);
-
-		Return += "|";
-	}
-
-
-	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Return.begin(), Return.end())));
+	s.SendData(GET_WEB(MIRROR_IP, "api/search?" + std::string(URL.begin() + Start, URL.end())));
 
 	return s.Dis();
 }
@@ -1668,34 +1637,10 @@ void GetReplay(const std::string &URL, _Con s) {
 	return s.Dis();
 }
 
-void Thread_DownloadOSZ(const std::string URL, _Con s){
+void Thread_DownloadOSZ(const DWORD MapID, _Con s){
 
-	const DWORD DataOff = URL.find('?');
+	s.SendData(GET_WEB(MIRROR_IP, "d/" + std::to_string(MapID)));
 
-	const DWORD MapID = MemToUInt32(&URL[0],((DataOff == std::string::npos) ? URL.size() : DataOff));
-
-	const std::string Res = GET_WEB(MIRROR_IP, "d/" + std::to_string(MapID));
-
-	if (Res.find("\r\n\r\n") == std::string::npos || Res.size() < 150){
-		s.SendData(ConstructResponse(404, Empty_Headers, Empty_Byte));
-
-		const std::string Username = GetParam(URL, "?u=");
-		const std::string Password = GetParam(URL, "&h=");
-
-		if (Username.size() && Password.size() == 32) {
-
-			_UserRef u(GetUserFromNameSafe(USERNAMESAFE(Username)),1);
-
-			if (u.User && MD5CMP(u.User->Password, &Password[0]))
-				u->addQue(bPacket::Notification(std::to_string(MapID) + " is not on the mirror sorry! There is nothing ruri can do :("));
-		}
-
-
-		return s.Dis();
-	}
-	
-	s.SendData(std::move(Res));
-	
 	return s.Dis();
 }
 
@@ -1766,29 +1711,7 @@ void Thread_WebReplay(const uint64_t ID, _Con s) {
 	return s.Dis();
 }
 
-void Thread_UpdateOSU(const std::string URL, _Con s) {
-	
-	/*
-	std::string FileName(http.Host.begin() + _strlen_("/web/maps/"), http.Host.end() - _strlen_(".osu"));
-
-	if (FileName.size() < 4)
-		return s.Dis();
-
-	ReplaceAll(FileName, "'", "''");
-	FileName = urlDecode(FileName);
-
-	auto res = AriaSQL[s.ID].ExecuteQuery("SELECT beatmap_id FROM beatmaps WHERE song_name = '" + FileName + "' LIMIT 1");
-
-	DWORD ID = 0;
-
-	if (res && res->next())
-		ID = res->getUInt(1);
-	DeleteAndNull(res);
-
-	printf("%s:%i\n",FileName.c_str(), ID);
-
-	if (!ID)
-		return s.Dis();*/
+void Thread_UpdateOSU(const std::string URL, _Con s){
 
 	s.SendData(GET_WEB("old.ppy.sh", _M(URL)));//Their osu clients will unchunk the data for us :)
 
@@ -1815,6 +1738,8 @@ void UploadScreenshot(const _HttpRes &res, _Con s){
 
 	std::string Filename;
 
+	#define SCREENSHOT_START "Content-Disposition: form-data; name=\"ss\"; filename=\"ss\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+	#define SCREENSHOT_END "xd-------------------------------28947758029299--"
 
 	for (const auto& Packet : EXPLODE_MULTI(std::string, &res.Body[0], res.Body.size(),
 							  "-------------------------------28947758029299\r\n")){
@@ -1824,7 +1749,7 @@ void UploadScreenshot(const _HttpRes &res, _Con s){
 
 		Filename = RandomString(8) + ".png";
 
-		WriteAllBytes("/home/ss/" + Filename, std::string(Packet.begin() + _strlen_("Content-Disposition: form-data; name=\"ss\"; filename=\"ss\"\r\nContent-Type: application/octet-stream\r\n\r\n"), Packet.end() - _strlen_("xd-------------------------------28947758029299--")));
+		WriteAllBytes("/home/ss/" + Filename, std::string(Packet.begin() + _strlen_(SCREENSHOT_START), Packet.end() - _strlen_(SCREENSHOT_END)));
 
 	}
 
@@ -1862,20 +1787,33 @@ void HandleAria(_Con s){
 	else if (SafeStartCMP(res.Host, "/web/osu-osz2-getscores.php"))
 		osu_getScores(res, s);
 	/*else if (SafeStartCMP(res.Host, "/web/osu-search-set.php")){
-		std::thread a(Handle_SearchSet,res, s);
+		std::thread a(Thread_Handle_SearchSet, std::string(res.Host.begin() + 1, res.Host.end()), s);
 		a.detach();
 		DontCloseConnection = 1;
 	}*/else if (SafeStartCMP(res.Host, "/web/osu-search.php")) {
-	//std::thread a(Thread_Handle_DirectSearch, std::string(res.Host.begin(), res.Host.end()), s);
-	//a.detach();
-	//DontCloseConnection = 1;
+		std::thread a(Thread_Handle_DirectSearch, std::string(res.Host.begin(), res.Host.end()), s);
+		a.detach();
+		DontCloseConnection = 1;
 	}
 	else if (SafeStartCMP(res.Host, "/web/osu-getreplay.php"))
 		GetReplay(std::string(res.Host.begin(), res.Host.end()), s);
 	else if (SafeStartCMP(res.Host, "/d/")) {
-		//std::thread a(Thread_DownloadOSZ, std::string(res.Host.begin(), res.Host.end()), s);
-		//a.detach();
-		//DontCloseConnection = 1;
+
+		std::string v;
+		v.reserve(8);
+
+		for (DWORD i = 3; i < res.Host.size();i++)
+			if (res.Host[i] >= '0' && res.Host[i] <= '9')
+				v.push_back(res.Host[i]);
+			else break;
+		
+		const DWORD ID = StringToUInt32(v);
+
+		if (ID){
+		std::thread a(Thread_DownloadOSZ, ID, s);
+		a.detach();
+		DontCloseConnection = 1;
+		}
 	}else if (SafeStartCMP(res.Host, "/web/maps/")){//used when updating a single maps .osu
 		std::thread a(Thread_UpdateOSU, std::string(res.Host.begin()+1, res.Host.end()), s);
 		a.detach();
