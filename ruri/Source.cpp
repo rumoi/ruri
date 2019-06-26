@@ -3946,11 +3946,10 @@ const char* countryCodes[] = {
 	"YT","RS","ZA","ZM","ME","ZW","A1","A2","O1","AX","GG","IM","JE","BL",
 	"MF" };
 
-__forceinline byte getCountryNum(const char *isoCode){
-	if (isoCode[0] == 0 || isoCode[0] == '0')return 0;
+__forceinline byte getCountryNum(const USHORT isoCode){
 
 	for (byte i = 0; i < 253; i++){
-		if (isoCode[0] == countryCodes[i][0] && isoCode[1] == countryCodes[i][1])
+		if (isoCode == *(USHORT*)countryCodes[i])
 			return i;
 	}	
 	return 0;
@@ -4023,6 +4022,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 		int UserID = 0;
 		int Priv = 0;
 		int SilenceEnd = 0;
+		byte CountryCode = 0;
 		bool NewLogin = 0;
 		_UserRef u(GetUserFromNameSafe(Username_Safe, 1),1);
 
@@ -4030,6 +4030,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 			UserID = u->UserID;
 			Priv = u->privileges;//TODO make this able to be updated.
 			SilenceEnd = u->silence_end;
+			CountryCode = u->country;
 		}else u.User = 0;
 
 		if(!u){
@@ -4075,10 +4076,19 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 				res = con->ExecuteQuery("SELECT ranked_score_std, playcount_std, total_score_std, avg_accuracy_std,pp_std,"
 					"ranked_score_taiko, playcount_taiko, total_score_taiko, avg_accuracy_taiko, pp_taiko,"
 					"ranked_score_ctb, playcount_ctb, total_score_ctb, avg_accuracy_ctb, pp_ctb,"
-					"ranked_score_mania, playcount_mania, total_score_mania, avg_accuracy_mania, pp_mania FROM " + TableName[z] + " WHERE id = " + std::to_string(UserID) + " LIMIT 1");
+					"ranked_score_mania, playcount_mania, total_score_mania, avg_accuracy_mania, pp_mania, country FROM " + TableName[z] + " WHERE id = " + std::to_string(UserID) + " LIMIT 1");
 
 				if (res && res->next()){
 
+
+					if (z == 0) {
+
+						const std::string Country = res->getString(21);
+
+						if (Country.size() == 2)
+							CountryCode = getCountryNum(*(USHORT*)&Country[0]);
+
+					}
 					DWORD Offset = 0;
 
 					for (byte i = 0; i < 4; i++){
@@ -4137,7 +4147,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 			
 
-			u->country = 0;// getCountryNum(res.GetHeaderValue("CF-IPCountry")); the nature of private servers disallow this.. i guess bancho could use this :(
+			u->country = CountryCode;// getCountryNum(res.GetHeaderValue("CF-IPCountry")); the nature of private servers disallow this.. i guess bancho could use this :(
 						   // Best course of action would to resolve it from cloudflare on registration, not verification.
 
 			u->LoginTime = clock_ms();

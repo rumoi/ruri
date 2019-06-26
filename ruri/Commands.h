@@ -750,6 +750,17 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 		case _WeakStringToInt_("!rCount"):{
 			return std::to_string(u->ref) + "| Slot: " + std::to_string((size_t(u) - size_t(&Users[0])) / sizeof(_User));
 		}
+		case _WeakStringToInt_("!top100"):{
+			return [&]()->std::string{
+
+				std::string Return;
+
+				for (DWORD i = 0; i < al_min(100, RankList[0].size()); i++)
+					Return += std::to_string(i + 1) + " - " + GetUsernameFromCache(RankList[0][i].ID) + ": " + std::to_string(RankList[0][i].PP) + "\n";
+
+				return Return;
+			}();
+		}
 
 		default:
 			break;
