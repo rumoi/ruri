@@ -1262,10 +1262,10 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				//TODO: might want to add overall stats
 				std::string achievements;
 				
-				_Achievement New = GetAchievementsFromScore(sData, MapStars);
+				_Achievement New = u->Ach;// GetAchievementsFromScore(sData, MapStars);
 
-				CalculateAchievement(New, u.User->Ach, sData.GameMode, &achievements);//TODO Add ach to DB.
-				u.User->Ach = New;
+				CalculateAchievement(New, u->Ach, sData.GameMode, &achievements);//TODO Add ach to DB.
+				u->Ach = New;
 				if(achievements.size())
 					Charts += "|achievements-new: " + achievements + "\n";
 				else Charts += "\n";
@@ -1795,11 +1795,42 @@ void Thread_UpdateOSU(const std::string URL, _Con s) {
 	return s.Dis();
 }
 
-void UploadScreenshot(const _HttpRes &res, _Con s) {
+std::string RandomString(const DWORD Count){
+	static const char CharList[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+									 'A', 'B', 'C', 'D', 'E', 'F', '_', 'a', 'b', 'c',
+									 'd', 'e', 'f', '-', 'r', 'u', 'm', 'o', 'i', 'y', 'g', 'n' };
+
+	std::string rString(Count,'\0');
+
+	for (auto& c : rString)
+		c = CharList[BR::GetRand(0, 31)];
+	
+	return rString;
+}
+
+void UploadScreenshot(const _HttpRes &res, _Con s){
+	
+	if (res.Body.size() < 1000 || res.Body.size() > 2000000)
+		return;
+
+	std::string Filename;
 
 
-	res.Body
+	for (const auto& Packet : EXPLODE_MULTI(std::string, &res.Body[0], res.Body.size(),
+							  "-------------------------------28947758029299\r\n")){
+		
+		if (!MEM_CMP_START(Packet, "Content-Disposition: form-data; name=\"ss\"; filename=\"ss\""))
+			continue;
 
+		Filename = RandomString(8) + ".png";
+
+		WriteAllBytes("/home/ss/" + Filename, std::string(Packet.begin() + _strlen_("Content-Disposition: form-data; name=\"ss\"; filename=\"ss\"\r\nContent-Type: application/octet-stream\r\n\r\n"), Packet.end() - _strlen_("xd-------------------------------28947758029299--")));
+
+	}
+
+	if (Filename.size()){
+		s.SendData(ConstructResponse(200, {}, VEC(byte)(Filename.begin(), Filename.end())));
+	}
 
 	return s.Dis();
 }
@@ -1851,10 +1882,11 @@ void HandleAria(_Con s){
 		DontCloseConnection = 1;
 	}
 	else if (SafeStartCMP(res.Host, "/web/replays/")) {//used when updating a single maps .osu
-		std::thread a(Thread_WebReplay, MemToUInt64(&res.Host[_strlen_("/web/replays/")],res.Host.size() - _strlen_("/web/replays/")), s);
+		std::thread a(Thread_WebReplay, MemToUInt64(&res.Host[_strlen_("/web/replays/")], res.Host.size() - _strlen_("/web/replays/")), s);
 		a.detach();
 		DontCloseConnection = 1;
-	}
+	}else if (SafeStartCMP(res.Host, "/web/osu-screenshot.php"))
+		UploadScreenshot(res, s);
 	else SendAria404(s);
 
 	if (!DontCloseConnection){
