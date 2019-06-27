@@ -44,8 +44,8 @@ __forceinline void PrepareSQLString(char* s){
 		return DO_USERNAMESAFE(s);\
 	}()\
 
-#define USERNAMESAFE(STR) [&]{std::string gccxd(STR); return DO_USERNAMESAFE(gccxd);}()
-#define REMOVEQUOTES(STR) [&]{std::string gccxd(STR); return DO_REMOVEQUOTES(gccxd);}()
+#define USERNAMESAFE(STR) [&]{std::string gccxd = STR; return DO_USERNAMESAFE(gccxd);}()
+#define REMOVEQUOTES(STR) [&]{std::string gccxd = STR; return DO_REMOVEQUOTES(gccxd);}()
 
 std::string SQL_Password;
 std::string SQL_Username;
@@ -237,7 +237,7 @@ const std::string SQL_INSERT(const std::string &&Table, const VEC(_SQLKey)&& Val
 		return Return;
 	}() + ");";
 }
-const std::string SQL_SETUPDATE(const std::string &&Table, const VEC(_SQLKey) && Values, const std::string&& Condition) {
+const std::string SQL_SETUPDATE(const std::string &&Table, const VEC(_SQLKey) && Values, const std::string& Condition) {
 	return "UPDATE " + Table + " SET " + [&]{
 		std::string Return;
 		for (const _SQLKey& v : Values)

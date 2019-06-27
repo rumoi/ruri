@@ -118,8 +118,8 @@ struct _ScoreCache{
 
 };
 
-bool SortScoreCacheByScore(const _ScoreCache i, const _ScoreCache j) { return (i.Score > j.Score); }
-bool SortScoreCacheByPP(const _ScoreCache i, const _ScoreCache j) { return (i.pp > j.pp); }
+bool SortScoreCacheByScore(const _ScoreCache &i, const _ScoreCache &j) { return (i.Score > j.Score); }
+bool SortScoreCacheByPP(const _ScoreCache &i, const _ScoreCache &j) { return (i.pp > j.pp); }
 
 
 void AppendScoreToString(std::string *s,const DWORD Rank,_ScoreCache& Score, const bool New) {
@@ -149,11 +149,11 @@ struct _LeaderBoardCache{
 		PassCount = 0;
 	}
 
-	DWORD GetRankByUID(const DWORD UID, const bool NonLock = 0){
+	DWORD GetRankByUID(const DWORD UID, bool DontLock = 0){
 
 		DWORD Rank = 0;
 
-		if(!NonLock)ScoreLock.lock_shared();
+		if(!DontLock)ScoreLock.lock_shared();
 
 		for (DWORD i = 0; i < ScoreCache.size(); i++){
 			if (ScoreCache[i].UserID == UID) {
@@ -161,7 +161,7 @@ struct _LeaderBoardCache{
 				break;
 			}
 		}
-		if (!NonLock)ScoreLock.unlock_shared();
+		if (!DontLock)ScoreLock.unlock_shared();
 
 		return Rank;
 	}
@@ -169,15 +169,14 @@ struct _LeaderBoardCache{
 
 		_ScoreCache s;
 
-		if (Rank == 0)return s;
+		if (Rank != 0){
+			ScoreLock.lock_shared();
 
-		ScoreLock.lock_shared();
+			if (Rank <= ScoreCache.size())
+				s = ScoreCache[Rank - 1];
 
-		if (Rank <= ScoreCache.size())
-			s = ScoreCache[Rank - 1];
-
-		ScoreLock.unlock_shared();
-
+			ScoreLock.unlock_shared();
+		}
 		return s;
 	}
 	_ScoreCache GetScoreByUID(const DWORD UID) {
@@ -218,8 +217,7 @@ struct _LeaderBoardCache{
 		}
 
 		ScoreLock.lock();
-
-
+		
 		int LastRank = 0;
 		_ScoreCache LastScore;
 
@@ -286,13 +284,14 @@ struct _LeaderBoardCache{
 
 			SQL->ExecuteUPDATE(SQL_INSERT(TableName, _M(ScoreInsert)), 1);
 
-			sql::ResultSet* res = SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + TableName, 1);
+			auto res = SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + TableName, 1);
 
 			SQL->Lock.unlock();
 
 			if (res && res->next())
-				s.ScoreID = res->getInt64(1);
-			if (res)delete res;
+				s.ScoreID = res->getUInt64(1);
+
+			DeleteAndNull(res);
 
 			ScoreCache.push_back(s);
 			NewTop = 1;
@@ -321,9 +320,6 @@ struct _LeaderBoardCache{
 	}
 
 };
-std::shared_mutex SetIDAddMutex[8];
-
-
 
 //I know this is sub optimal but ripple did not itterate to include beatmap sets properly
 //Which means that a lot of this is hacky just for a single feature (updateable vs un-submited). I would change the ripple API its self but that would require me to edit a lot more.
@@ -369,7 +365,7 @@ struct _BeatmapData{
 		lBoard[7] = 0;
 	}
 
-	_LeaderBoardCache* GetLeaderBoard(const DWORD Mode, _SQLCon *SQL){
+	_LeaderBoardCache* GetLeaderBoard(const DWORD Mode, _SQLCon *const SQL){
 		if (Mode >= 8)return 0;
 
 		if (lBoard[Mode])
@@ -382,12 +378,12 @@ struct _BeatmapData{
 
 			_LeaderBoardCache* L = new _LeaderBoardCache();
 
-			sql::ResultSet *res = SQL->ExecuteQuery("SELECT id,score,max_combo,50_count,100_count,300_count,misses_count,katus_count,gekis_count,full_combo,mods,userid,pp,time FROM " + TableName + " WHERE completed = 3 AND beatmap_md5 = '" + Hash + "' AND play_mode = " + std::to_string(Mode % 4) + " AND pp > 0 ORDER BY "+ OrderBy +" DESC");
-
+			auto *res = SQL->ExecuteQuery("SELECT id,score,max_combo,50_count,100_count,300_count,misses_count,katus_count,gekis_count,full_combo,mods,userid,pp,time FROM " + TableName + " WHERE completed = 3 AND beatmap_md5 = '" + Hash + "' AND play_mode = " + std::to_string(Mode % 4) + " AND pp > 0 ORDER BY "+ OrderBy +" DESC");
+			const DWORD GM = Mode % 4;
 			while (res && res->next())
-				L->ScoreCache.push_back(_ScoreCache(res, Mode % 4));
+				L->ScoreCache.push_back(_ScoreCache(res, GM));
 			
-			if (res)delete res;
+			DeleteAndNull(res);
 
 			if (!lBoard[Mode])
 				lBoard[Mode] = L;
@@ -419,20 +415,21 @@ struct _BeatmapSet{
 	std::vector<_BeatmapData> Maps;
 
 	_BeatmapSet(){
-		LastUpdate = 0;
+		LastUpdate = INT_MIN;
 		ID = 0;
 	}
 	_BeatmapSet(DWORD SetID){
 		ID = SetID;
-		LastUpdate = 0;
+		LastUpdate = INT_MIN;
 	}
 
 };
 
 std::map<const DWORD, _BeatmapSet*> BeatmapSetCache[Cache_Pool_Size];
 std::unordered_map<std::string, _BeatmapSet*> BeatmapCache_HASH[Cache_Pool_Size];
+std::shared_mutex SetIDAddMutex[Cache_Pool_Size];//Make sure to lock this with the offset from the set ID :)
 
-std::string GetJsonValue(const std::string &Input, const std::string &&Param) {
+std::string GetJsonValue(const std::string &Input, const std::string &Param) {
 	
 	DWORD Start = Input.find("\"" + Param + "\":\"");
 
@@ -440,6 +437,7 @@ std::string GetJsonValue(const std::string &Input, const std::string &&Param) {
 		return "";
 
 	Start += Param.size() + 4;
+
 	DWORD End = Input.size();
 	for (DWORD i = Start; i < Input.size(); i++) {
 		if (Input[i] == '\"'){
@@ -470,55 +468,58 @@ int64_t GetJsonValueInt64(const std::string &Input, const std::string &Param) {
 }
 
 
-std::vector<std::string> JsonListSplit(const std::string& Input) {
-	std::vector<std::string> Return;
-
-	if (Input.size() <= 2)return Return;
+std::vector<std::string> JsonListSplit(const std::string& Input){
 	
-	std::string Current;
-	Current.reserve(Input.size());
+	VEC(std::string) Return;
 
-	int Count = 0;
-	bool inQuote = 0;
+	if (Input.size() > 2){
 
-	for (DWORD i = 1; i < Input.size()-1; i++){
-		bool Add = 0;
-		if (Input[i] == '{'){
+		std::string Current;
+		Current.reserve(Input.size());
 
-			if (inQuote)
-				Add = 1;
-			else{
-				Count++;
-				Add = (Count > 1);
-			}
-		}
-		else if (Input[i] == '}'){
+		int Count = 0;
+		bool inQuote = 0;
 
-			if (inQuote)
-				Add = 1;
-			else if (Count > 0){
-				Count--;
-				if (!Count) {
-					Return.push_back(Current);
-					Current.clear();
+		for (DWORD i = 1; i < Input.size() - 1; i++) {
+			bool Add = 0;
+			if (Input[i] == '{') {
+
+				if (inQuote)
+					Add = 1;
+				else {
+					Count++;
+					Add = (Count > 1);
 				}
-
 			}
+			else if (Input[i] == '}') {
+
+				if (inQuote)
+					Add = 1;
+				else if (Count > 0) {
+					Count--;
+					if (!Count) {
+						Return.push_back(Current);
+						Current.clear();
+					}
+
+				}
+			}
+			else if (Count > 0 && Input[i] == '\"') {
+				if (Count > 0) {
+					inQuote = !inQuote;
+					Add = 1;
+				}
+			}
+			else Add = (Count > 0);
+
+			if (Add)
+				Current.push_back(Input[i]);
 		}
-		else if (Count > 0 && Input[i] == '\"') {
-			if (Count > 0) {
-				inQuote = !inQuote;
-				Add = 1;
-			}
-		}else Add = (Count > 0);
 
-		if(Add)
-			Current.push_back(Input[i]);
+		if (Current.size())
+			Return.push_back(Current);
+
 	}
-
-	if (Current.size())
-		Return.push_back(Current);
-
 	return Return;
 }
 
@@ -547,7 +548,7 @@ std::string ExtractDiffName(const std::string &SRC){
 }
 
 
-void FileNameClean(std::string &S){
+std::string FileNameClean(const std::string &S){
 	std::string Return;
 	Return.reserve(S.size());
 	
@@ -567,14 +568,15 @@ void FileNameClean(std::string &S){
 		if (Add)
 			Return.push_back(S[i]);
 	}
-	S = Return;
+
+	return Return;
 }
 
 //Calling GetBeatmapSetFromSetID can collect setID information from the osu API if it misses in the database
-_BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQL, _BeatmapSet* SET = 0 , bool ForceUpdate = 0){
+_BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _BeatmapSet* SET = 0 , bool ForceUpdate = 0){
 	const char* mName = "Aria";
 
-	if (SetID == 0)return 0;
+	if (!SetID)return 0;
 
 	const DWORD Off = SetID % Cache_Pool_Size;
 
@@ -588,7 +590,7 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQL, _BeatmapSet
 			return it->second;
 	}
 
-	if (!SQL && !ForceUpdate)
+	if (!SQLCon && !ForceUpdate)
 		return 0;
 
 	//Set ID is not in the cache. We need to add it.
@@ -598,163 +600,136 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQL, _BeatmapSet
 	//Attempt to get it again. Just incase there was another request that already handling it in the literal nano second of the lock switch
 	if(!SET && !ForceUpdate){
 		auto it = MapSet->find(SetID);
-		if (it != MapSet->end()){
-			_BeatmapSet *s = it->second;
-			return s;
-		}
+		if (it != MapSet->end())
+			return it->second;;
 	}
 
-	//Still failed. So we have to generate our own Set.
-	bool FirstTime = 1;
-	sql::ResultSet* res = 0;
-TryMap:
-	if((!SET && !ForceUpdate) || !FirstTime)
-		res = SQL->ExecuteQuery("SELECT ranked,beatmap_id,song_name,rating,beatmap_md5 FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID));
+	const auto GetMapData = [&](_SQLCon* SQL)->_BeatmapSet*{
 
-	if (res && res->next()){
-		
-		//At least one hit in the database - Cheap and easy. Only expensive thing that could come from this is if the data is out of date. :(
+		auto res = (SQL) ? SQL->ExecuteQuery("SELECT ranked, beatmap_id, song_name, rating, beatmap_md5 FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID))
+				: 0;
 
-		_BeatmapSet* Set = (!SET) ? new _BeatmapSet(SetID) : SET;//I know using new each time is horrible and will cause memory fragmentation but its the only clean/easy way I can see doing it with the shared_mutex in the strucutre.
+		_BeatmapSet *Set = 0;
 
-		if (SET) {
-			Set->Lock.lock();
-			Set->Maps.clear();
-			Set->Lock.unlock();
-		}
+		if (res && res->next()){
 
-		do{
-			_BeatmapData l; 
-			l.SetID = SetID;
-			l.RankStatus = res->getInt(1);
-			l.BeatmapID = res->getInt(2);
+			Set = SET ? SET : new _BeatmapSet(SetID);
 
-			l.DisplayTitle = res->getString(3);
-			l.DiffName = ExtractDiffName(l.DisplayTitle);
-			FileNameClean(l.DiffName);
-			ReplaceAll(l.DisplayTitle, "\n", "|");
-			
-			l.Rating = res->getDouble(4);
-			l.Hash = res->getString(5);
-
-			if (l.Hash.size() != 32){
-				printf("Malformed MD5 in beatmap table with the set id %i\n", SetID);
-				continue;
-			}
-
-			if (!SET)
-				Set->Maps.push_back(l);
-			else {
+			if (SET) {
 				Set->Lock.lock();
-				Set->Maps.push_back(l);
+				Set->Maps.clear();
 				Set->Lock.unlock();
 			}
-			BeatmapCache_HASH[(*(DWORD*)&l.Hash[0]) % Cache_Pool_Size].insert(std::pair<std::string, _BeatmapSet*>(l.Hash, Set));
 
-		} while (res && res->next());
+			do {
+				_BeatmapData l;
+				l.SetID = SetID;
+				l.RankStatus = res->getInt(1);
+				l.BeatmapID = res->getInt(2);
 
-		MapSet->insert(std::pair<const DWORD, _BeatmapSet*>(SetID,Set));
+				l.DisplayTitle = res->getString(3);
+				l.DiffName = FileNameClean(ExtractDiffName(l.DisplayTitle));
+				ReplaceAll(l.DisplayTitle, "\n", "|");
+
+				l.Rating = res->getDouble(4);
+				l.Hash = res->getString(5);
+
+				if (l.Hash.size() != 32)
+					continue;
+
+				if (SET){
+					Set->Lock.lock();
+					Set->Maps.push_back(l);
+					Set->Lock.unlock();
+				}else Set->Maps.push_back(l);
+
+				BeatmapCache_HASH[(*(DWORD*)&l.Hash[0]) % Cache_Pool_Size].insert(std::pair<std::string, _BeatmapSet*>(l.Hash, Set));
+
+			} while (res && res->next());
+
+			MapSet->insert(std::pair<const DWORD, _BeatmapSet*>(SetID, Set));
+		}
 
 		DeleteAndNull(res);
 
 		return Set;
-	}else if(FirstTime){
+	};
 
-		//The server does not have the data we need. We need to ask the osu API for all current maps in the set ID and add them to our own database.
+	_BeatmapSet* Set = (!SET && !ForceUpdate) ? GetMapData(SQLCon) : 0;
+
+	if (!Set && SQLCon){//Failed - Or requesting an updated version.
+
+		LogMessage("Getting beatmap data from the osu!API", mName);
+
 		const std::string ApiRes = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "s=" + std::to_string(SetID));
 
-		if (ApiRes.size() != 0){
-
-			/*DWORD RemovedMapsCount = SQL->ExecuteUPDATE("DELETE FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID));
-
-			if (RemovedMapsCount){
-				const std::string CountString = std::to_string(RemovedMapsCount) + " maps removed.";
-				LogMessage(CountString.c_str(), mName);
-			}*/
-
-			auto BeatmapData = JsonListSplit(ApiRes);
+		if (ApiRes.size()){
+			
+			const auto BeatmapData = JsonListSplit(ApiRes);
 
 			if (BeatmapData.size() != 0){
 
 				VEC(DWORD) AddedMaps;
 				AddedMaps.reserve(BeatmapData.size());
 
-				for (DWORD i = 0; i < BeatmapData.size(); i++){
+				for (const auto& Maps : BeatmapData) {
 
-					const std::string MD5 = REMOVEQUOTES(GetJsonValue(BeatmapData[i], "file_md5"));
-					
-					if (MD5.size() == 32){
-						const DWORD beatmap_id = StringToUInt32(GetJsonValue(BeatmapData[i], "beatmap_id"));
-						if (beatmap_id){
-							float diff_size = 0.f;
-							float diff_overall = 0.f;
-							float diff_approach = 0.f;
-							byte mode = 0;
-							int Length = 0;
-							int RankedStatus = 0;
+					const std::string MD5 = REMOVEQUOTES(GetJsonValue(Maps, "file_md5"));
+					const DWORD beatmap_id = StringToUInt32(GetJsonValue(Maps, "beatmap_id"));
+
+					if (beatmap_id && MD5.size() == 32){
+
+						float diff_size = 0.f, diff_overall = 0.f, diff_approach = 0.f;
+						int Length = 0, RankedStatus = 0, MaxCombo = 0, BPM = 0;
+						byte mode = 0;
+
+						//"C++ needs exceptions!" - noone
+
+						try { diff_size = std::stof(GetJsonValue(Maps, "diff_size")); }catch (...) {}
+						try { diff_overall = std::stof(GetJsonValue(Maps, "diff_overall")); }catch (...) {}
+						try { diff_approach = std::stof(GetJsonValue(Maps, "diff_approach")); }catch (...) {}
+						try { Length = std::stoi(GetJsonValue(Maps, "hit_length")); }catch (...) {}
+						try { RankedStatus = std::stoi(GetJsonValue(Maps, "approved")); }catch (...) {}
+						try { MaxCombo = std::stoi(GetJsonValue(Maps, "max_combo")); }catch (...) {}
+						try { BPM = std::stoi(GetJsonValue(Maps, "bpm")); }catch (...) {}
+
+						std::string Title = FileNameClean(GetJsonValue(Maps, "artist") + " - " + GetJsonValue(Maps, "title") + " [" + GetJsonValue(Maps, "version") + "]");
+						ReplaceAll(Title, "'", "''");
+
+						enum {osuapi_graveyard = -2, osuapi_WIP = -1, osuapi_pending = 0, osuapi_ranked = 1, osuapi_approved = 2, osuapi_qualified = 3, osuapi_loved = 4};
+
+						if (RankedStatus == osuapi_ranked)
+							RankedStatus = RANKED;
+						else if (RankedStatus == osuapi_qualified)
+							RankedStatus = QUALIFIED;
+
+						auto AlreadyThere = SQLCon->ExecuteQuery("SELECT id, ranked FROM beatmaps WHERE beatmap_id = " + std::to_string(beatmap_id) + " LIMIT 1");
 						
-							int MaxCombo = 0;
-							int BPM = 0;
 
-							//"C++ needs exceptions!" - noone
+						if (AlreadyThere && AlreadyThere->next()){
 
-							try { diff_size = std::stof(GetJsonValue(BeatmapData[i], "diff_size")); }catch (...) {}
-							try { diff_overall = std::stof(GetJsonValue(BeatmapData[i], "diff_overall")); }catch (...) {}
-							try { diff_approach = std::stof(GetJsonValue(BeatmapData[i], "diff_approach")); }catch (...) {}
-							try { Length = std::stoi(GetJsonValue(BeatmapData[i], "hit_length")); }catch (...) {}
-							try { RankedStatus = std::stoi(GetJsonValue(BeatmapData[i], "approved")); }catch (...) {}
-							try { MaxCombo = std::stoi(GetJsonValue(BeatmapData[i], "max_combo")); }catch (...) {}
-							try { BPM = std::stoi(GetJsonValue(BeatmapData[i], "bpm")); }catch (...) {}
+							const int oldStatus = AlreadyThere->getInt(2);
 
-							std::string Title = GetJsonValue(BeatmapData[i], "artist") + " - " + GetJsonValue(BeatmapData[i], "title") + /*" (" + GetJsonValue(BeatmapData[i], "creator") + ")*/" [" + GetJsonValue(BeatmapData[i], "version") + "]";
-							FileNameClean(Title);
-							ReplaceAll(Title, "'", "''");
-							//4 = loved, 3 = qualified, 2 = approved, 1 = ranked, 0 = pending, -1 = WIP, -2 = graveyard
-							enum {
-								osuapi_graveyard = -2,
-								osuapi_WIP = -1,
-								osuapi_pending = 0,
-								osuapi_ranked = 1,
-								osuapi_approved = 2,
-								osuapi_qualified = 3,
-								osuapi_loved = 4
-							};
+							if (oldStatus == RANKED) RankedStatus = RANKED;//Never unrank a beatmap.
+							else if (oldStatus == LOVED) RankedStatus = LOVED;
 							
-							if (RankedStatus == osuapi_ranked)
-								RankedStatus = RANKED;
-							else if (RankedStatus == osuapi_qualified)
-								RankedStatus = QUALIFIED;
-
-							//TODO calculate diff stars
-
-							auto AlreadyThere = SQL->ExecuteQuery("SELECT id, ranked FROM beatmaps WHERE beatmap_id = " + std::to_string(beatmap_id) + " LIMIT 1");
-
-							if (AlreadyThere && AlreadyThere->next()){
-
-								const int oldStatus = AlreadyThere->getInt(2);
-
-								if (oldStatus == RANKED)
-									RankedStatus = RANKED;//Never unrank a beatmap.
-								else if (oldStatus == LOVED)
-									RankedStatus = LOVED;
-
-								SQL->ExecuteUPDATE(SQL_SETUPDATE("beatmaps", {
-								_SQLKey("beatmap_md5",_M(MD5)),
-								_SQLKey("song_name",std::move(Title)),
+							SQLCon->ExecuteUPDATE(SQL_SETUPDATE("beatmaps", {
+								_SQLKey("beatmap_md5", _M(MD5)),
+								_SQLKey("song_name", _M(Title)),
 								_SQLKey("ar",std::to_string(diff_approach)),
 								_SQLKey("od",std::to_string(diff_overall)),
 								_SQLKey("max_combo",MaxCombo),
 								_SQLKey("hit_length",Length),
 								_SQLKey("bpm",BPM),
 								_SQLKey("ranked",RankedStatus)
-								}, std::string("id =" + AlreadyThere->getString(1) + " LIMIT 1")));
-
-
-							}else SQL->ExecuteUPDATE(SQL_INSERT("beatmaps", {
+							}, "id =" + AlreadyThere->getString(1) + " LIMIT 1"));
+							
+						}else
+							SQLCon->ExecuteUPDATE(SQL_INSERT("beatmaps", {
 								_SQLKey("beatmap_id", beatmap_id),
 								_SQLKey("beatmapset_id", SetID),
 								_SQLKey("beatmap_md5", _M(MD5)),
-								_SQLKey("song_name", std::move(Title)),
+								_SQLKey("song_name", _M(Title)),
 								_SQLKey("ar", std::to_string(diff_approach)),
 								_SQLKey("od", std::to_string(diff_overall)),
 								_SQLKey("difficulty_std", 0),
@@ -769,58 +744,54 @@ TryMap:
 								_SQLKey("ranked_status_freezed", "0")
 							}));
 
-							AddedMaps.push_back(beatmap_id);
-						}
+						DeleteAndNull(AlreadyThere);
 
+						AddedMaps.push_back(beatmap_id);
 					}
-				}
-
-				{
-					std::string NewMaps;
-
-					for (const DWORD bID : AddedMaps)
-						NewMaps += std::to_string(bID) + ",";
-					
-					int DeletedDiffs = 0;
-					if (NewMaps.size()) {
-						NewMaps.pop_back();
-						
-						DeletedDiffs = SQL->ExecuteUPDATE("DELETE FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID) + " AND beatmap_id NOT IN ("+ NewMaps +")");
-
-					}else DeletedDiffs = SQL->ExecuteUPDATE("DELETE FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID));
-
-
-					const std::string CountString = std::to_string(DeletedDiffs) + " diffs removed.";
-					LogMessage(CountString.c_str(), mName);
-
 
 				}
-				LogMessage("Maps done", mName);
-				DeleteAndNull(res);
+
+				std::string NewMaps;
+
+				for (const DWORD bID : AddedMaps)
+					NewMaps += std::to_string(bID) + ",";
+
+				int DeletedDiffs = 0;
+
+				if (NewMaps.size()) {
+					NewMaps.pop_back();
+					DeletedDiffs = SQLCon->ExecuteUPDATE("DELETE FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID) +
+														" AND beatmap_id NOT IN (" + NewMaps + ")");
+				}else DeletedDiffs = SQLCon->ExecuteUPDATE("DELETE FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID));
+
+
+				const std::string CountString = std::to_string(DeletedDiffs) + " diffs removed.";
+				LogMessage(CountString.c_str(), mName);
+
 				LogMessage("Got data. Attempting grab again.", mName);
-				FirstTime = 0;
-				
-				goto TryMap;
-			}else{//TODO: Disallow people from spamming future set ids that do not exist thus locking them.
+				Set = GetMapData(SQLCon);
 
+				if (Set) LogMessage("Grab success.", mName);
+				else     LogMessage("Grab fail.", mName);
+				
+			}else{
 				LogMessage("SetID has been removed from the osu server\n", mName);
 
-				{//The set does not exist on the osu server. Cache this fact.
-					auto it = MapSet->find(SetID);
+				//The set does not exist on the osu server. Cache this fact.
+				auto it = MapSet->find(SetID);
 
-					if(it == MapSet->end())
-						MapSet->insert(std::pair<const DWORD, _BeatmapSet*>(SetID, &BeatmapSetDeleted));
-					else (*it).second->ID = 0;
-				}
+				if (it == MapSet->end())
+					MapSet->insert(std::pair<const DWORD, _BeatmapSet*>(SetID, &BeatmapSetDeleted));
+				else (*it).second->ID = 0;
+
+				//TODO: Might want to unrank beatmaps in this state.
 			}
-		}else{
-			LogMessage("Could not connect to the osu!API", mName);
+
 		}
+
 	}
 
-	DeleteAndNull(res);
-
-	return 0;
+	return Set;
 }
 _BeatmapData BeatmapNotSubmitted(RankStatus::UNKNOWN);
 
@@ -895,32 +866,35 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 
 	if (BS){
 
-	CheckSet:
+	int Tries = 0;
 
-		if(!BS->ID)
+	while (Tries < 2) {
+		if (!BS->ID)
 			return &BeatmapNotSubmitted;
 		{
 			S_MUTEX_SHARED_LOCKGUARD(BS->Lock);
 
 			for (auto& Map : BS->Maps) {
 
-				if ((ValidMD5 && Map.Hash == MD5) || 
+				if ((ValidMD5 && Map.Hash == MD5) ||
 					(DiffNameGiven && Map.DiffName == DiffName))//TODO: check if the servers md5 is out of date.
-					return &Map;//This feels like returning a reference to a local.
+					return &Map;
 			}
 
 		}
 		const DWORD cTime = clock_ms();
 
-		if (BS->LastUpdate + 14400000 < cTime){//Rate limit to every 4 hours
+		if (BS->LastUpdate + 14400000 < cTime) {//Rate limit to every 4 hours
 			BS->LastUpdate = cTime;
 
 			LogMessage("Possible update to beatmap set.", "Aria");
-			
-			BS = GetBeatmapSetFromSetID(SetID, SQL, BS);
-			if (BS)goto CheckSet;
 
+			BS = GetBeatmapSetFromSetID(SetID, SQL, BS);
+			if (!BS)
+				break;
 		}
+		Tries++;
+	}
 
 	}else printf("Could not find the map at all.\n");
 
@@ -1391,7 +1365,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	if (Mode >= 8)
 		Mode = 0;
 
-	_BeatmapData*const BeatData = GetBeatmapCache(SetID,0, BeatmapMD5, std::move(DiffName),&AriaSQL[s.ID]);
+	_BeatmapData*const BeatData = GetBeatmapCache(SetID,0, BeatmapMD5, _M(DiffName),&AriaSQL[s.ID]);
 
 	if (!BeatData || !BeatData->BeatmapID){
 
@@ -1464,7 +1438,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 
 			for (DWORD i = 0; i < LeaderBoard->ScoreCache.size(); i++) {
 
-				if (Rank >= 1000)
+				if (Rank >= 250)
 					break;//Not doing this for performance reasons of the server. Simply the client is not built to handle it.
 
 				const _ScoreCache *lScore = &LeaderBoard->ScoreCache[i];

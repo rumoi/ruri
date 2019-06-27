@@ -1365,18 +1365,6 @@ void reset() {
 			qLock.unlock();
 		}
 	}
-	void addQue(const VEC(_BanchoPacket) &&b) {
-		if (choToken && b.size()) {
-			qLock.lock();
-			for (auto&& p : b) {
-				if (p.Type == NULL_PACKET)
-					continue;
-				Que.push_back(_M(p));
-			}
-
-			qLock.unlock();
-		}
-	}
 
 	void addQueDelay(const _DelayedBanchoPacket &b) {
 
@@ -4484,20 +4472,21 @@ void receiveConnections(){
 
 	FillRankCache();
 
-	{
-		std::thread a(Aria_Main);
-		a.detach();
-	}
-
-	while(!ARIALOADED)
-		Sleep(100);
-
 	UpdateUsernameCache(&SQL_BanchoThread[0]);
 	
 	{
 		std::thread a(LazyThread);
 		a.detach();
 	}
+
+	{
+		std::thread a(Aria_Main);
+		a.detach();
+	}
+
+	while (!ARIALOADED)
+		Sleep(100);
+
 #ifndef LINUX
 	SOCKET listening = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (listening == INVALID_SOCKET)
