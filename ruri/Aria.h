@@ -1,7 +1,4 @@
 #pragma once
-#include <unordered_map>
-
-
 
 #include "aes.h"
 #include "Base64.h"
@@ -321,10 +318,8 @@ struct _LeaderBoardCache{
 
 };
 
-//I know this is sub optimal but ripple did not itterate to include beatmap sets properly
+//I know this is sub optimal but ripple did not iterate to include beatmap sets properly
 //Which means that a lot of this is hacky just for a single feature (updateable vs un-submited). I would change the ripple API its self but that would require me to edit a lot more.
-
-#define Cache_Pool_Size 8
 
 struct _BeatmapData{
 	DWORD BeatmapID;
@@ -335,6 +330,14 @@ struct _BeatmapData{
 	std::string Hash;
 	_LeaderBoardCache* lBoard[8];
 	int RankStatus;
+
+	~_BeatmapData() {
+
+		for (DWORD i = 0; i < 8; i++){
+			DeleteAndNull(lBoard[i]);
+		}
+
+	}
 
 	_BeatmapData() {
 		BeatmapID = 0;
@@ -408,26 +411,128 @@ struct _BeatmapData{
 };
 
 
+template<typename T, typename KeyType = DWORD>
+struct _LTable {
+
+	#define BUCKET_COUNT 64
+	#define BUCKET_SIZE 32768
+	//Failure rate is about ~2 million
+
+	#define GETOFF const DWORD OFF = (*(DWORD*)&Key) % BUCKET_COUNT
+
+	std::shared_mutex Lock[BUCKET_COUNT];
+	DWORD TableCount[BUCKET_COUNT];
+	VEC(T) Table[BUCKET_COUNT];
+	
+
+	inline T* push_back(T* A, const bool Locking = 1) {
+
+		if (!A)return 0;
+
+		const auto Key = A->Key();
+
+		static_assert((sizeof(Key) >= 4), "_LTable::Key must be at least 4 bytes");
+
+		GETOFF;
+
+		if(Locking)Lock[OFF].lock();
+		if (TableCount[OFF] == BUCKET_SIZE) {
+			printf("_LTable overflow\n");
+			TableCount[OFF] = 0;
+		}
+
+		Table[OFF][TableCount[OFF]] = A;
+
+		T* Ret = &Table[OFF][TableCount[OFF]];
+		TableCount[OFF]++;
+		if(Locking)Lock[OFF].unlock();
+		return Ret;
+	}
+
+	inline std::shared_mutex* getMutex(const KeyType& Key){
+		GETOFF;
+		return &Lock[OFF];
+	}
+
+	inline T* get(const KeyType& Key, const bool Locking = 1) {
+
+		GETOFF;
+
+		T* ret = 0;
+
+		if(Locking)Lock[OFF].lock_shared();
+		
+		const DWORD Size = TableCount[OFF];
+
+		for (DWORD i = 0; i != Size; i++){			
+			if (Table[OFF][i].Key() == Key) {
+				ret = &Table[OFF][i];
+				break;
+			}
+		}
+		if(Locking)Lock[OFF].unlock_shared();
+
+		return ret;
+	}
+	_LTable() {
+
+		ZeroMemory(&TableCount[0], BUCKET_COUNT * 4);
+		for (DWORD i = 0; i < BUCKET_COUNT; i++)
+			Table[i].resize(BUCKET_SIZE);
+	}
+
+
+	#undef BUCKET_COUNT
+	#undef BUCKET_SIZE
+	#undef GETOFF
+};
+
 struct _BeatmapSet{
 	DWORD ID;
 	DWORD LastUpdate;
-	std::shared_mutex Lock;
 	std::vector<_BeatmapData> Maps;
+	std::shared_mutex* Lock;
+	bool Deleted;
 
 	_BeatmapSet(){
 		LastUpdate = INT_MIN;
 		ID = 0;
+		Lock = new std::shared_mutex();
+		Deleted = 0;
 	}
 	_BeatmapSet(DWORD SetID){
 		ID = SetID;
 		LastUpdate = INT_MIN;
+		Lock = new std::shared_mutex();
+		Deleted = 0;
+	}		
+
+	~_BeatmapSet(){
+		ID = 0;
+		LastUpdate = 0;
+		Deleted = 0;
+		DeleteAndNull(Lock);
+	}
+
+	_BeatmapSet& operator=(_BeatmapSet *Old){
+
+		ID = Old->ID;
+		LastUpdate = Old->LastUpdate;
+		Maps = _M(Old->Maps);
+		Deleted = Old->Deleted;
+		Lock = Old->Lock;
+		Old->Lock = 0;
+
+		return *this;
+	}
+
+	const inline DWORD Key()const noexcept {
+		return ID;
 	}
 
 };
 
-std::map<const DWORD, _BeatmapSet*> BeatmapSetCache[Cache_Pool_Size];
-std::unordered_map<std::string, _BeatmapSet*> BeatmapCache_HASH[Cache_Pool_Size];
-std::shared_mutex SetIDAddMutex[Cache_Pool_Size];//Make sure to lock this with the offset from the set ID :)
+_LTable<_BeatmapSet> BeatmapSet_Cache;
 
 std::string GetJsonValue(const std::string &Input, const std::string &Param) {
 	
@@ -523,8 +628,6 @@ std::vector<std::string> JsonListSplit(const std::string& Input){
 	return Return;
 }
 
-_BeatmapSet BeatmapSetDeleted(0);
-
 std::string ExtractDiffName(const std::string &SRC){
 
 	DWORD Start = 0;
@@ -572,22 +675,18 @@ std::string FileNameClean(const std::string &S){
 	return Return;
 }
 
+
 //Calling GetBeatmapSetFromSetID can collect setID information from the osu API if it misses in the database
 _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _BeatmapSet* SET = 0 , bool ForceUpdate = 0){
 	const char* mName = "Aria";
 
 	if (!SetID)return 0;
 
-	const DWORD Off = SetID % Cache_Pool_Size;
-
-	auto MapSet = &BeatmapSetCache[Off];
 	if(!SET && !ForceUpdate){
 
-		S_MUTEX_SHARED_LOCKGUARD(SetIDAddMutex[Off]);
-
-		auto it = MapSet->find(SetID);
-		if (it != MapSet->end())
-			return it->second;
+		auto Set = BeatmapSet_Cache.get(SetID);
+		if (Set)
+			return Set;
 	}
 
 	if (!SQLCon && !ForceUpdate)
@@ -595,13 +694,13 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 
 	//Set ID is not in the cache. We need to add it.
 
-	S_MUTEX_LOCKGUARD(SetIDAddMutex[Off]);
+	S_MUTEX_LOCKGUARD(*BeatmapSet_Cache.getMutex(SetID));
 
-	//Attempt to get it again. Just incase there was another request that already handling it in the literal nano second of the lock switch
+	//Attempt to get it again. Just incase there was another request that already handled it.
 	if(!SET && !ForceUpdate){
-		auto it = MapSet->find(SetID);
-		if (it != MapSet->end())
-			return it->second;;
+		auto Set = BeatmapSet_Cache.get(SetID,0);
+		if (Set)
+			return Set;
 	}
 
 	const auto GetMapData = [&](_SQLCon* SQL)->_BeatmapSet*{
@@ -612,13 +711,14 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 		_BeatmapSet *Set = 0;
 
 		if (res && res->next()){
+					
+			_BeatmapSet TempSet(SetID);
 
-			Set = SET ? SET : new _BeatmapSet(SetID);
+			Set = SET ? SET : &TempSet;
 
 			if (SET) {
-				Set->Lock.lock();
+				Set->Lock->lock();
 				Set->Maps.clear();
-				Set->Lock.unlock();
 			}
 
 			do {
@@ -637,17 +737,14 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 				if (l.Hash.size() != 32)
 					continue;
 
-				if (SET){
-					Set->Lock.lock();
-					Set->Maps.push_back(l);
-					Set->Lock.unlock();
-				}else Set->Maps.push_back(l);
-
-				BeatmapCache_HASH[(*(DWORD*)&l.Hash[0]) % Cache_Pool_Size].insert(std::pair<std::string, _BeatmapSet*>(l.Hash, Set));
+				Set->Maps.push_back(l);
 
 			} while (res && res->next());
 
-			MapSet->insert(std::pair<const DWORD, _BeatmapSet*>(SetID, Set));
+			if (SET)
+				Set->Lock->unlock();
+			else
+				Set = BeatmapSet_Cache.push_back(Set, 0);
 		}
 
 		DeleteAndNull(res);
@@ -777,6 +874,19 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 			}else{
 				LogMessage("SetID has been removed from the osu server\n", mName);
 
+
+				_BeatmapSet Deleted(SetID);
+				Deleted.Deleted = 1;
+
+				_BeatmapSet* B = BeatmapSet_Cache.get(SetID, 0);
+
+				if (B)
+					B->Deleted = 1;
+				else 
+					BeatmapSet_Cache.push_back(&Deleted, 0);
+				
+				/*
+
 				//The set does not exist on the osu server. Cache this fact.
 				auto it = MapSet->find(SetID);
 
@@ -785,6 +895,7 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 				else (*it).second->ID = 0;
 
 				//TODO: Might want to unrank beatmaps in this state.
+				*/
 			}
 
 		}
@@ -797,26 +908,13 @@ _BeatmapData BeatmapNotSubmitted(RankStatus::UNKNOWN);
 
 
 bool CheckMapUpdate(_BeatmapData *BD, _SQLCon* SQL) {
+	//TODO: READD this
 
+	return 0;
 	if (!BD || !BD->SetID || BD->Hash.size() != 32 || !SQL)
 		return 0;
-	
-	const DWORD Off = BD->SetID % Cache_Pool_Size;
 
-	_BeatmapSet *BS = 0;
-
-	SetIDAddMutex[Off].lock_shared();
-
-	{
-		const DWORD pOff = (*(DWORD*)&BD->Hash[0]) % Cache_Pool_Size;
-
-		auto it = BeatmapCache_HASH[pOff].find(BD->Hash);
-
-		if (it != BeatmapCache_HASH[pOff].end())//This is most likely not thread safe.
-			BS = it->second;
-	}
-
-	SetIDAddMutex[Off].unlock_shared();
+	_BeatmapSet *BS = BeatmapSet_Cache.get(BD->SetID);
 	
 	if (!BS)
 		return 0;
@@ -825,8 +923,10 @@ bool CheckMapUpdate(_BeatmapData *BD, _SQLCon* SQL) {
 
 	if (BS->LastUpdate + 14400000 > cTime)
 		return 0;
+
 	BS->LastUpdate = cTime;
 	GetBeatmapSetFromSetID(BD->SetID, SQL, BS, 1);
+
 	return 1;
 }
 
@@ -837,28 +937,10 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 
 	bool ValidMD5 = (MD5.size() == 32);
 	bool DiffNameGiven = (DiffName.size() > 0);
-	_BeatmapSet *BS = 0;
 
-	if (ValidMD5 && SetID) {
-		const DWORD pOff = (*(DWORD*)&MD5[0]) % Cache_Pool_Size;
+	_BeatmapSet *BS = (SetID) ? BeatmapSet_Cache.get(SetID) : 0;
 
-		const DWORD Off = SetID % Cache_Pool_Size;
-
-		SetIDAddMutex[Off].lock_shared();
-
-		{
-
-			auto it = BeatmapCache_HASH[pOff].find(MD5);
-
-			if (it != BeatmapCache_HASH[pOff].end())//This is most likely not thread safe.
-				BS = it->second;
-		}
-
-		SetIDAddMutex[Off].unlock_shared();
-
-	}
-
-	if (BS == &BeatmapSetDeleted)
+	if (BS && BS->Deleted)
 		return 0;
 
 	if(!BS)
@@ -872,9 +954,10 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 		if (!BS->ID)
 			return &BeatmapNotSubmitted;
 		{
-			S_MUTEX_SHARED_LOCKGUARD(BS->Lock);
 
-			for (auto& Map : BS->Maps) {
+			S_MUTEX_SHARED_LOCKGUARD(*BS->Lock);
+
+			for (auto& Map : BS->Maps){
 
 				if ((ValidMD5 && Map.Hash == MD5) ||
 					(DiffNameGiven && Map.DiffName == DiffName))//TODO: check if the servers md5 is out of date.

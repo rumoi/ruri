@@ -168,10 +168,7 @@ std::shared_mutex RawMap_Cache_Lock;
 
 
 int pp_ReadRawMapData(const std::string &Input, _RawBeatmap &Output){
-
-
 	
-
 	const std::vector<byte> &RawMap = LOAD_FILE(Input);
 
 	if (RawMap.size() <= 17 || memcmp(&RawMap[0], "osu file format v", 17))
