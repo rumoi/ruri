@@ -425,11 +425,9 @@ struct _LTable {
 	VEC(T) Table[BUCKET_COUNT];
 	
 
-	inline T* push_back(T* A, const bool Locking = 1) {
+	inline T* push_back(const T&& A, const bool Locking = 1) {
 
-		if (!A)return 0;
-
-		const auto Key = A->Key();
+		const auto Key = A.Key();
 
 		static_assert((sizeof(Key) >= 4), "_LTable::Key must be at least 4 bytes");
 
@@ -491,39 +489,36 @@ struct _BeatmapSet{
 	DWORD ID;
 	DWORD LastUpdate;
 	std::vector<_BeatmapData> Maps;
-	std::shared_mutex* Lock;
 	bool Deleted;
 
 	_BeatmapSet(){
 		LastUpdate = INT_MIN;
 		ID = 0;
-		Lock = new std::shared_mutex();
+		//Lock = new std::shared_mutex();
 		Deleted = 0;
+		Maps.reserve(16);
 	}
-	_BeatmapSet(DWORD SetID){
+	_BeatmapSet(const DWORD SetID){
 		ID = SetID;
 		LastUpdate = INT_MIN;
-		Lock = new std::shared_mutex();
+		//Lock = new std::shared_mutex();
 		Deleted = 0;
-	}		
+		Maps.reserve(16);
+	}
+	_BeatmapSet(const DWORD SetID, const bool Del) {
+		ID = SetID;
+		LastUpdate = INT_MIN;
+		//Lock = new std::shared_mutex();
+		Deleted = Del;
+		Maps.reserve(16);
+	}
 
 	~_BeatmapSet(){
 		ID = 0;
 		LastUpdate = 0;
 		Deleted = 0;
-		DeleteAndNull(Lock);
-	}
-
-	_BeatmapSet& operator=(_BeatmapSet *Old){
-
-		ID = Old->ID;
-		LastUpdate = Old->LastUpdate;
-		Maps = _M(Old->Maps);
-		Deleted = Old->Deleted;
-		Lock = Old->Lock;
-		Old->Lock = 0;
-
-		return *this;
+		Maps.reserve(16);
+		//DeleteAndNull(Lock);
 	}
 
 	const inline DWORD Key()const noexcept {
@@ -716,10 +711,10 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 
 			Set = SET ? SET : &TempSet;
 
-			if (SET) {
-				Set->Lock->lock();
+			if (SET)//TODO: Solve threading issue
 				Set->Maps.clear();
-			}
+			
+			int Count = 0;
 
 			do {
 				_BeatmapData l;
@@ -737,14 +732,23 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 				if (l.Hash.size() != 32)
 					continue;
 
+				Count++;
+				if (SET) {
+					if (Count == Set->Maps.capacity())//:(
+						break;
+
+					if (Count <= Set->Maps.size())
+						Set->Maps[Count-1] = l;
+					else Set->Maps.push_back(l);
+
+				}
 				Set->Maps.push_back(l);
 
 			} while (res && res->next());
 
-			if (SET)
-				Set->Lock->unlock();
-			else
-				Set = BeatmapSet_Cache.push_back(Set, 0);
+			if (!SET)
+				Set = BeatmapSet_Cache.push_back(_M(*Set), 0);
+			else Set->Maps.resize(Count);
 		}
 
 		DeleteAndNull(res);
@@ -875,15 +879,11 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 				LogMessage("SetID has been removed from the osu server\n", mName);
 
 
-				_BeatmapSet Deleted(SetID);
-				Deleted.Deleted = 1;
-
 				_BeatmapSet* B = BeatmapSet_Cache.get(SetID, 0);
 
-				if (B)
-					B->Deleted = 1;
+				if (B)B->Deleted = 1;
 				else 
-					BeatmapSet_Cache.push_back(&Deleted, 0);
+					BeatmapSet_Cache.push_back(_BeatmapSet(SetID,1), 0);
 				
 				/*
 
@@ -951,9 +951,10 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 	while (Tries < 2) {
 		if (!BS->ID)
 			return &BeatmapNotSubmitted;
+
 		{
 
-			S_MUTEX_SHARED_LOCKGUARD(*BS->Lock);
+			//S_MUTEX_SHARED_LOCKGUARD(*BS->Lock);
 
 			for (auto& Map : BS->Maps){
 

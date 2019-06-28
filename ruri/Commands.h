@@ -363,8 +363,8 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 
 	_BeatmapSet* bData = GetBeatmapSetFromSetID(SetID, 0);
 
-	if (bData){
-		bData->Lock->lock_shared();
+	if (bData){//TODO: Solve threading issue
+		//bData->Lock->lock_shared();
 		if (BeatmapID) {
 			for (DWORD i = 0; i < bData->Maps.size(); i++) {
 				if (bData->Maps[i].BeatmapID == BeatmapID) {
@@ -379,7 +379,7 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 			}
 
 		}
-		bData->Lock->unlock_shared();
+		//bData->Lock->unlock_shared();
 	}
 
 	return "Done.";
