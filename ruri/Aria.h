@@ -196,7 +196,7 @@ struct _LeaderBoardCache{
 		return s;
 	}
 
-	bool AddScore(_ScoreCache &s,const DWORD BID,std::string MD5, _SQLCon *SQL = 0, std::string *Ret = 0){
+	bool AddScore(_ScoreCache &s, const DWORD BID, const std::string &MapName, std::string MD5, _SQLCon *SQL = 0, std::string *Ret = 0) {
 		
 		PlayCount++;
 		PassCount++;//dont really care about this getting malformed..
@@ -303,7 +303,7 @@ struct _LeaderBoardCache{
 		ScoreLock.unlock();
 
 		if (NewRank == 1 && ScoreCache.size() > 5)
-			chan_Announce.Bot_SendMessage("[https://osu.ppy.sh/b/" + std::to_string(BID) +" "+ GetUsernameFromCache(s.UserID) + " has achieved a new #1]");		
+			chan_Announce.Bot_SendMessage(GetUsernameFromCache(s.UserID) +  " has achieved #1 on [https://osu.ppy.sh/b/" + std::to_string(BID) +" "+ MapName +"] ( " + RoundTo2(s.pp) + "pp )");
 
 		printf("ScoreID: %llu\n", s.ScoreID);
 
@@ -405,7 +405,7 @@ struct _BeatmapData{
 
 		if (!L)return 0;
 
-		return L->AddScore(s, BeatmapID, Hash, Con,Ret);
+		return L->AddScore(s, BeatmapID, DisplayTitle, Hash, Con,Ret);
 	}
 
 };
@@ -908,9 +908,7 @@ _BeatmapData BeatmapNotSubmitted(RankStatus::UNKNOWN);
 
 
 bool CheckMapUpdate(_BeatmapData *BD, _SQLCon* SQL) {
-	//TODO: READD this
 
-	return 0;
 	if (!BD || !BD->SetID || BD->Hash.size() != 32 || !SQL)
 		return 0;
 

@@ -485,7 +485,7 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWOR
 		}
 
 		if (Split[1] == "id")
-			return "The ID of this match is " + std::to_string(m->MatchId) + " with the host being " + std::to_string(m->HostID);
+			return "The ID of this match is " + std::to_string(m->MatchId) + " with the host being " + GetUsernameFromCache(m->HostID);
 		
 		return "";
 	}

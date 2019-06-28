@@ -576,16 +576,16 @@ void UpdateUsernameCache(_SQLCon *SQL){
 //This will return [clan]username if clans are enabled.
 std::string GetUsernameFromCache(const DWORD UID){
 
-	if (UID < 1000)return "";
-
+	
 	std::string Res = "";
 
-	UsernameCacheLock.lock_shared();
-	if ((UID-1000) < UsernameCache.size()) {
-		Res = UsernameCache[UID - 1000];
+	if (UID >= 1000){
+		UsernameCacheLock.lock_shared();
+		if ((UID - 1000) < UsernameCache.size()) {
+			Res = UsernameCache[UID - 1000];
+		}
+		UsernameCacheLock.unlock_shared();
 	}
-	UsernameCacheLock.unlock_shared();
-
 	return Res;
 }
 void UsernameCacheUpdateName(const DWORD UID, const std::string &s, _SQLCon *SQL){
