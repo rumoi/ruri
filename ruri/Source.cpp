@@ -132,9 +132,9 @@ enum RankStatus {
 #define al_min(a, b) ((a) < (b) ? (a) : (b))
 #define al_max(a, b) ((a) > (b) ? (a) : (b))
 
-#define MUTEX_LOCKGUARD(a) std::lock_guard<std::mutex> LOCKGUARD(a)
+#define MUTEX_LOCKGUARD(a) std::unique_lock<std::mutex> LOCKGUARD(a)
 #define S_MUTEX_SHARED_LOCKGUARD(a) std::shared_lock<std::shared_mutex> LOCKGUARD(a)
-#define S_MUTEX_LOCKGUARD(a) std::lock_guard<std::shared_mutex> LOCKGUARD(a)
+#define S_MUTEX_LOCKGUARD(a) std::unique_lock<std::shared_mutex> LOCKGUARD(a)
 
 #define CHO_VERSION 19
 
@@ -496,9 +496,10 @@ std::string GET_WEB(const std::string &&HostName, const std::string &Page) {
 	
 	struct hostent *hp = gethostbyname(HostName.c_str());
 
-	if (!hp)
+	if (!hp){
+		closesocket(Socket_WEB);
 		return "";
-
+	}
 
 	SOCKADDR_IN SockAddr_WEB;
 	SockAddr_WEB.sin_family = AF_INET;

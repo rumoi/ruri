@@ -1678,7 +1678,7 @@ void UploadScreenshot(const _HttpRes &res, _Con s){
 		return;
 
 	#define SCREENSHOT_START "Content-Disposition: form-data; name=\"ss\"; filename=\"ss\"\r\nContent-Type: application/octet-stream\r\n\r\n"
-	#define SCREENSHOT_END "xd-------------------------------28947758029299--"
+	#define SCREENSHOT_END "\r\n-------------------------------28947758029299--"
 	
 	static const std::string Start = SCREENSHOT_START;
 
@@ -1698,6 +1698,7 @@ void UploadScreenshot(const _HttpRes &res, _Con s){
 	const std::string Filename = RandomString(8) + ".png";
 
 	WriteAllBytes("/home/ss/" + Filename, &*it, end - it);
+
 	s.SendData(ConstructResponse(200, {}, VEC(byte)(Filename.begin(), Filename.end())));
 
 	return s.Dis();
