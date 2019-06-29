@@ -104,26 +104,6 @@ struct vec2_i {
 	int x, y;
 };
 
-/*
-#define _READ_BFLOAT(s)\
-	[](const char* sP)->byte{\
-		int p1 = 0;\
-		int p2 = 0;\
-		while (*sP >= '0' && *sP <= '9'){\
-			p1 = (p1 * 10) + (*sP - '0');\
-			sP++;\
-		}\
-		if (*sP == '.') {\
-			sP++;\
-			if(*sP > '0' && *sP <= '9')\
-				p2 = (*sP - '0');\
-		}\
-		p1 = CLAMP(p1, 0, 10);\
-		p2 = CLAMP(p2, 0, 9);\
-		return byte(p1) + byte(p2 << 3);\
-	}(s)
-#define UNPACK_BFLOAT(s)[&](){return float(s & 15) + float((s & (15 << 3)) >> 3) * 0.1f;}()
-*/
 struct _MapHeaders{
 	float CircleSize, OverallDifficulty, ApproachRate;
 	byte MapVersion, MapMode;
@@ -139,9 +119,14 @@ struct _RawBeatmapObject {
 };
 
 struct _RawBeatmap {
+	DWORD BID;
 	_MapHeaders Headers;
 	std::vector<_TimingBPM> TimingPoints;
 	std::vector<_RawBeatmapObject> Notes;
+
+	const inline DWORD Key()const noexcept {
+		return BID;
+	}
 };
 
 enum HitObjectType
@@ -160,12 +145,7 @@ enum HitObjectType
 #include "pp_mania.h"
 
 
-#include <map>
-
-std::map<const DWORD, const _RawBeatmap> RawMap_Cache;
-
-std::shared_mutex RawMap_Cache_Lock;
-
+_LTable<_RawBeatmap> RawMapCache;
 
 int pp_ReadRawMapData(const std::string &Input, _RawBeatmap &Output){
 	
@@ -363,7 +343,8 @@ int pp_ReadRawMapData(const std::string &Input, _RawBeatmap &Output){
 			}
 		}
 
-		if (Count > 3)RawBeatData.push_back(raw);
+		if (Count > 3)
+			RawBeatData.push_back(raw);
 
 		HitObjectStart = HitObjectEnd;
 	}
@@ -373,30 +354,19 @@ int pp_ReadRawMapData(const std::string &Input, _RawBeatmap &Output){
 	return 0;
 }
 
-int pp_GetRawMapData(const DWORD ID, _RawBeatmap &d){
+_RawBeatmap* pp_GetRawMapData(const DWORD ID){
 
-	{
-		S_MUTEX_SHARED_LOCKGUARD(RawMap_Cache_Lock);
+	auto Ret = RawMapCache.get(ID);
+	if (Ret)
+		return Ret;
 
-		auto it = RawMap_Cache.find(ID);
+	_RawBeatmap NewMap;
+	
+	const int res = pp_ReadRawMapData(BEATMAP_PATH + std::to_string(ID) + ".osu", NewMap);
 
-		if (it != RawMap_Cache.end()){
-			d = it->second;
-			return 0;
-		}
+	if (!res)
+		Ret = RawMapCache.push_back(_M(NewMap));
+	else printf(KRED"PPBase> ERROR:%i\n", res);
 
-	}
-
-	const int res = pp_ReadRawMapData(BEATMAP_PATH + std::to_string(ID) + ".osu", d);
-
-	if (!res){
-
-		RawMap_Cache_Lock.lock();
-
-		RawMap_Cache.insert(std::pair<const DWORD, const _RawBeatmap>(ID, d));
-
-		RawMap_Cache_Lock.unlock();
-
-	}
-	return res;
+	return Ret;
 }

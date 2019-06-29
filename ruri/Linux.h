@@ -20,7 +20,6 @@
 #define closesocket(sock) close(sock)
 #define ZeroMemory(addr, len) memset(addr, 0, len)
 #define _strcmpi(a, b) strcasecmp(a, b)
-#define __forceinline 
 #define strcpy_s(to, len, from) strncpy(to, from, len)
 #define fopen_s(pFile,filename,mode) ((*(pFile))=fopen((filename),(mode)))==NULL
 #define SOCKET_ERROR -1

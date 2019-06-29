@@ -276,6 +276,7 @@ const int MAX_PACKET_LENGTH = 2816;
 #define likely(x) x 
 #define unlikely(x) x 
 
+#define _inline __forceinline
 #else
 
 #include "Linux.h"
@@ -287,6 +288,7 @@ const int MAX_PACKET_LENGTH = 2816;
 
 #define likely(x)      __builtin_expect(!!(x), 1) 
 #define unlikely(x)    __builtin_expect(!!(x), 0) 
+#define _inline __attribute__((always_inline))
 
 #endif
 
@@ -335,7 +337,7 @@ constexpr size_t _strlen_(const char* s)noexcept{
 #define MEM_CMP_START(VECT, STR)\
 	[&]()->bool{\
 		const char*const rS = STR;\
-		const size_t rS_Size = _strlen_(rS);\
+		const size_t rS_Size = _strlen_(STR);\
 		if(rS_Size > VECT.size())return 0;\
 \
 		for(size_t ii=0; ii < rS_Size;ii++)\
@@ -399,6 +401,81 @@ const std::string FAKEUSER_NAME = []{const byte a[] = { 226,128,140,226,128,141,
 
 #include <mutex>
 #include <shared_mutex>
+
+template<typename T, typename KeyType = DWORD>
+struct _LTable {
+
+#define BUCKET_COUNT 64
+#define BUCKET_SIZE 32768
+	//Failure rate is about ~2 million
+
+#define GETOFF const DWORD OFF = (*(DWORD*)&Key) % BUCKET_COUNT
+
+	std::shared_mutex Lock[BUCKET_COUNT];
+	DWORD TableCount[BUCKET_COUNT];
+	VEC(T) Table[BUCKET_COUNT];
+
+
+	_inline T* push_back(const T&& A, const bool Locking = 1) {
+
+		const auto Key = A.Key();
+
+		static_assert((sizeof(Key) >= 4), "_LTable::Key must be at least 4 bytes");
+
+		GETOFF;
+
+		if (Locking)Lock[OFF].lock();
+		if (TableCount[OFF] == BUCKET_SIZE) {
+			printf("_LTable overflow\n");
+			TableCount[OFF] = 0;
+		}
+
+		Table[OFF][TableCount[OFF]] = A;
+
+		T* Ret = &Table[OFF][TableCount[OFF]];
+		TableCount[OFF]++;
+		if (Locking)Lock[OFF].unlock();
+		return Ret;
+	}
+
+	_inline std::shared_mutex* getMutex(const KeyType& Key) {
+		GETOFF;
+		return &Lock[OFF];
+	}
+
+	_inline T* get(const KeyType& Key, const bool Locking = 1) {
+
+		GETOFF;
+
+		T* ret = 0;
+
+		if (Locking)Lock[OFF].lock_shared();
+
+		const DWORD Size = TableCount[OFF];
+
+		for (DWORD i = 0; i != Size; i++) {
+			if (Table[OFF][i].Key() == Key) {
+				ret = &Table[OFF][i];
+				break;
+			}
+		}
+		if (Locking)Lock[OFF].unlock_shared();
+
+		return ret;
+	}
+	_LTable() {
+
+		ZeroMemory(&TableCount[0], BUCKET_COUNT * 4);
+		for (DWORD i = 0; i < BUCKET_COUNT; i++)
+			Table[i].resize(BUCKET_SIZE);
+	}
+
+
+//#undef BUCKET_COUNT
+#undef BUCKET_SIZE
+#undef GETOFF
+};
+
 
 #include "SQL.h"
 #define BANCHO_THREAD_COUNT 4
@@ -783,19 +860,19 @@ namespace BR {
 };
 
 
-__forceinline void LogError(int i){
+void LogError(int i){
 	printf(KRED "ERROR CODE: %i\n" KRESET, i);
 }
-__forceinline void LogError(const char * t, const char* f = 0){
+void LogError(const char * t, const char* f = 0){
 	if(f)return (void)printf(KMAG "%s> " KRED "ERROR: %s\n" KRESET,f, t);
 	printf(KRED "ERROR: %s\n" KRESET, t);
 }
 
-__forceinline void LogMessage(const char* t, const char* f = 0) {
+void LogMessage(const char* t, const char* f = 0) {
 	if (f)return (void)printf(KMAG "%s> " KRESET "%s\n" KRESET, f, t);
 	printf(KMAG "Log: %s\n" KRESET, t);
 }
-__forceinline void LogMessage(std::string t) {
+void LogMessage(std::string t) {
 	printf(KMAG "Log: %s\n" KRESET, t.c_str());
 }
 
@@ -808,18 +885,18 @@ void ReplaceAll(std::string &str, const std::string& from, const std::string& to
 	}
 }
 
-__forceinline void AddInt(std::vector<byte> &v, const int Value) {
+_inline void AddInt(std::vector<byte> &v, const int Value) {
 	v.resize(v.size() + 4);
 	*(int*)&v[v.size() - 4] = Value;
 }
-__forceinline void AddLong(std::vector<byte> &v, const long long Value) {
+_inline void AddLong(std::vector<byte> &v, const long long Value) {
 	v.resize(v.size() + 8);
 	*(long long*)&v[v.size() - 8] = Value;
 }
-__forceinline void AddByte(std::vector<byte> &v, const byte Value) {
+_inline void AddByte(std::vector<byte> &v, const byte Value) {
 	v.push_back(Value);
 }
-__forceinline void AddShort(std::vector<byte> &v, const short Value) {
+_inline void AddShort(std::vector<byte> &v, const short Value) {
 	v.resize(v.size() + 2);
 	*(short*)&v[v.size() - 2] = Value;
 }
@@ -831,56 +908,57 @@ __forceinline void AddShort(std::vector<byte> &v, const short Value) {
 		memcpy(&v[v.size() - Value.size()], &Value[0], Value.size());\
 	}(std::move(VALUE))
 
-__forceinline void AddMem(std::vector<byte> &v, const void* Value, const DWORD Size) {
+_inline void AddMem(std::vector<byte> &v, const void* Value, const DWORD Size) {
 	if (Size == 0)return;
 	v.resize(v.size() + Size);
 	memcpy(&v[v.size() - Size], Value, Size);
 }
-__forceinline void AddString(std::vector<byte> &v, const std::string &Value) {
 
-	const DWORD Size = Value.size();
-	
-	if (Size == 0) {
-		v.push_back(0);
-		return;
+#ifndef LINUX
+
+void AddUleb(VEC(byte) &v, DWORD s) {
+
+	return;
+}
+
+#else
+
+void AddUleb(VEC(byte) &v, DWORD s) {
+
+	if (s) {
+		uint64_t ret = 2 + (0x0b << 8) + ((s & 0x7f) << 16);
+
+		while (unlikely(*&s >>= 7)) {
+			ret += (uint64_t(0x80) << ((ret & 0xff) << 3)) + 1;
+			ret += (uint64_t(s & 0x7f) << ((ret & 0xff) << 3));
+		}
+
+		v.resize(v.size() + 8);
+		*(uint64_t*)(&v[v.size() - 8]) = ret >> 8;
+		v.resize(v.size() - (8 - (ret & 0xff)));
+
 	}
-	int val = Size;
-	v.push_back(0x0b);
+	else v.push_back(0);
 
-		do {
-			byte b = val & 0x7f;
-			val >>= 7;
+}
 
-			if (val != 0)
-				b |= 0x80;  // mark this byte to show that more bytes will follow
+#endif // !LINUX
 
-			v.push_back(b);
-		} while (val != 0);
 
+_inline void AddString(std::vector<byte> &v, const std::string &Value){
+	const DWORD Size = Value.size();
+	AddUleb(v, Size);
+	if (Size) {
 		v.resize(v.size() + Size);
 		memcpy(&v[v.size() - Size], &Value[0], Size);
-}
-__forceinline void AddString(std::vector<byte> &v, const char* Value, const DWORD Size){
-
-	if (Size == 0) {
-		v.push_back(0);
-		return;
 	}
-	int val = Size;
-	v.push_back(0x0b);
-
-	do {
-		byte b = val & 0x7f;
-		val >>= 7;
-
-		if (val != 0)
-			b |= 0x80;  // mark this byte to show that more bytes will follow
-
-		v.push_back(b);
-	} while (val != 0);
-
-	v.resize(v.size() + Size);
-	memcpy(&v[v.size() - Size], &Value[0], Size);
+}
+_inline void AddString(std::vector<byte> &v, const char* Value, const DWORD Size){
+	AddUleb(v, Size);
+	if (Size) {
+		v.resize(v.size() + Size);
+		memcpy(&v[v.size() - Size], &Value[0], Size);
+	}
 }
 
 struct _BanchoPacket {
@@ -1061,12 +1139,12 @@ public:
 
 #define MD5CMP(x,y) (memcmp(x,y,32) == 0)
 
-__forceinline std::string MenuClickButton(const std::string Command, const std::string Desc) {
+_inline std::string MenuClickButton(const std::string &&Command, const std::string &&Desc) {
 	return "[osump://0/" + Command + "|" + FAKEUSER_NAME + " " + Desc + "]";
 }
 
 
-__forceinline void AddStringToVector(std::vector<byte> &v, const std::string &s){
+_inline void AddStringToVector(std::vector<byte> &v, const std::string &s){
 	if (s.size() == 0)return;
 	v.resize(v.size() + s.size());
 	memcpy(&v[v.size() - s.size()], &s[0], s.size());
@@ -1603,7 +1681,7 @@ DWORD GetIDFromName(const std::string &Name) {
 
 namespace bPacket {
 
-	__forceinline _BanchoPacket Message(const std::string &senderName, const std::string &targetname, const std::string &message, const int senderId) {
+	_BanchoPacket Message(const std::string &senderName, const std::string &targetname, const std::string &message, const int senderId) {
 
 		_BanchoPacket b(OPac::server_sendMessage);
 
@@ -1614,7 +1692,7 @@ namespace bPacket {
 
 		return b;
 	}
-	__forceinline _BanchoPacket BotMessage(const std::string &Target, const std::string &message, const std::string &Name = BOT_NAME, const DWORD ID = 999) {
+	_BanchoPacket BotMessage(const std::string &Target, const std::string &message, const std::string &Name = BOT_NAME, const DWORD ID = 999) {
 
 		_BanchoPacket b(OPac::server_sendMessage);
 
@@ -1652,7 +1730,7 @@ const _BanchoPacket BOT_STATS = [] {
 
 namespace bPacket {
 
-	__forceinline _BanchoPacket Notification(const std::string &Mes) {
+	_inline _BanchoPacket Notification(const std::string &Mes) {
 
 		_BanchoPacket b(OPac::server_notification);
 
@@ -1660,7 +1738,7 @@ namespace bPacket {
 
 		return b;
 	}
-	__forceinline _BanchoPacket ChannelInfo(const _Channel* c) {
+	_BanchoPacket ChannelInfo(const _Channel* c) {
 
 		_BanchoPacket b(OPac::server_channelInfo);
 
@@ -1670,7 +1748,7 @@ namespace bPacket {
 
 		return b;
 	}
-	__forceinline _BanchoPacket ChannelInfo(const std::string Name, const std::string Desc, USHORT Count) {
+	_BanchoPacket ChannelInfo(const std::string Name, const std::string Desc, USHORT Count) {
 
 		_BanchoPacket b(OPac::server_channelInfo);
 
@@ -1683,7 +1761,7 @@ namespace bPacket {
 
 	#define bPacket4Byte(ID, VALUE)[&]()->const _BanchoPacket{_BanchoPacket b(ID,{0,0,0,0});*(DWORD*)&b.Data[0] = VALUE;return b;}()
 
-	__forceinline _BanchoPacket RawData(short ID, const byte* Value, const DWORD Size) {
+	_inline _BanchoPacket RawData(const short ID, const byte* Value, const DWORD Size) {
 
 		_BanchoPacket b(ID);
 
@@ -1694,7 +1772,7 @@ namespace bPacket {
 		return b;
 	}
 
-	__forceinline _BanchoPacket GenericString(short ID, const std::string &Value) {
+	_inline _BanchoPacket GenericString(const short ID, const std::string &Value) {
 
 		_BanchoPacket b(ID);
 
@@ -1703,7 +1781,7 @@ namespace bPacket {
 		return b;
 	}
 
-	__forceinline _BanchoPacket GenericInt32List(short ID, const std::vector<int> &Value, const bool BigHeader) {
+	_inline _BanchoPacket GenericInt32List(const short ID, const std::vector<int> &Value, const bool BigHeader) {
 
 		_BanchoPacket b(ID);
 
@@ -1712,28 +1790,28 @@ namespace bPacket {
 		else
 			AddShort(b.Data, Value.size());
 
-		for (DWORD i = 0; i<Value.size(); i++)
-			AddInt(b.Data, Value[i]);
+		for (const auto& i : Value)
+			AddInt(b.Data, i);
 
 		return b;
 	}
-	__forceinline _BanchoPacket GenericDWORDList(short ID, const std::vector<DWORD> &Value, const bool BigHeader){
+	_inline _BanchoPacket GenericDWORDList(const short ID, const std::vector<DWORD> &Value, const bool BigHeader){
 
 		_BanchoPacket b(ID);
 
-		if (BigHeader)
+		if(BigHeader)
 			AddInt(b.Data, Value.size());
 		else
 			AddShort(b.Data, Value.size());
 
-		for (DWORD i = 0; i<Value.size(); i++)
-			AddInt(b.Data, Value[i]);
+		for (const auto& i : Value)
+			AddInt(b.Data, i);
 
 		return b;
 	}
 
 
-	__forceinline _BanchoPacket UserPanel(const DWORD UserID, const DWORD AskerID) {
+	_BanchoPacket UserPanel(const DWORD UserID, const DWORD AskerID) {
 
 		if (UserID < 1000){
 			_BanchoPacket b(OPac::server_userPanel);
@@ -1778,7 +1856,7 @@ namespace bPacket {
 
 		return b;
 	}
-	__forceinline _BanchoPacket UserPanel(_User *tP) {
+	_BanchoPacket UserPanel(_User *tP) {
 
 		_BanchoPacket b(OPac::server_userPanel);
 
@@ -1830,49 +1908,7 @@ namespace bPacket {
 		return b;\
 	}(UID,AID)
 
-	/*
-	_BanchoPacket UserStats(const DWORD UserID, const DWORD AskerID) {
-
-		if (UserID < 1000){//Hard Coded bot stats
-
-			if (UserID == 999)
-				return BOT_STATS;
-
-			_BanchoPacket b = BOT_STATS;\
-			*(DWORD*)&b.Data[0] = UserID;\
-			return b;\
-		}
-
-		_UserRef tP = GetUserFromID(UserID);
-
-		if (!tP || !tP->choToken || (!(tP->privileges & UserPublic) && UserID != AskerID))
-			return bPacket4Byte(OPac::server_userLogout,UserID);
-
-		_BanchoPacket b(OPac::server_userStats, 128);
-
-		const DWORD Off = tP->GetStatsOffset();
-
-		AddInt(b.Data, UserID);
-		b.Data.push_back(tP->actionID);
-
-		AddString(b.Data, tP->ActionText);
-		if (tP->ActionMD5[0] == 0)AddString(b.Data, "");
-		else AddString(b.Data, std::string(tP->ActionMD5, 32));
-
-		AddInt(b.Data, tP->actionMods);
-		b.Data.push_back(tP->GameMode);
-		AddInt(b.Data, tP->BeatmapID);
-		AddLong(b.Data, tP->Stats[Off].rScore);
-		AddInt(b.Data, *(int*)&tP->Stats[Off].Acc);
-		AddInt(b.Data, (tP->Stats[Off].pp > USHORT(-1)) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount);
-		AddLong(b.Data, tP->Stats[Off].tScore);
-		AddInt(b.Data, tP->Stats[Off].getRank(Off,tP->UserID));
-		AddShort(b.Data, USHORT(tP->Stats[Off].pp));
-
-		return b;
-	}*/
-
-	__forceinline _BanchoPacket UserStats(_User *tP) {
+	_BanchoPacket UserStats(_User *tP) {
 
 		if (!tP || !tP->choToken || !(tP->privileges & UserPublic))
 			return bPacket4Byte(OPac::server_userLogout, tP->UserID);
@@ -2005,55 +2041,43 @@ uint64_t GenerateChoToken(){
 
 	return BR::GetRand64();
 }
-__forceinline std::string ReadUleb(size_t &O, const size_t Max) {
 
-	if(O >= Max)return "";
 
-	if (*(byte*)O != 0) {
+_inline DWORD ReadUlebSize(size_t &O, const size_t Max) {
+
+	if (O + 2 >= Max)
+		return 0;
+
+	if (!*(byte*)O) {
 		O++;
-		if (O >= Max)return "";
-		byte tB = *(byte*)O; O++;
-		int sLength = tB & 0x7F;
-		for (int i = 1; tB & 0x80; ++i){
-			if (O >= Max)return "";
-			tB = *(byte*)O; O++;
-			sLength |= (tB & 0x7F) << 7 * i;
-		}
+		return 0;
+	}
 
-		if (size_t(O) + sLength > Max)return "";
+	O++;
 
-		const char* S = (char*)O;
-		O += sLength;
+	DWORD Size = *(byte*)O & 0x7f;
+	byte Shift = 7;
+	while ((*(byte*)O) & 0x80 && O + 1 < Max) {
+		O++;
+		Size |= (*(byte*)O & 0x7f) << Shift;
+		Shift += 7;
+	}O++;
 
-		return std::string(S,sLength);
-
-	}else O++;
-
-	return "";
+	return (size_t(O) + Size <= Max) ? Size : 0;
 }
 
-__forceinline void SkipUleb(size_t &O, const size_t Max) {
+_inline std::string ReadUleb(size_t &O, const size_t Max) {
 
-	if (O >= Max)return;
+	const DWORD Size = ReadUlebSize(O, Max);
 
-	if (*(byte*)O != 0) {
-		O++;
-		if (O >= Max)return;
-		byte tB = *(byte*)O; O++;
-		int sLength = tB & 0x7F;
-		for (int i = 1; tB & 0x80; ++i) {
-			if (O >= Max)return;
-			tB = *(byte*)O; O++;
-			sLength |= (tB & 0x7F) << 7 * i;
-		}
+	const char* S = (char*)O;
+	O += Size;
 
-		if (size_t(O) + sLength > Max)
-			return;
+	return std::string(S, Size);
+}
 
-		O += sLength;
-
-	}
-	else O++;
+_inline void SkipUleb(size_t &O, const size_t Max){
+	O += ReadUlebSize(O, Max);
 }
 
 
@@ -2152,7 +2176,7 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 
 #include <fstream>
 
-__forceinline DWORD FileExistCheck(const std::string &filename) {
+_inline DWORD FileExistCheck(const std::string &filename) {
 	std::ifstream ifs(filename, std::ios::binary | std::ios::ate);
 	if (ifs.is_open()) {
 		ifs.close();
@@ -2165,8 +2189,7 @@ __forceinline DWORD FileExistCheck(const std::string &filename) {
 
 
 
-__forceinline bool WriteAllBytes(const std::string &filename, const void* data, const DWORD Size);
-__forceinline bool WriteAllBytes(const std::string &filename, const std::string &res);
+_inline bool WriteAllBytes(const std::string &filename, const void* data, const DWORD Size);
 bool DownloadMapFromOsu(const int ID) {
 
 	if (ID < 0 || ID > 6000000)
@@ -2184,17 +2207,21 @@ bool DownloadMapFromOsu(const int ID) {
 }
 
 #include "oppai.h"
-#include "pp/pp_base.h"
+//#include "pp/pp_base.h"
+static const std::string String_Space = " ";
+
 
 bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 
 	const std::string MapPath = BEATMAP_PATH + std::to_string(BID) + ".osu";
+	
 
 	const DWORD Size = FileExistCheck(MapPath);
 
 	if (!Size && !DownloadMapFromOsu(BID)) {
 		printf(KRED "Failed to download %i.osu\n" KRESET, BID);
-		WriteAllBytes(MapPath, " ");//Stop it from trying it over and over again.
+
+		WriteAllBytes(MapPath, &String_Space[0], String_Space.size());//Stop it from trying it over and over again.
 		return 0;
 	}
 	if (Size < 100)
@@ -2214,7 +2241,7 @@ bool OppaiCheckMapDownload_New(ezpp_t ez, const DWORD BID, const std::string &Fi
 
 	if (!FileExistCheck(File) && !DownloadMapFromOsu(BID)) {
 		printf(KRED "Failed to download %i.osu\n" KRESET, BID);
-		WriteAllBytes(File, " ");//Stop it from trying it over and over again.
+		WriteAllBytes(File, &String_Space[0], String_Space.size());//Stop it from trying it over and over again.
 		return 0;
 	}
 
@@ -2226,21 +2253,22 @@ bool OppaiCheckMapDownload_New(ezpp_t ez, const DWORD BID, const std::string &Fi
 
 #include "Match.h"
 
+/*
+inline bool WriteAllBytes(const std::string &filename, const std::string &res) {
 
-__forceinline bool WriteAllBytes(const std::string &filename, const std::string &res) {
-
+	if (!res.size())
+		return 0;
 	std::ofstream ifs;
 	ifs.open(filename);
 
 	if (!ifs.is_open())return 0;
 
-
 	ifs.write((char*)&res[0], res.size());
 	ifs.close();
 
 	return 1;
-}
-__forceinline bool WriteAllBytes(const std::string &filename, const void* data, const DWORD Size){
+}*/
+_inline bool WriteAllBytes(const std::string &filename, const void* data, const DWORD Size){
 
 	std::ofstream ifs;
 	ifs.open(filename,std::ofstream::binary);
@@ -2252,6 +2280,7 @@ __forceinline bool WriteAllBytes(const std::string &filename, const void* data, 
 
 	return 1;
 }
+
 
 int getSetID_fHash(const std::string &H, _SQLCon* c){//Could combine getbeatmapid and getsetid into one
 
@@ -2792,7 +2821,7 @@ void Event_client_spectateFrames(_User *tP, const byte* const Packet, const DWOR
 	tP->SpecLock.unlock();
 }
 
-__forceinline void ReadMatchData(_Match *m, const byte* const Packet,const DWORD Size, bool Safe = 0){
+void ReadMatchData(_Match *m, const byte* const Packet,const DWORD Size, bool Safe = 0){//todo make better
 
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size;
@@ -2889,7 +2918,7 @@ void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD S
 	tP->qLock.unlock();
 }
 
-__forceinline void SendMatchList(_User *tP, const bool New) {
+_inline void SendMatchList(_User *tP, const bool New) {
 
 	if(!tP->inLobby)return;
 	
@@ -3612,8 +3641,10 @@ void Event_client_friendAdd(_User *tP, const byte* const Packet, const DWORD Siz
 	if (Status == ListFull)
 		tP->addQue(bPacket::Notification("You may only have a maximum of 256 friends."));
 	else if (Status == Added)
-		SQLExecQue.AddQue("INSERT INTO users_relationships (user1, user2) VALUES (" + std::to_string(tP->UserID) + ", " + std::to_string(ID) + ")");
-
+		SQLExecQue.AddQue(SQL_INSERT("users_relationships",{
+			_SQLKey("user1", tP->UserID),
+			_SQLKey("user2", ID)
+		}));
 }
 
 void Event_client_friendRemove(_User *tP, const byte* const Packet, const DWORD Size) {
@@ -3641,7 +3672,7 @@ void Event_client_friendRemove(_User *tP, const byte* const Packet, const DWORD 
 
 
 
-__forceinline void debug_LogOutUser(_User *tP){
+_inline void debug_LogOutUser(_User *tP){
 
 	const DWORD UID = tP->UserID;
 
@@ -3751,7 +3782,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 
 		if (In + PacketSize > PacketBundle.size()) {
 			printf("%s> Out of range packet %i|%i|%llu\n", tP->Username.c_str(), PacketID, (In + PacketSize), PacketBundle.size());
-			//tP->doQue(s);
+			tP->choToken = 0;
 			return;
 		}
 
@@ -3902,6 +3933,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 			break;
 		case client_friendAdd:
 			Event_client_friendAdd(tP.User, Packet, PacketSize);
+			break;
 		case client_friendRemove:
 			Event_client_friendRemove(tP.User, Packet, PacketSize);
 			break;
@@ -3951,7 +3983,7 @@ const char* countryCodes[] = {
 	"YT","RS","ZA","ZM","ME","ZW","A1","A2","O1","AX","GG","IM","JE","BL",
 	"MF" };
 
-__forceinline byte getCountryNum(const USHORT isoCode){
+_inline byte getCountryNum(const USHORT isoCode){
 
 	for (byte i = 0; i < 253; i++){
 		if (isoCode == *(USHORT*)countryCodes[i])
@@ -4600,17 +4632,17 @@ int main(){
 	auto Config = EXPLODE_VEC(VEC(byte),ConfigBytes, '\n');
 
 	for (DWORD i = 0; i < Config.size(); i++){
-		if (SafeStartCMP(Config[i], "osu_API_Key"))
+		if (MEM_CMP_START(Config[i], "osu_API_Key"))
 			osu_API_KEY = ExtractConfigValue(Config[i]);
-		else if (SafeStartCMP(Config[i], "SQL_Password"))
+		else if (MEM_CMP_START(Config[i], "SQL_Password"))
 			SQL_Password = ExtractConfigValue(Config[i]);
-		else if (SafeStartCMP(Config[i], "SQL_Username"))
+		else if (MEM_CMP_START(Config[i], "SQL_Username"))
 			SQL_Username = ExtractConfigValue(Config[i]);
-		else if (SafeStartCMP(Config[i], "SQL_Schema"))
+		else if (MEM_CMP_START(Config[i], "SQL_Schema"))
 			SQL_Schema = ExtractConfigValue(Config[i]);
-		else if (SafeStartCMP(Config[i], "BeatmapPath"))
+		else if (MEM_CMP_START(Config[i], "BeatmapPath"))
 			BEATMAP_PATH = ExtractConfigValue(Config[i]);
-		else if (SafeStartCMP(Config[i], "ReplayPath"))
+		else if (MEM_CMP_START(Config[i], "ReplayPath"))
 			REPLAY_PATH = ExtractConfigValue(Config[i]);
 	}
 	

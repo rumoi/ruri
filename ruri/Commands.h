@@ -25,7 +25,7 @@
 		return s;\
 	}((str))
 
-__forceinline bool Fetus(const std::string &Target) {
+bool Fetus(const std::string &Target) {
 
 	if (Target.size() == 0)return 0;
 
@@ -202,7 +202,7 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 
 	const auto Respond = [=, &SQL](const std::string& Mess)->void {
 		SQL.Disconnect();
-		return Caller->addQue(bPacket::Notification(std::move(Mess)));
+		return (Caller) ? Caller->addQue(bPacket::Notification(std::move(Mess))) : void();
 	};
 
 	if (!SQL.Connect())
@@ -261,6 +261,47 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 				Banned->choToken = 0;
 			}
 		}
+
+		for (DWORD i = 0; i < BUCKET_COUNT; i++){
+			
+			BeatmapSet_Cache.Lock[i].lock();
+
+			const DWORD BucketSize = BeatmapSet_Cache.TableCount[i];
+
+			for (DWORD z = 0; z < BucketSize; z++){
+				for (auto& Map : BeatmapSet_Cache.Table[i][z].Maps){
+					for (DWORD p = 0; p < 8; p++){
+						if (!Map.lBoard[p])
+							continue;
+
+						Map.lBoard[p]->ScoreLock.lock();
+						bool Updated = 0;
+						for (auto& Score : Map.lBoard[p]->ScoreCache){
+
+							if (Score.UserID == ID) {
+
+								Score.Score = 0;
+								Score.pp = 0;
+
+								Updated = 1;
+								break;
+							}
+							
+						}
+						if(Updated)
+							std::sort(Map.lBoard[p]->ScoreCache.begin(), Map.lBoard[p]->ScoreCache.end(),
+									 (p >= 3) ? SortScoreCacheByPP : SortScoreCacheByScore);
+
+						Map.lBoard[p]->ScoreLock.unlock();
+					}
+
+				}
+
+			}
+
+			BeatmapSet_Cache.Lock[i].unlock();
+		}
+
 	}else return Respond("They already appear to be restricted.");
 	
 	return Respond("The deed is done.");

@@ -8,7 +8,7 @@
 #include <jdbc/cppconn/resultset.h>
 #include <jdbc/cppconn/statement.h>
 
-__forceinline void PrepareSQLString(char* s){
+_inline void PrepareSQLString(char* s){
 
 	DWORD O = 0;
 	while(s[O] != 0){
@@ -200,7 +200,6 @@ struct _SQLCon {
 		Lock.unlock();
 	}
 
-
 	_SQLCon() {
 		driver = 0;
 		con = 0;
@@ -227,7 +226,7 @@ const std::string SQL_INSERT(const std::string &&Table, const VEC(_SQLKey)&& Val
 		if (Return.size())
 			Return.pop_back();
 		return Return;
-	}() + ") VALUES (" + [&] {
+	}() + ")VALUES(" + [&] {
 		std::string Return;
 		for (const _SQLKey& v : Values)
 			if(v.Text)Return += "'" + v.Value + "',";
@@ -241,8 +240,8 @@ const std::string SQL_SETUPDATE(const std::string &&Table, const VEC(_SQLKey) &&
 	return "UPDATE " + Table + " SET " + [&]{
 		std::string Return;
 		for (const _SQLKey& v : Values)
-			if (v.Text)Return += v.Key + " = '" + v.Value + "',";
-			else Return += v.Key + " = " + v.Value+ ",";
+			if (v.Text)Return += v.Key + "='" + v.Value + "',";
+			else Return += v.Key + "=" + v.Value+ ",";
 		if (Return.size())
 			Return.pop_back();
 		return Return;

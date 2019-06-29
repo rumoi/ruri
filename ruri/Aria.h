@@ -3,7 +3,7 @@
 #include "aes.h"
 #include "Base64.h"
 
-#define ARIA_THREAD_COUNT 4
+#define ARIA_THREAD_COUNT 8
 
 struct _Score {
 
@@ -303,7 +303,8 @@ struct _LeaderBoardCache{
 		ScoreLock.unlock();
 
 		if (NewRank == 1 && ScoreCache.size() > 5)
-			chan_Announce.Bot_SendMessage(GetUsernameFromCache(s.UserID) +  " has achieved #1 on [https://osu.ppy.sh/b/" + std::to_string(BID) +" "+ MapName +"] ( " + RoundTo2(s.pp) + "pp )");
+			chan_Announce.Bot_SendMessage("[https://osu.ppy.sh/u/" + std::to_string(s.UserID) + " " + GetUsernameFromCache(s.UserID) +
+				"] has achieved #1 on [https://osu.ppy.sh/b/" + std::to_string(BID) +" "+ MapName +"] ( " + RoundTo2(s.pp) + "pp )");
 
 		printf("ScoreID: %llu\n", s.ScoreID);
 
@@ -399,7 +400,7 @@ struct _BeatmapData{
 
 	bool AddScore(const DWORD Mode, _ScoreCache &s, _SQLCon *Con, std::string* Ret) {
 
-		if (RankStatus < 2 || s.pp == 0.f)return 0;
+		if (RankStatus < RankStatus::RANKED|| s.pp == 0.f)return 0;
 
 		_LeaderBoardCache *L = GetLeaderBoard(Mode, Con);
 
@@ -408,81 +409,6 @@ struct _BeatmapData{
 		return L->AddScore(s, BeatmapID, DisplayTitle, Hash, Con,Ret);
 	}
 
-};
-
-
-template<typename T, typename KeyType = DWORD>
-struct _LTable {
-
-	#define BUCKET_COUNT 64
-	#define BUCKET_SIZE 32768
-	//Failure rate is about ~2 million
-
-	#define GETOFF const DWORD OFF = (*(DWORD*)&Key) % BUCKET_COUNT
-
-	std::shared_mutex Lock[BUCKET_COUNT];
-	DWORD TableCount[BUCKET_COUNT];
-	VEC(T) Table[BUCKET_COUNT];
-	
-
-	inline T* push_back(const T&& A, const bool Locking = 1) {
-
-		const auto Key = A.Key();
-
-		static_assert((sizeof(Key) >= 4), "_LTable::Key must be at least 4 bytes");
-
-		GETOFF;
-
-		if(Locking)Lock[OFF].lock();
-		if (TableCount[OFF] == BUCKET_SIZE) {
-			printf("_LTable overflow\n");
-			TableCount[OFF] = 0;
-		}
-
-		Table[OFF][TableCount[OFF]] = A;
-
-		T* Ret = &Table[OFF][TableCount[OFF]];
-		TableCount[OFF]++;
-		if(Locking)Lock[OFF].unlock();
-		return Ret;
-	}
-
-	inline std::shared_mutex* getMutex(const KeyType& Key){
-		GETOFF;
-		return &Lock[OFF];
-	}
-
-	inline T* get(const KeyType& Key, const bool Locking = 1) {
-
-		GETOFF;
-
-		T* ret = 0;
-
-		if(Locking)Lock[OFF].lock_shared();
-		
-		const DWORD Size = TableCount[OFF];
-
-		for (DWORD i = 0; i != Size; i++){			
-			if (Table[OFF][i].Key() == Key) {
-				ret = &Table[OFF][i];
-				break;
-			}
-		}
-		if(Locking)Lock[OFF].unlock_shared();
-
-		return ret;
-	}
-	_LTable() {
-
-		ZeroMemory(&TableCount[0], BUCKET_COUNT * 4);
-		for (DWORD i = 0; i < BUCKET_COUNT; i++)
-			Table[i].resize(BUCKET_SIZE);
-	}
-
-
-	#undef BUCKET_COUNT
-	#undef BUCKET_SIZE
-	#undef GETOFF
 };
 
 struct _BeatmapSet{
@@ -494,21 +420,18 @@ struct _BeatmapSet{
 	_BeatmapSet(){
 		LastUpdate = INT_MIN;
 		ID = 0;
-		//Lock = new std::shared_mutex();
 		Deleted = 0;
 		Maps.reserve(16);
 	}
 	_BeatmapSet(const DWORD SetID){
 		ID = SetID;
 		LastUpdate = INT_MIN;
-		//Lock = new std::shared_mutex();
 		Deleted = 0;
 		Maps.reserve(16);
 	}
 	_BeatmapSet(const DWORD SetID, const bool Del) {
 		ID = SetID;
 		LastUpdate = INT_MIN;
-		//Lock = new std::shared_mutex();
 		Deleted = Del;
 		Maps.reserve(16);
 	}
@@ -517,8 +440,6 @@ struct _BeatmapSet{
 		ID = 0;
 		LastUpdate = 0;
 		Deleted = 0;
-		Maps.reserve(16);
-		//DeleteAndNull(Lock);
 	}
 
 	const inline DWORD Key()const noexcept {
@@ -1040,7 +961,7 @@ enum scoreOffset {
 	Score_Version
 };
 
-__forceinline std::string GetParam(const std::string &s, const std::string param) {
+_inline std::string GetParam(const std::string &s, const std::string &&param) {
 
 	DWORD Off = s.find(param);
 	if (Off == std::string::npos)return "";
@@ -1271,7 +1192,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			return TryScoreAgain(s);
 		}		
 
-		if (u.User->privileges & UserPublic && !FailTime && !Quit){
+		if ((u.User->privileges & UserPublic) && !FailTime && !Quit && ReplayFile.size() > 250){
 			byte lGameMode = sData.GameMode;
 
 			if (sData.Mods & Relax)lGameMode += 4;
@@ -1287,23 +1208,30 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			float PP = 0.f;
 			float MapStars = 0.f;
 			if (BD->RankStatus == RANKED){
-				ezpp_t ez = ezpp_new();
+				
+				if (sData.GameMode < 2){
+				
+					ezpp_t ez = ezpp_new();
 
-				if (!ez) {
-					LogError("Failed to load ezpp" "Aria");
-					return TryScoreAgain(s);
-				}
+					if (!ez) {
+						LogError("Failed to load ezpp" "Aria");
+						return TryScoreAgain(s);
+					}
 
-				ezpp_set_mods(ez, sData.Mods);
-				ezpp_set_nmiss(ez, sData.countMiss);
-				ezpp_set_accuracy(ez, sData.count100, sData.count50);
-				ezpp_set_combo(ez, sData.MaxCombo);
-				if (!OppaiCheckMapDownload(ez, BD->BeatmapID)){
-					printf("Could not download\n");
-					return TryScoreAgain(s);
-				}
-				PP = ezpp_pp(ez);
-				MapStars = (sData.Mods & (NoFail | Relax | Relax2)) ? 0.f : ezpp_stars(ez);
+					ezpp_set_mods(ez, sData.Mods);
+					ezpp_set_nmiss(ez, sData.countMiss);
+					ezpp_set_accuracy(ez, sData.count100, sData.count50);
+					ezpp_set_combo(ez, sData.MaxCombo);
+					ezpp_set_mode(ez, sData.GameMode);
+						if (!OppaiCheckMapDownload(ez, BD->BeatmapID)) {
+							printf("Could not download\n");
+							return TryScoreAgain(s);
+						}
+				
+					PP = ezpp_pp(ez);
+
+				 MapStars = (sData.Mods & (NoFail | Relax | Relax2)) ? 0.f : ezpp_stars(ez);
+				}else u->addQue(bPacket::Notification("That gamemode is currently not supported for pp.\nYour score will still be saved for future calculations."));
 			}
 			_ScoreCache sc(sData,u.User->UserID,PP);
 			
@@ -1344,7 +1272,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			if (NewBest && sc.ScoreID && ReplayFile.size()){
 				//Might want to save the headers into the file its self.
 				//The only time having raw data would be nice is when someone changes their username. But is it really that big of an issue. Could leave the name as the userid and only resolve that (with the name cache) on fetch.
-				WriteAllBytes(REPLAY_PATH +std::to_string(sc.ScoreID) + ".osr", ReplayFile);
+				WriteAllBytes(REPLAY_PATH +std::to_string(sc.ScoreID) + ".osr",&ReplayFile[0], ReplayFile.size());
 			}
 
 			return;
@@ -1538,7 +1466,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 
 				Response += "\n" + std::to_string(lScore->ScoreID)//online id
 				         + "|" + GetUsernameFromCache(lScore->UserID)//player name
-				         + "|" + std::to_string((Mode >= 4) ? int(lScore->pp + 0.5f) : lScore->Score)//total score
+				         + "|" + std::to_string((Mode >= 4 || LType == RankingType::Country) ? int(lScore->pp + 0.5f) : lScore->Score)//total score
 						 + "|" + std::to_string(lScore->MaxCombo)//max combo
 						 + "|" + std::to_string(lScore->count50)//count 50
 						 + "|" + std::to_string(lScore->count100)//count 100
@@ -1562,11 +1490,6 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	s.Dis();
 }
 
-__forceinline const bool SafeStartCMP(const std::vector<byte> &b, const std::string &&Check){
-	if (b.size() < Check.size())return 0;
-	return (memcmp(&b[0], &Check[0], Check.size()) == 0);
-}
-
 struct _UpdateCache{
 	int Stream;
 	DWORD LastTime;
@@ -1579,7 +1502,7 @@ struct _UpdateCache{
 
 void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 
-	if (!SafeStartCMP(Req, "/web/check-updates.php?action=check") && !SafeStartCMP(Req, "/web/check-updates.php?action=path"))
+	if (!MEM_CMP_START(Req, "/web/check-updates.php?action=check") && !MEM_CMP_START(Req, "/web/check-updates.php?action=path"))
 		return SendAria404(s);
 
 	const std::string URL(Req.begin() + 1,Req.end());
@@ -1618,25 +1541,6 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 	else UpdateCache[CacheOffset] = c;
 }
 
-
-void Thread_Handle_SearchSet(const std::string URL, _Con s){
-
-	DWORD Start = 0;
-
-	for (DWORD i = URL.size() - 1; i < URL.size(); i--) {
-		if (URL[i] < '0' || URL[1] > '9') {
-			Start = i + 1;
-			break;
-		}
-	}
-
-	if (!Start)
-		return s.Dis();
-
-	s.SendData(GET_WEB(MIRROR_IP, "api/set?" + std::string(URL.begin() + Start, URL.end())));
-	return s.Dis();
-}
-
 const std::string directToApiStatus(const std::string &directStatus) {//thank you ripple
 	if (!directStatus.size())
 		return "";
@@ -1654,27 +1558,6 @@ const std::string directToApiStatus(const std::string &directStatus) {//thank yo
 		return "";
 
 	return "1";
-}
-
-void Thread_Handle_DirectSearch(const std::string URL, _Con s){
-
-	const USHORT Key = *(USHORT*)"&r";
-	DWORD Start = 0;
-
-	for (DWORD i = _strlen_("/web/osu-search.php"); i < URL.size() - 2; i++) {
-		if (*(USHORT*)&URL[i] == Key) {
-			Start = i + 1;
-			break;
-		}
-	}
-
-	if (!Start)
-		return s.Dis();
-
-
-	s.SendData(GET_WEB(MIRROR_IP, "api/search?" + std::string(URL.begin() + Start, URL.end())));
-
-	return s.Dis();
 }
 
 void GetReplay(const std::string &URL, _Con s) {
@@ -1700,8 +1583,8 @@ void Thread_DownloadOSZ(const DWORD MapID, _Con s){
 	return s.Dis();
 }
 
-uint64_t UnixToDateTime(const int Unix) {	
-	return 0x89F7FF5F7B58000 + (int64_t(Unix) * int64_t(10000000));
+static inline uint64_t UnixToDateTime(const int Unix) {	
+	return 0x89F7FF5F7B58000 + (int64_t(Unix) * 10000000);
 }
 
 void Thread_WebReplay(const uint64_t ID, _Con s) {
@@ -1787,34 +1670,70 @@ std::string RandomString(const DWORD Count){
 	return rString;
 }
 
+#define IT_ADD(s) size_t(&*s)
+
 void UploadScreenshot(const _HttpRes &res, _Con s){
 	
 	if (res.Body.size() < 1000 || res.Body.size() > 2000000)
 		return;
 
-	std::string Filename;
-
 	#define SCREENSHOT_START "Content-Disposition: form-data; name=\"ss\"; filename=\"ss\"\r\nContent-Type: application/octet-stream\r\n\r\n"
 	#define SCREENSHOT_END "xd-------------------------------28947758029299--"
+	
+	static const std::string Start = SCREENSHOT_START;
 
-	for (const auto& Packet : EXPLODE_MULTI(std::string, &res.Body[0], res.Body.size(),
-							  "-------------------------------28947758029299\r\n")){
-		
-		if (!MEM_CMP_START(Packet, "Content-Disposition: form-data; name=\"ss\"; filename=\"ss\""))
-			continue;
+	auto it = std::search(
+		std::cbegin(res.Body), std::cend(res.Body),
+		std::cbegin(Start), std::cend(Start));
 
-		Filename = RandomString(8) + ".png";
+	if (it == std::cend(res.Body))
+		return s.Dis();
 
-		WriteAllBytes("/home/ss/" + Filename, std::string(Packet.begin() + _strlen_(SCREENSHOT_START), Packet.end() - _strlen_(SCREENSHOT_END)));
+	it += _strlen_(SCREENSHOT_START);
+	const auto end = res.Body.end() - _strlen_(SCREENSHOT_END);
 
-	}
+	if (end < it)
+		return s.Dis();
+	
+	const std::string Filename = RandomString(8) + ".png";
 
-	if (Filename.size()){
-		s.SendData(ConstructResponse(200, {}, VEC(byte)(Filename.begin(), Filename.end())));
-	}
+	WriteAllBytes("/home/ss/" + Filename, &*it, end - it);
+	s.SendData(ConstructResponse(200, {}, VEC(byte)(Filename.begin(), Filename.end())));
 
 	return s.Dis();
 }
+
+namespace MIRROR {
+
+	std::mutex MirrorAPILock;
+	std::vector<std::pair<const std::string, _Con>> MirrorAPIQue;
+
+	void HandleMirrorAPI(){
+
+		while (1){
+
+			if (MirrorAPIQue.size()){
+
+				MirrorAPILock.lock();
+				auto QueCopy = MirrorAPIQue;
+				MirrorAPIQue.clear();
+				MirrorAPILock.unlock();
+
+				for (auto& Q : QueCopy){
+					Q.second.SendData(GET_WEB(MIRROR_IP,_M(Q.first)));
+					Q.second.Dis();
+				}
+
+			}
+
+			Sleep(10);
+		}
+
+	}
+
+}
+
+#define IS_NUM(s)!(s < '0' || s > '9')
 
 void HandleAria(_Con s){
 
@@ -1828,7 +1747,7 @@ void HandleAria(_Con s){
 	}
 
 	bool DontCloseConnection = 0;
-	if (SafeStartCMP(res.Host, "/web/osu-submit-modular-selector.php")) {
+	if (MEM_CMP_START(res.Host, "/web/osu-submit-modular-selector.php")) {
 
 		const int sTime = clock_ms();
 
@@ -1837,29 +1756,62 @@ void HandleAria(_Con s){
 		printf("Score Done in %ims\n", clock_ms() - sTime);
 
 	}
-	else if (SafeStartCMP(res.Host, "/web/check-updates.php")) {
+	else if (MEM_CMP_START(res.Host, "/web/check-updates.php")) {
 		osu_checkUpdates(res.Host, s);
 	}
-	else if (SafeStartCMP(res.Host, "/web/osu-osz2-getscores.php"))
+	else if (MEM_CMP_START(res.Host, "/web/osu-osz2-getscores.php"))
 		osu_getScores(res, s);
-	/*else if (SafeStartCMP(res.Host, "/web/osu-search-set.php")){
-		std::thread a(Thread_Handle_SearchSet, std::string(res.Host.begin() + 1, res.Host.end()), s);
-		a.detach();
-		DontCloseConnection = 1;
-	}*/else if (SafeStartCMP(res.Host, "/web/osu-search.php")) {
-		std::thread a(Thread_Handle_DirectSearch, std::string(res.Host.begin(), res.Host.end()), s);
-		a.detach();
-		DontCloseConnection = 1;
+	else if (MEM_CMP_START(res.Host, "/web/osu-search-set.php")){
+
+		std::string v;
+		v.reserve(8);
+		for (DWORD i = res.Host.size() - 1; i < res.Host.size(); i--) {
+			if (IS_NUM(res.Host[i]))
+				v.push_back(res.Host[i]);
+			else break;
+		}
+		std::reverse(v.begin(), v.end());
+
+		const DWORD SetID = StringToUInt32(v);
+
+		if (SetID) {
+
+			MIRROR::MirrorAPILock.lock();
+			MIRROR::MirrorAPIQue.push_back({"api/set?b=" + std::to_string(SetID), s});
+			MIRROR::MirrorAPILock.unlock();
+
+			DontCloseConnection = 1;
+		}
+	}else if (MEM_CMP_START(res.Host, "/web/osu-search.php")) {
+
+		const USHORT Key = *(USHORT*)"&r";
+		DWORD Start = 0;
+
+		for (DWORD i = _strlen_("/web/osu-search.php"); i < res.Host.size() - 2; i++){
+			if (*(USHORT*)&res.Host[i] == Key) {
+				Start = i + 1;
+				break;
+			}
+		}
+
+		if (Start){
+
+			MIRROR::MirrorAPILock.lock();
+			MIRROR::MirrorAPIQue.push_back({ "api/search?" + std::string(res.Host.begin() + Start, res.Host.end()),s});
+			MIRROR::MirrorAPILock.unlock();
+
+			DontCloseConnection = 1;
+		}
 	}
-	else if (SafeStartCMP(res.Host, "/web/osu-getreplay.php"))
+	else if (MEM_CMP_START(res.Host, "/web/osu-getreplay.php"))
 		GetReplay(std::string(res.Host.begin(), res.Host.end()), s);
-	else if (SafeStartCMP(res.Host, "/d/")) {
+	else if (MEM_CMP_START(res.Host, "/d/")) {
 
 		std::string v;
 		v.reserve(8);
 
 		for (DWORD i = 3; i < res.Host.size();i++)
-			if (res.Host[i] >= '0' && res.Host[i] <= '9')
+			if (IS_NUM(res.Host[i]))
 				v.push_back(res.Host[i]);
 			else break;
 		
@@ -1870,16 +1822,16 @@ void HandleAria(_Con s){
 		a.detach();
 		DontCloseConnection = 1;
 		}
-	}else if (SafeStartCMP(res.Host, "/web/maps/")){//used when updating a single maps .osu
+	}else if (MEM_CMP_START(res.Host, "/web/maps/")){//used when updating a single maps .osu
 		std::thread a(Thread_UpdateOSU, std::string(res.Host.begin()+1, res.Host.end()), s);
 		a.detach();
 		DontCloseConnection = 1;
 	}
-	else if (SafeStartCMP(res.Host, "/web/replays/")) {//used when updating a single maps .osu
+	else if (MEM_CMP_START(res.Host, "/web/replays/")) {//used when updating a single maps .osu
 		std::thread a(Thread_WebReplay, MemToUInt64(&res.Host[_strlen_("/web/replays/")], res.Host.size() - _strlen_("/web/replays/")), s);
 		a.detach();
 		DontCloseConnection = 1;
-	}else if (SafeStartCMP(res.Host, "/web/osu-screenshot.php"))
+	}else if (MEM_CMP_START(res.Host, "/web/osu-screenshot.php"))
 		UploadScreenshot(res, s);
 	else SendAria404(s);
 
@@ -1928,7 +1880,7 @@ void AriaWork(const DWORD ID){
 }
 bool ARIALOADED = 0;
 void Aria_Main(){
-
+	
 	UpdateCache.reserve(16);//Really should only be a few anyway.
 
 	const char * mName = "Aria";
@@ -1940,6 +1892,10 @@ void Aria_Main(){
 			AriaConnectionQue[i].reserve(64);
 			printf("	Aria%i: %i\n", i, int(AriaSQL[i].Connect()));
 			std::thread a(AriaWork, i);
+			a.detach();
+		}
+		{
+			std::thread a(MIRROR::HandleMirrorAPI);
 			a.detach();
 		}
 	}

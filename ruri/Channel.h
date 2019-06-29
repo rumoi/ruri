@@ -9,7 +9,7 @@ enum IRC_Perm {
 	IRC_Admin = 4,
 	IRC_Dev = 5
 };
-__forceinline int GetMaxPerm(const DWORD Priv) {
+_inline int GetMaxPerm(const DWORD Priv) {
 
 	if (Priv & Privileges::AdminDev)return IRC_Dev;
 	if (Priv & Privileges::AdminBanUsers)return IRC_Admin;
@@ -225,7 +225,7 @@ constexpr size_t ChannelListSize() noexcept{
 	return sizeof(ChannelList) / sizeof(_Channel*);
 }
 
-__forceinline _Channel* GetChannelByName(const std::string &Name){
+_inline _Channel* GetChannelByName(const std::string &Name){
 
 	const int Sum = WeakStringToInt(Name);
 

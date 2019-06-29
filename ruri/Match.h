@@ -97,7 +97,7 @@ struct _Match{
 
 	_BanchoPacket LobbyCache;
 
-	__forceinline void sendUpdate(const _BanchoPacket &b, const _User* Sender = 0) {
+	_inline void sendUpdate(const _BanchoPacket &b, const _User* Sender = 0) {
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++){
 			_User *u = Slot[i].User;
 			if (u && u != Sender && u->choToken)
@@ -105,7 +105,7 @@ struct _Match{
 		}
 	}
 
-	__forceinline void sendUpdates(const VEC(_BanchoPacket) &&b, const _User* Sender = 0){
+	_inline void sendUpdates(const VEC(_BanchoPacket) &&b, const _User* Sender = 0){
 
 		if (b.size() == 0)return;
 		if (b.size() == 1)
@@ -118,7 +118,7 @@ struct _Match{
 		}
 	}
 
-	__forceinline void ClearPlaying() {
+	_inline void ClearPlaying() {
 
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++) {
 			if (Slot[i].SlotStatus == SlotStatus::Playing)
@@ -133,7 +133,7 @@ struct _Match{
 		PlayersLoading = 0;
 	}
 
-	__forceinline void removeUser(_User* u, const bool Kicked){
+	void removeUser(_User* u, const bool Kicked){
 
 		if (!u || !u->CurrentMatchID)return;
 
@@ -215,7 +215,7 @@ struct _Match{
 
 	}
 
-	void UnreadyUsers(){
+	_inline void UnreadyUsers(){
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++)
 			if (Slot[i].SlotStatus == SlotStatus::Ready)
 				Slot[i].SlotStatus = SlotStatus::NotReady;
@@ -314,7 +314,7 @@ _Match* getEmptyMatch(){
 
 namespace bPacket {
 
-	__forceinline _BanchoPacket bMatch(USHORT Packet, _Match *m, bool SendPassword) {
+	_BanchoPacket bMatch(USHORT Packet, _Match *m, bool SendPassword) {
 
 		_BanchoPacket b(Packet);
 
@@ -366,66 +366,8 @@ namespace bPacket {
 		return b;
 	}
 
-	/*
-	__forceinline _BanchoPacket bCommunityMatch(const USHORT Packet, _CommunityMatch *m, const _User* u, const USHORT MatchID) {
-
-		_BanchoPacket b(Packet);
-
-
-		if(u->comMatchPage > floor(float(m->User.size())))
-
-
-		AddShort(b.Data, MatchID);
-		b.Data.push_back(0);
-		b.Data.push_back(m->Settings.MatchType);
-		AddInt(b.Data, m->Settings.Mods);
-		AddString(b.Data, m->Settings.Name);
-
-		AddString(b.Data, "");//Password
-
-		AddString(b.Data, m->Settings.BeatmapName);
-		AddInt(b.Data, m->Settings.BeatmapID);
-		AddString(b.Data, m->Settings.BeatmapChecksum);
-
-		b.Data.resize(b.Data.size() + (NORMALMATCH_MAX_COUNT * 2));
-
-		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++)
-			b.Data[b.Data.size() - ((NORMALMATCH_MAX_COUNT * 2) - i)] = m->Slot[i].SlotStatus;
-		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++)
-			b.Data[b.Data.size() - (NORMALMATCH_MAX_COUNT - i)] = m->Slot[i].SlotTeam;
-
-		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++) {
-			if (m->Slot[i].User)
-				AddInt(b.Data, m->Slot[i].User->UserID);
-		}
-
-		AddInt(b.Data, m->HostID);
-		b.Data.push_back(m->Settings.PlayMode);
-		b.Data.push_back(m->Settings.ScoringType);
-		b.Data.push_back(m->Settings.TeamType);
-		b.Data.push_back(m->Settings.FreeMod);
-
-		if (m->Settings.FreeMod) {
-			DWORD Mods[NORMALMATCH_MAX_COUNT];
-			for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++) {
-				if (!m->Slot[i].User)Mods[i] = 0;
-				else Mods[i] = m->Slot[i].CurrentMods;
-			}
-			AddMem(b.Data, Mods, 64);
-		}
-		AddInt(b.Data, m->Seed);
-
-		if (!SendPassword)
-			m->LobbyCache = b;
-		else m->LobbyCache.Type = 0;
-
-		return b;
-	}
-
-	*/
-
 }
-__forceinline void Event_client_matchStart(_User *tP);
+void Event_client_matchStart(_User *tP);
 const std::string ProcessCommand(_User* u, const std::string &Command, DWORD &PrivateRes);
 
 
