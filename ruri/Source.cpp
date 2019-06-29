@@ -132,9 +132,9 @@ enum RankStatus {
 #define al_min(a, b) ((a) < (b) ? (a) : (b))
 #define al_max(a, b) ((a) > (b) ? (a) : (b))
 
-#define MUTEX_LOCKGUARD(a) std::unique_lock<std::mutex> LOCKGUARD(a)
+#define MUTEX_LOCKGUARD(a) std::scoped_lock<std::mutex> LOCKGUARD(a)
 #define S_MUTEX_SHARED_LOCKGUARD(a) std::shared_lock<std::shared_mutex> LOCKGUARD(a)
-#define S_MUTEX_LOCKGUARD(a) std::unique_lock<std::shared_mutex> LOCKGUARD(a)
+#define S_MUTEX_LOCKGUARD(a) std::scoped_lock<std::shared_mutex> LOCKGUARD(a)
 
 #define CHO_VERSION 19
 
@@ -4660,7 +4660,6 @@ int main(){
 		printf("Failed to load WSA.\n");
 		return 0;
 	}
-
 	receiveConnections();
 	
 	return 1;
