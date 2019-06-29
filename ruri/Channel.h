@@ -206,6 +206,7 @@ struct _Channel{
 		ViewLevel = 0;
 		WriteLevel = 0;
 		NameSum = 0;
+		ChannelCount = 0;
 	}
 
 };

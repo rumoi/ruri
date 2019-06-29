@@ -309,6 +309,7 @@ constexpr size_t _strlen_(const char* s)noexcept{
 }
 
 #define FastVByteAlloc(x)[&]{const char*const a = x; const std::vector<byte> b(a,a + _strlen_(a) + 1); return b;}()
+
 #define MemToData(TYPE, LOC,LEN)\
 	[](const size_t mem, const DWORD size)->TYPE{\
 		if(!mem || !size)return 0;\
@@ -438,9 +439,9 @@ struct _LTable {
 		return Ret;
 	}
 
-	_inline std::shared_mutex* getMutex(const KeyType& Key) {
+	_inline std::shared_mutex& getMutex(const KeyType& Key) {
 		GETOFF;
-		return &Lock[OFF];
+		return Lock[OFF];
 	}
 
 	_inline T* get(const KeyType& Key, const bool Locking = 1) {
@@ -2841,7 +2842,7 @@ void ReadMatchData(_Match *m, const byte* const Packet,const DWORD Size, bool Sa
 		m->Settings.Password = ReadUleb(O,End);
 		ReplaceAll(m->Settings.Password," ","_");
 	}
-	else ReadUleb(O,End);
+	else SkipUleb(O,End);
 	m->Settings.BeatmapName = ReadUleb(O,End);
 	if (O + 4 > End)return;
 	m->Settings.BeatmapID = *(DWORD*)O; O += 4;
@@ -3303,7 +3304,7 @@ void Event_client_matchHasBeatmap(_User *tP){
 
 	for (DWORD i = 0; i < 16; i++){
 		if (m->Slot[i].User == tP){
-			if (m->Slot[i].SlotStatus = SlotStatus::NoMap) {
+			if (m->Slot[i].SlotStatus == SlotStatus::NoMap) {
 				m->Slot[i].SlotStatus = SlotStatus::NotReady;
 				m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
 			}break;
@@ -4333,7 +4334,12 @@ void HandlePacket(_Con s){
 	if(UserAgent.size() == 0)
 		UserAgent = res.GetHeaderValue("user-agent");
 
-	const uint64_t choToken = StringToUInt64(res.GetHeaderValue("osu-token"));
+	const uint64_t choToken = [](const _HttpRes& R)->uint64_t {
+
+		const std::string Header = R.GetHeaderValue("osu-token");
+
+		return StringToUInt64(Header);	
+	}(res);
 	
 	if (!UserAgent.size()){
 		LogMessage("No user agent set.");
@@ -4647,10 +4653,8 @@ int main(){
 			REPLAY_PATH = ExtractConfigValue(Config[i]);
 	}
 	
-	if (BANCHO_THREAD_COUNT < 4 || ARIA_THREAD_COUNT < 4){
-		printf("BANCHO_THREAD_COUNT or ARIA_THREAD_COUNT can not be below 4\n");
-		return 0;
-	}
+	static_assert((BANCHO_THREAD_COUNT >= 4 && ARIA_THREAD_COUNT >= 4),
+		"BANCHO_THREAD_COUNT or ARIA_THREAD_COUNT can not be below 4");
 
 	if (osu_API_KEY.size() == 0)
 		printf("No api key was given. Some features will not work.\n");

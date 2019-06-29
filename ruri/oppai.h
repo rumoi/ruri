@@ -2326,10 +2326,12 @@ ezpp_t ezpp_new(void) {
 }
 
 void free_owned_map(ezpp_t ez) {
-	if (ez->flags & OWNS_MAP_BIT) {
+	if (!ez)
+		return;
+	if (ez->flags & OWNS_MAP_BIT){
+		ez->flags &= ~OWNS_MAP_BIT;
 		free(ez->map);
 		free(ez->data);
-		ez->flags &= ~OWNS_MAP_BIT;
 	}
 	ez->map = 0;
 	ez->data = 0;

@@ -29,6 +29,21 @@ struct _Score {
 
 		return float(float(count50 * 50 + count100 * 100 + count300 * 300) / (TotalHits * 300)) * 100;
 	}
+	_Score() {
+
+		Score = 0;
+		Mods = 0;
+		count300 = 0;
+		count100 = 0;
+		count50 = 0;
+		countGeki = 0;
+		countKatu = 0;
+		countMiss = 0;
+		MaxCombo = 0;
+		FullCombo = 0;
+		GameMode = 0;
+
+	}
 };
 
 struct _ScoreCache{
@@ -610,7 +625,9 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 
 	//Set ID is not in the cache. We need to add it.
 
-	S_MUTEX_LOCKGUARD(*BeatmapSet_Cache.getMutex(SetID));
+	std::shared_mutex& bMutex = BeatmapSet_Cache.getMutex(SetID);
+
+	S_MUTEX_LOCKGUARD(bMutex);
 
 	//Attempt to get it again. Just incase there was another request that already handled it.
 	if(!SET && !ForceUpdate){
@@ -1061,7 +1078,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 	if (RawScoreData.size() < 10){
 
-		printf("RawScoreData was under 10(%i)\n",RawScoreData.size());
+		printf("RawScoreData was under 10(%zi)\n",RawScoreData.size());
 
 		return TryScoreAgain(s);
 	}else {
@@ -1319,12 +1336,13 @@ enum RankingType
 std::string urlDecode(const std::string &SRC) {
 	std::string ret;
 	ret.reserve(SRC.size());
-	int i, ii;
+	DWORD i, ii;
 	for (i = 0; i<SRC.length(); i++) {
 		if (SRC[i] == '%') {
-			sscanf(SRC.substr(i + 1, 2).c_str(), "%x", &ii);
-			ret.push_back(char(ii));
-			i = i + 2;
+			if (sscanf(SRC.substr(i + 1, 2).c_str(), "%x", &ii) != EOF) {
+				ret.push_back(char(ii));
+				i = i + 2;
+			}
 		}
 		else {
 			ret += SRC[i];

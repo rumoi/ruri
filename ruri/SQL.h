@@ -18,34 +18,25 @@ _inline void PrepareSQLString(char* s){
 	}
 }
 
-#define DO_REMOVEQUOTES(STR)\
-	[](std::string &s){\
-		const size_t l = s.size();\
-		for(size_t i = 0; i < l ; i++)\
-			if(s[i] == '\'')\
-				s[i] = '_';\
-		return s;\
-	}(STR)
+#define DO_REMOVEQUOTES(s) for (char& c : s) { if (c == '\'')c = '_'; }
 
-#define DO_USERNAMESAFE(STR)\
-	[](std::string &s)->std::string{\
-		const size_t l = s.size();\
-		for(size_t i = 0; i < l ; i++){\
-			if(s[i] == ' ')s[i] = '_';\
-			else if (s[i] >= 'A' && s[i] <= 'Z')\
-				s[i] += 'a' - 'A';\
-		}\
-		return s;\
-	}(STR)
-#define USERNAMESQL(STR)\
-	[&]{\
-		std::string s(STR);\
-		DO_REMOVEQUOTES(s);\
-		return DO_USERNAMESAFE(s);\
-	}()\
+#define DO_USERNAMESAFE(s)\
+	for (char& c : s){\
+		if (c == ' ')\
+			c = '_';\
+		else if(c >= 'A' && c <= 'Z')\
+			c += 'a' - 'A';\
+	}
 
-#define USERNAMESAFE(STR) [&]{std::string gccxd = STR; return DO_USERNAMESAFE(gccxd);}()
-#define REMOVEQUOTES(STR) [&]{std::string gccxd = STR; return DO_REMOVEQUOTES(gccxd);}()
+std::string USERNAMESQL(const std::string &STR){
+	std::string s(STR);
+	DO_REMOVEQUOTES(s);
+	DO_USERNAMESAFE(s)
+	return s;
+}
+
+#define USERNAMESAFE(STR) [&]{std::string TempString = STR; DO_USERNAMESAFE(TempString); return TempString;}()
+#define REMOVEQUOTES(STR) [&]{std::string TempString = STR; DO_REMOVEQUOTES(TempString); return TempString;}()
 
 std::string SQL_Password;
 std::string SQL_Username;
@@ -203,6 +194,7 @@ struct _SQLCon {
 	_SQLCon() {
 		driver = 0;
 		con = 0;
+		LastMessage = 0;
 	}
 
 };

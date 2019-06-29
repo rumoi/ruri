@@ -225,6 +225,7 @@ struct _Match{
 	}
 
 	_Match(){
+		MatchId = 0;
 		PlayerCount = 0;
 		Tournament = 0;
 
@@ -297,7 +298,7 @@ _Match* getEmptyMatch(){
 
 	EmptyMatchLock.lock();
 
-	for (DWORD i = 0; i < MAX_MULTI_COUNT; i++)
+	for (USHORT i = 0; i < MAX_MULTI_COUNT; i++)
 		if (!Match[i].PlayerCount){
 			Match[i].Reset();
 			Match[i].Tournament = 1;
