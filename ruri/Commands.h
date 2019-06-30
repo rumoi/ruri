@@ -310,7 +310,7 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 
 std::string CombineAllNextSplit(DWORD INDEX, const VEC(std::string_view) &SPLIT){
 
-	std::string comString = (SPLIT.size() <= INDEX) ? std::string(begin(SPLIT[INDEX]),end(SPLIT[INDEX])) : "";
+	std::string comString = (SPLIT.size() > INDEX) ? std::string(begin(SPLIT[INDEX]),end(SPLIT[INDEX])) : "";
 
 	for (DWORD i = INDEX + 1; i < SPLIT.size(); i++){
 		comString.push_back(' ');
