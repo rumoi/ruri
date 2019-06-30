@@ -76,7 +76,7 @@ struct _Channel{
 		if (memcmp(&NewUsers[0], &IRCUsers[0],sizeof(_User*) * MAX_USER_COUNT))
 			return 0;
 
-		IRCUsers = std::move(NewUsers);
+		IRCUsers = _M(NewUsers);
 		ChannelCount = NOffset;
 
 		return 1;
@@ -207,6 +207,7 @@ struct _Channel{
 		WriteLevel = 0;
 		NameSum = 0;
 		ChannelCount = 0;
+		AutoJoin = 0;
 	}
 
 };

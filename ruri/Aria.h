@@ -1163,33 +1163,37 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		const std::string Key = "osu!-scoreburgr---------" + osuver;
 
 		_Score sData;
-		const auto ScoreData = EXPLODE_VEC(std::string, unAesString(base64_decode(score), Key, iv),':');
+		{
+			const std::string AES = unAesString(base64_decode(score), Key, iv);
 
-		if (ScoreData.size() != 18){
-			const std::string Error = "Score sent with wrong ScoreData length (" + std::to_string(ScoreData.size()) + ")\0";
-			LogError(&Error[0], "Aria");
-			return ScoreFailed(s);
-		}
+			const auto ScoreData = Explode_View(AES, ':', 18);
 
-		sData.Mods = StringToUInt32(ScoreData[score_Mods]);
+			if (ScoreData.size() != 18) {
+				const std::string Error = "Score sent with wrong ScoreData length (" + std::to_string(ScoreData.size()) + ")\0";
+				LogError(&Error[0], "Aria");
+				return ScoreFailed(s);
+			}
 
-		if (sData.Mods & (Mods::Relax2 | Mods::Autoplay | (1 << 29)))
-			return ScoreFailed(s);
+			sData.Mods = StringToUInt32(ScoreData[score_Mods]);
 
-		sData.BeatmapHash = REMOVEQUOTES(ScoreData[scoreOffset::score_FileCheckSum]);
+			if (sData.Mods & (Mods::Relax2 | Mods::Autoplay | (1 << 29)))
+				return ScoreFailed(s);
 
-		sData.UserName = ScoreData[scoreOffset::score_PlayerName];
-		sData.count300 = StringToInt32(ScoreData[score_Count300]);
-		sData.count100 = StringToInt32(ScoreData[score_Count100]);
-		sData.count50 = StringToInt32(ScoreData[score_Count50]);
-		sData.countGeki = StringToInt32(ScoreData[score_CountGeki]);
-		sData.countKatu = StringToInt32(ScoreData[score_CountKatu]);
-		sData.countMiss = StringToInt32(ScoreData[score_CountMiss]);
-		sData.Score = StringToUInt32(ScoreData[score_totalScore]);
-		sData.MaxCombo = StringToInt32(ScoreData[score_maxCombo]);
-		sData.FullCombo = (ScoreData[score_Perfect] == "True") ? 1 : 0;
-		sData.GameMode = StringToInt32(ScoreData[score_playMode]);
-		//Score Data is ready to read.
+			sData.BeatmapHash = REMOVEQUOTES(std::string(IT_COPY(ScoreData[scoreOffset::score_FileCheckSum])));
+
+			sData.UserName = ScoreData[scoreOffset::score_PlayerName];
+			sData.count300 = StringToInt32(ScoreData[score_Count300]);
+			sData.count100 = StringToInt32(ScoreData[score_Count100]);
+			sData.count50 = StringToInt32(ScoreData[score_Count50]);
+			sData.countGeki = StringToInt32(ScoreData[score_CountGeki]);
+			sData.countKatu = StringToInt32(ScoreData[score_CountKatu]);
+			sData.countMiss = StringToInt32(ScoreData[score_CountMiss]);
+			sData.Score = StringToUInt32(ScoreData[score_totalScore]);
+			sData.MaxCombo = StringToInt32(ScoreData[score_maxCombo]);
+			sData.FullCombo = (ScoreData[score_Perfect] == "True") ? 1 : 0;
+			sData.GameMode = StringToInt32(ScoreData[score_playMode]);
+			
+		}//Score Data is ready to read.
 
 		if (sData.UserName.size() && sData.UserName[sData.UserName.size()-1] == ' ')
 			sData.UserName.pop_back();//Pops off supporter client check.
@@ -1504,7 +1508,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 		}
 	}
 
-	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Response.begin(),Response.end())));
+	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Response.begin(), Response.end())));
 	s.Dis();
 }
 
@@ -1533,7 +1537,7 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 		if (UpdateCache[i].Stream == Stream){
 
 			if (UpdateCache[i].LastTime + 3600000 > clock_ms()){
-				s.SendData(ConstructResponse(200, Empty_Headers,UpdateCache[i].Cache));
+				s.SendData(ConstructResponse(200, Empty_Headers, UpdateCache[i].Cache));
 				return s.Dis();
 			}
 
@@ -1659,10 +1663,10 @@ void Thread_WebReplay(const uint64_t ID, _Con s) {
 	DeleteAndNull(res);
 
 	s.SendData(ConstructResponse(200, {
-		_HttpHeader("Content-type","application/octet-stream"),
-		_HttpHeader("Content-length",std::to_string(Total.size())),
-		_HttpHeader("Content-Description","File Transfer"),
-		_HttpHeader("Content-Disposition","attachment; filename=\"" + std::to_string(ID) + ".osr\"")
+		{"Content-type","application/octet-stream"},
+		{"Content-length",std::to_string(Total.size())},
+		{"Content-Description","File Transfer"},
+		{"Content-Disposition","attachment; filename=\"" + std::to_string(ID) + ".osr\""}
 	}, Total));
 
 	return s.Dis();

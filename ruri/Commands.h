@@ -137,7 +137,7 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 
 	const auto Respond = [=,&SQL](const std::string& Mess)->void {
 		SQL.Disconnect();
-		return Caller->addQue(bPacket::Notification(std::move(Mess)));
+		return Caller->addQue(bPacket::Notification(_M(Mess)));
 	};
 
 	if (!SQL.Connect())
@@ -202,7 +202,7 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 
 	const auto Respond = [=, &SQL](const std::string& Mess)->void {
 		SQL.Disconnect();
-		return (Caller) ? Caller->addQue(bPacket::Notification(std::move(Mess))) : void();
+		return (Caller) ? Caller->addQue(bPacket::Notification(_M(Mess))) : void();
 	};
 
 	if (!SQL.Connect())
@@ -307,33 +307,18 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 	return Respond("The deed is done.");
 }
 
-#ifndef LINUX
-#define CombineAllNextSplit(INDEX, SPLIT)\
-	[&]()->std::string{\
-		if (SPLIT.size() <= INDEX)return "";\
-		if (SPLIT.size() == INDEX + 1)return SPLIT[INDEX];\
-		std::string comString = SPLIT[INDEX];\
-		for (DWORD i = INDEX + 1; i < SPLIT.size(); i++)\
-			comString += " " + SPLIT[i];\
-		return comString;\
-	}()
 
-#else
+std::string CombineAllNextSplit(DWORD INDEX, const VEC(std::string_view) &SPLIT){
 
-std::string CombineAllNextSplit(DWORD INDEX, const std::vector<std::string> &SPLIT){//thank you gcc
+	std::string comString = (SPLIT.size() <= INDEX) ? std::string(begin(SPLIT[INDEX]),end(SPLIT[INDEX])) : "";
 
-	if (SPLIT.size() <= INDEX)return "";
-	if (SPLIT.size() == INDEX + 1)return SPLIT[INDEX];
-
-	std::string comString = SPLIT[INDEX];
-	for (DWORD i = INDEX + 1; i < SPLIT.size(); i++)
-		comString += " " + SPLIT[i];
+	for (DWORD i = INDEX + 1; i < SPLIT.size(); i++){
+		comString.push_back(' ');
+		comString.append(SPLIT[i]);
+	}
 
 	return comString;
 }
-
-
-#endif
 
 std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const DWORD BeatmapID){
 
@@ -400,7 +385,7 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 	
 	DeleteAndNull(res);
 
-	chan_Announce.Bot_SendMessage(std::move(Announcement));
+	chan_Announce.Bot_SendMessage(_M(Announcement));
 
 	_BeatmapSet* bData = GetBeatmapSetFromSetID(SetID, 0);
 
@@ -426,9 +411,9 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 	return "Done.";
 }
 
-std::string BlockUser(_User* u, const std::string &Target, const bool UnBlock){
+std::string BlockUser(_User* u, const std::string_view Target, const bool UnBlock){
 
-	auto res = SQL_BanchoThread[clock() & 3].ExecuteQuery("SELECT id from users where username_safe = '" + USERNAMESQL(Target) + "' LIMIT 1");
+	auto res = SQL_BanchoThread[clock() & 3].ExecuteQuery("SELECT id from users where username_safe = '" + USERNAMESQL_Ref(std::string(IT_COPY(Target))) + "' LIMIT 1");
 
 	DWORD UserID = 0;
 
@@ -461,7 +446,7 @@ void UpdateAllUserStatsinGM(_User* Caller, const DWORD GM){
 	const auto Respond = [=, &SQL](const std::string&& Mess)->void {
 		SQL.Disconnect();
 		if (!Caller)return;
-		return Caller->addQue(bPacket::Notification(std::move(Mess)));
+		return Caller->addQue(bPacket::Notification(_M(Mess)));
 	};
 
 	if (!SQL.Connect())
@@ -580,7 +565,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 	PrivateRes = 1;
 
-	const auto Split = EXPLODE_VEC(std::string, Command, ' ');
+	const auto Split = Explode_View(Command, ' ', 8);
 
 	const int CommandHash = WeakStringToInt(Split[0]);
 	//User Commands
@@ -630,7 +615,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 			const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
 
 			{
-				std::thread t(RestrictUser, u, std::move(RestrictName), RestrictID);
+				std::thread t(RestrictUser, u, _M(RestrictName), RestrictID);
 				t.detach();
 			}
 
@@ -647,7 +632,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 			const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
 
 			{
-				std::thread t(unRestrictUser, u, std::move(RestrictName), RestrictID);
+				std::thread t(unRestrictUser, u, _M(RestrictName), RestrictID);
 				t.detach();
 			}
 
@@ -702,7 +687,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 						User.addQue(b);
 			}
 			else if (Split.size() > 1) {
-				_UserRef Target(GetUserFromNameSafe(USERNAMESAFE(Split[1])),1);
+				_UserRef Target(GetUserFromNameSafe(USERNAMESQL(Split[1])),1);
 				if (Target.User)
 					Target.User->addQue(b);
 			}
@@ -714,7 +699,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 
 			if (Split.size() < 2)return "No target given";
 
-			_UserRef Target(GetUserFromNameSafe(USERNAMESAFE(Split[1])),1);
+			_UserRef Target(GetUserFromNameSafe(USERNAMESQL(Split[1])),1);
 
 			if (!Target.User || !Target.User->choToken)
 				return "User not found.";
@@ -729,14 +714,14 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 			return CombineAllNextSplit(1, Split);
 
 		case _WeakStringToInt_("!fcfg"):
-			return (Split.size() > 2) ? CFGExploit(USERNAMESAFE(Split[1]), CombineAllNextSplit(2, Split)) : "!fcfg <username> <config lines>";
+			return (Split.size() > 2) ? CFGExploit(USERNAMESQL(Split[1]), CombineAllNextSplit(2, Split)) : "!fcfg <username> <config lines>";
 
 		case _WeakStringToInt_("!cbomb"): {
 
 			if (Split.size() != 3)
 				return "!cbomb <username> <count>";
 
-			_UserRef t(GetUserFromNameSafe(USERNAMESAFE(Split[1])),1);
+			_UserRef t(GetUserFromNameSafe(USERNAMESQL(Split[1])),1);
 
 			if (t.User) {
 				const USHORT Count = USHORT(StringToInt32(Split[2]));

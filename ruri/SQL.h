@@ -28,15 +28,34 @@ _inline void PrepareSQLString(char* s){
 			c += 'a' - 'A';\
 	}
 
-std::string USERNAMESQL(const std::string &STR){
-	std::string s(STR);
+_inline std::string USERNAMESQL(std::string s){
 	DO_REMOVEQUOTES(s);
 	DO_USERNAMESAFE(s)
 	return s;
 }
 
-#define USERNAMESAFE(STR) [&]{std::string TempString = STR; DO_USERNAMESAFE(TempString); return TempString;}()
-#define REMOVEQUOTES(STR) [&]{std::string TempString = STR; DO_REMOVEQUOTES(TempString); return TempString;}()
+_inline std::string USERNAMESQL_Ref(std::string&& s) {
+	DO_REMOVEQUOTES(s);
+	DO_USERNAMESAFE(s)
+	return s;
+}
+
+_inline std::string USERNAMESQL(std::string_view s){
+	return USERNAMESQL_Ref(std::string(IT_COPY(s)));
+}
+
+_inline std::string REMOVEQUOTES(std::string s){
+	DO_REMOVEQUOTES(s);
+	return s;
+}
+
+_inline std::string USERNAMESAFE(std::string s) {
+	DO_USERNAMESAFE(s);
+	return s;
+}
+
+//#define USERNAMESAFE(STR) [&]{std::string TempString(STR); DO_USERNAMESAFE(TempString); return TempString;}()
+//#define REMOVEQUOTES(STR) [&]{std::string TempString(STR); DO_REMOVEQUOTES(TempString); return TempString;}()
 
 std::string SQL_Password;
 std::string SQL_Username;

@@ -260,7 +260,7 @@ enum LoginReply {
 	Login_Failed = -1
 };
 
-const int MAX_PACKET_LENGTH = 2816;
+const unsigned int MAX_PACKET_LENGTH = 2816;
 
 #ifndef LINUX
 
@@ -394,6 +394,10 @@ constexpr size_t _strlen_(const char* s)noexcept{
 
 
 #define VEC(s) std::vector<s>
+#define TUPLE(a,b) std::tuple<a,b>
+#define IT_COPY(a) begin(a),end(a)
+
+#define SS_TUPLE_VEC VEC(TUPLE(std::string, std::string))
 
 const std::string BOT_NAME = "ruri";
 const std::string FAKEUSER_NAME = []{const byte a[] = { 226,128,140,226,128,141,0 }; return std::string((char*)a); }();
@@ -439,7 +443,7 @@ struct _LTable {
 		return Ret;
 	}
 
-	_inline std::shared_mutex& getMutex(const KeyType& Key) {
+	_inline std::shared_mutex& getMutex(const KeyType& Key){
 		GETOFF;
 		return Lock[OFF];
 	}
@@ -908,22 +912,13 @@ _inline void AddShort(std::vector<byte> &v, const short Value) {
 		if(Value.size() == 0)return;\
 		v.resize(v.size() + Value.size());\
 		memcpy(&v[v.size() - Value.size()], &Value[0], Value.size());\
-	}(std::move(VALUE))
+	}(_M(VALUE))
 
 _inline void AddMem(std::vector<byte> &v, const void* Value, const DWORD Size) {
 	if (Size == 0)return;
 	v.resize(v.size() + Size);
 	memcpy(&v[v.size() - Size], Value, Size);
 }
-
-#ifndef LINUX
-
-void AddUleb(VEC(byte) &v, DWORD s) {
-
-	return;
-}
-
-#else
 
 void AddUleb(VEC(byte) &v, DWORD s) {
 
@@ -943,8 +938,6 @@ void AddUleb(VEC(byte) &v, DWORD s) {
 	else v.push_back(0);
 
 }
-
-#endif // !LINUX
 
 
 _inline void AddString(std::vector<byte> &v, const std::string &Value){
@@ -1085,6 +1078,7 @@ public:
 	}
 };
 
+/*
 #define EXPLODE(TYPE,DATA,LEN,DELMNT)[](const char*const d,const size_t Size)->VEC(TYPE){\
 	VEC(TYPE) Output;\
 	if(!d || !Size)\
@@ -1100,7 +1094,7 @@ public:
 		Output.push_back(TYPE(Start,d + Size));\
 	return Output;\
 	}((const char*const)DATA,LEN)
-
+	*/
 #define EXPLODE_MULTI(TYPE,DATA,LEN,DELMNT)[](const char*const d,const size_t Size)->VEC(TYPE){\
 	VEC(TYPE) Output;\
 	if(!d || !Size)\
@@ -1122,8 +1116,38 @@ public:
 	return Output;\
 	}((const char*const)DATA,LEN)
 
+template<typename T>
+const VEC(std::string_view) Explode_View(const T& Input, const char Delim, const DWORD ExpectedSize) {
 
-#define EXPLODE_VEC(TYPE, VECT,DELMNT)EXPLODE(TYPE,&VECT[0],VECT.size(),DELMNT)
+	VEC(std::string_view) Views;
+
+	if (Input.size()) {/*
+					  This branch has to be here.
+					  If a std::string_view is passed into Explode_View and the reference operator is called (&)
+					  with a square brackter array ([i]) It will offset the reference to the reference and NOT the original reference point.
+					  This will crash on the first &Input[0] if the size is 0 as well - it will try to read unintalized memory;
+					  */
+		Views.reserve(ExpectedSize);
+
+		size_t Start = size_t(&Input[0]);
+
+		for (const auto& c : Input) {//This needs to be auto. Setting it to anything else could cause an implicit cast - making the reference a local.
+
+			if (c == Delim) {
+				Views.push_back(std::string_view((const char*)Start, size_t(&c) - size_t(Start)));
+				Start = size_t(&c) + 1;
+			}
+
+		}
+
+		if (size_t End = size_t(&Input[0]) + Input.size(); Start != End)
+			Views.push_back(std::string_view((const char*)Start, End - Start));
+	}
+	return Views;
+}
+
+
+//#define EXPLODE_VEC(TYPE, VECT,DELMNT)EXPLODE(TYPE,&VECT[0],VECT.size(),DELMNT)
 
 #define _READINT32(s) [](const char* sP){					\
 				if(!sP)return 0;							\
@@ -1154,8 +1178,10 @@ _inline void AddStringToVector(std::vector<byte> &v, const std::string &s){
 
 #include "Connection.h"
 
-std::vector<_HttpHeader> Empty_Headers;
-std::vector<byte> Empty_Byte;
+
+const SS_TUPLE_VEC Empty_Headers = {};
+
+const std::vector<byte> Empty_Byte;
 
 
 _UserStats RecalculatingStats;
@@ -1523,10 +1549,10 @@ void reset() {
 		qLock.unlock();
 
 		if (SendBytes.size())
-			s.SendData(ConstructResponse(200, (!SendToken) ? Empty_Headers : std::vector<_HttpHeader>{ _HttpHeader("cho-token", std::to_string(choToken).c_str()) }, SendBytes));
+			s.SendData(ConstructResponse(200, (!SendToken) ? Empty_Headers : SS_TUPLE_VEC{{"cho-token", std::to_string(choToken)}}, SendBytes));
 		else{
 		FEEDALIVE:
-			s.SendData(ConstructResponse(200, Empty_Headers, SendBytes));
+			s.SendData(ConstructResponse(200, {}, SendBytes));
 		}
 
 	}
@@ -2018,7 +2044,7 @@ void Event_client_cantSpectate(_User *tP) {
 
 	const _BanchoPacket b = bPacket4Byte(OPac::server_spectatorCantSpectate, tP->UserID);
 	SpecHost->SendToSpecs(b);
-	SpecHost->addQue(std::move(b));
+	SpecHost->addQue(_M(b));
 }
 
 DWORD COUNT_CURRENTONLINE = 0;
@@ -2033,7 +2059,7 @@ void RenderHTMLPage(_Con s, const _HttpRes &&res){
 		"<br> Online users: "+std::to_string(COUNT_CURRENTONLINE) + " | " + std::to_string(COUNT_REQUESTS) + " total connections handled."
 		"<br>"+ std::to_string(COUNT_MULTIPLAYER) + " currently active multiplayer games.</HTML>");
 
-	s.SendData(ConstructResponse(405, {_HttpHeader("Content-Type", "text/html; charset=utf-8")}, Body));
+	s.SendData(ConstructResponse(405, { {"Content-Type", "text/html; charset=utf-8"} }, Body));
 }
 
 uint64_t GenerateChoToken(){
@@ -2405,7 +2431,7 @@ float ezpp_NewAcc(ezpp_t ez, const float Acc) {
 #include "Aria.h"
 #include "Commands.h"
 
-void BotMessaged(_User *tP, const std::string&& Message){
+void BotMessaged(_User *tP, const std::string &&Message){
 	
 	if (Message.size() == 0)return;
 
@@ -2415,15 +2441,16 @@ void BotMessaged(_User *tP, const std::string&& Message){
 
 			DWORD Unused;
 
-			const std::string Res = ProcessCommand(tP, std::move(Message), Unused);
+			const std::string Res = ProcessCommand(tP, Message, Unused);
 
-			if (Res.size())tP->addQue(bPacket::BotMessage(tP->Username, std::move(Res)));
+			if (Res.size())
+				tP->addQue(bPacket::BotMessage(tP->Username, _M(Res)));
 
 			return;
 		}
 	}
 
-	const auto BotMessage = EXPLODE_VEC(std::string, Message, ' ');
+	const auto BotMessage = Explode_View(Message, ' ', 8);
 	
 	if (BotMessage.size() < 2)
 		return;
@@ -2614,7 +2641,8 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 	if (Message.size() == 0)return;
 
 	if (Target == BOT_NAME)
-		return BotMessaged(tP,std::move(Message));
+		return BotMessaged(tP,_M(Message));
+
 	_UserRef u(GetUserFromName(Target),1);
 
 	if (unlikely(!u))
@@ -2630,7 +2658,7 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 		return b;
 		}());
 	else
-		u->addQue(bPacket::Message(tP->Username, std::move(Target), std::move(Message), tP->UserID));
+		u->addQue(bPacket::Message(tP->Username, _M(Target), _M(Message), tP->UserID));
 }
 
 void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const DWORD Size) {
@@ -2649,9 +2677,6 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 
 	const std::string Target = ReadUleb(O, End);
 
-	//if (O + 4 > End)return;
-	//const int ID = *(int*)O;
-
 	if (Message.size() == 0 || Target == "#highlight" || Target == "#userlog")
 		return;
 
@@ -2667,7 +2692,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 
 				if (s.size() == 0){
 					m->Lock.lock();
-					m->sendUpdate(bPacket::Message(tP->Username, std::move(Target), std::move(Message), tP->UserID), tP);
+					m->sendUpdate(bPacket::Message(tP->Username, _M(Target), _M(Message), tP->UserID), tP);
 					m->Lock.unlock();
 				}else{
 
@@ -2707,30 +2732,30 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 
 	if (!c){
 		printf("Failed to find channel with the name %s\n",Target.c_str());
-		tP->addQue(bPacket::GenericString(OPac::server_channelKicked, std::move(Target)));
+		tP->addQue(bPacket::GenericString(OPac::server_channelKicked, _M(Target)));
 		return;
 	}
 
 	if (Message[0] == '!'){
 
 		DWORD notVisible = 0;
-		const std::string Res = ProcessCommand(tP, std::move(Message), notVisible);
+		const std::string Res = ProcessCommand(tP, Message, notVisible);
 
 		if (!(tP->privileges & Privileges::UserPublic))
 			notVisible = 1;
 
 		if (Res.size()){
 			if (notVisible)
-				tP->addQue(bPacket::BotMessage(c->ChannelName, std::move(Res)));
+				tP->addQue(bPacket::BotMessage(c->ChannelName, _M(Res)));
 			else
-				c->Bot_SendMessage(std::move(Res));
+				c->Bot_SendMessage(_M(Res));
 		}
 
 		return;
 	}
 
 	if (tP->privileges & Privileges::UserPublic)
-		c->SendPublicMessage(tP, bPacket::Message(tP->Username, std::move(Target), std::move(Message), tP->UserID));
+		c->SendPublicMessage(tP, bPacket::Message(tP->Username, _M(Target), _M(Message), tP->UserID));
 }
 
 void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWORD Size){
@@ -4007,11 +4032,11 @@ const std::vector<byte> PACKET_CLIENTOUTOFDATE = [] {
 }();
 
 void BanchoIncorrectLogin(_Con s){
-	s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", "0") }, PACKET_INCORRECTLOGIN));
+	s.SendData(ConstructResponse(200, { {"cho-token", "0"} }, PACKET_INCORRECTLOGIN));
 }
 void BanchoServerFull(_Con s) {
 	LogError("Server Full");
-	s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", "0") }, PACKET_SERVERFULL));
+	s.SendData(ConstructResponse(200, { {"cho-token", "0"} }, PACKET_SERVERFULL));
 }
 
 void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
@@ -4025,16 +4050,16 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 		std::chrono::steady_clock::time_point sTime = std::chrono::steady_clock::now();
 
-		const auto LoginData = EXPLODE_VEC(std::string,res.Body, '\n');
+		const auto LoginData = Explode_View(res.Body, '\n',3);
 
 		if (LoginData.size() != 3)
 			return BanchoIncorrectLogin(s);
 
-		std::string Username = USERNAMESQL(_M(LoginData[0]));
+		std::string Username = USERNAMESQL(LoginData[0]);
 
-		const std::string cPassword = REMOVEQUOTES(LoginData[1]);
+		const std::string cPassword = USERNAMESQL(LoginData[1]);
 
-		const auto ClientData = EXPLODE_VEC(std::string,LoginData[2],'|');
+		const auto ClientData = Explode_View(LoginData[2],'|', 5);
 
 		if (ClientData.size() != 5 || Username.size() > MAX_USERNAME_LENGTH || cPassword.size() != 32)
 			return BanchoIncorrectLogin(s);
@@ -4043,20 +4068,20 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 		const bool VersionFailed = [&]{
 
-			const std::string &ClientVersion = ClientData[0];
-
-			const size_t Start = (size_t)&ClientVersion[0];
-			const size_t End = (size_t)&ClientVersion[ClientVersion.size()] - 4;
+			return 0;
+			/*
+			const size_t Start = (size_t)&ClientData[0][0];
+			const size_t End = (size_t)&ClientData[0][ClientData[0].size()] - 4;
 
 			for (size_t i = Start; i < End; i++)
 				if (*(USHORT*)i == *(USHORT*)"20" && MemToInt32(i, 4) >= 2019)
 					return 0;
 		
-			return 1;
+			return 1;*/
 		}();
 
 		if(VersionFailed)
-			return (void)s.SendData(ConstructResponse(200, { _HttpHeader("cho-token", "0") }, PACKET_CLIENTOUTOFDATE));
+			return (void)s.SendData(ConstructResponse(200, { {"cho-token", "0"} }, PACKET_CLIENTOUTOFDATE));
 
 		int UserID = 0;
 		int Priv = 0;
@@ -4173,11 +4198,11 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 			u->privileges = Priv;
 
 			u->c1Check = [&]()->std::string{
-				const auto cHash = EXPLODE_VEC(std::string, ClientData[3], ':');
+				const auto cHash = Explode_View(ClientData[3], ':', 5);
 
 				if (cHash.size() < 5)return "";
 
-				return cHash[3] + "|" + cHash[4];
+				return std::string(cHash[3]) + "|" + std::string(cHash[4]);
 			}();
 
 			u->FriendsOnlyChat = (ClientData[4] == "1");
@@ -4329,28 +4354,26 @@ void HandlePacket(_Con s){
 		return s.Dis();
 	}
 	
-	std::string UserAgent = res.GetHeaderValue("User-Agent");
+	const std::string& UserAgent = res.GetHeaderValue("User-Agent");
 
-	if(UserAgent.size() == 0)
-		UserAgent = res.GetHeaderValue("user-agent");
+	const uint64_t choToken = StringToUInt64(res.GetHeaderValue("osu-token"));
 
-	const uint64_t choToken = [](const _HttpRes& R)->uint64_t {
+	if (UserAgent.size() == 0){
 
-		const std::string Header = R.GetHeaderValue("osu-token");
+		const std::string& UserAgent2 = res.GetHeaderValue("user-agent");
 
-		return StringToUInt64(Header);	
-	}(res);
-	
-	if (!UserAgent.size()){
-		LogMessage("No user agent set.");
-		s.SendData(ConstructResponse(200, Empty_Headers,bPacket::Notification("If there is anything that seems wrong make sure to contact rumoi.").GetBytes()));
-		s.Dis();
-		return;
-	}
-	if (UserAgent != "osu!" && !choToken){//If it is not found
-		RenderHTMLPage(s,_M(res));
-		LogMessage("HTML page served");
-		return s.Dis();
+
+		if (!UserAgent2.size()) {
+			LogMessage("No user agent set.");
+			s.SendData(ConstructResponse(200, Empty_Headers, bPacket::Notification("If there is anything that seems wrong make sure to contact rumoi.").GetBytes()));
+			s.Dis();
+			return;
+		}
+		if (UserAgent2 != "osu!" && !choToken) {//If it is not found
+			RenderHTMLPage(s, _M(res));
+			LogMessage("HTML page served");
+			return s.Dis();
+		}
 	}
 
 	HandleBanchoPacket(s, _M(res), choToken);
@@ -4406,7 +4429,7 @@ void LazyThread(){
 			SQLExecQue.Lock.lock();
 			{
 				for (std::string& Command : SQLExecQue.Commands)
-					lThreadSQL.ExecuteUPDATE(std::move(Command), 1);
+					lThreadSQL.ExecuteUPDATE(_M(Command), 1);
 
 				SQLExecQue.Commands.clear();
 			}
@@ -4627,30 +4650,34 @@ std::string ExtractConfigValue(const std::vector<byte> &Input){
 	return std::string(Input.begin() + Start, Input.begin() + End);
 }
 
-int main(){
-
+int main() {
+	
 	const std::vector<byte> ConfigBytes = LOAD_FILE("config.ini");
 
 	if (!ConfigBytes.size()){
 		printf("\nconfig.ini missing.\n");
 		return 0;
 	}
-	
-	auto Config = EXPLODE_VEC(VEC(byte),ConfigBytes, '\n');
 
-	for (DWORD i = 0; i < Config.size(); i++){
-		if (MEM_CMP_START(Config[i], "osu_API_Key"))
-			osu_API_KEY = ExtractConfigValue(Config[i]);
-		else if (MEM_CMP_START(Config[i], "SQL_Password"))
-			SQL_Password = ExtractConfigValue(Config[i]);
-		else if (MEM_CMP_START(Config[i], "SQL_Username"))
-			SQL_Username = ExtractConfigValue(Config[i]);
-		else if (MEM_CMP_START(Config[i], "SQL_Schema"))
-			SQL_Schema = ExtractConfigValue(Config[i]);
-		else if (MEM_CMP_START(Config[i], "BeatmapPath"))
-			BEATMAP_PATH = ExtractConfigValue(Config[i]);
-		else if (MEM_CMP_START(Config[i], "ReplayPath"))
-			REPLAY_PATH = ExtractConfigValue(Config[i]);
+	for (const auto& Config : Explode_View(ConfigBytes, '\n',1)){
+
+	#define V(s)std::vector<byte>(s.cbegin(),s.cend())
+
+		if (MEM_CMP_START(Config, "osu_API_Key"))
+			osu_API_KEY = ExtractConfigValue(V(Config));
+		else if (MEM_CMP_START(Config, "SQL_Password"))
+			SQL_Password = ExtractConfigValue(V(Config));
+		else if (MEM_CMP_START(Config, "SQL_Username"))
+			SQL_Username = ExtractConfigValue(V(Config));
+		else if (MEM_CMP_START(Config, "SQL_Schema"))
+			SQL_Schema = ExtractConfigValue(V(Config));
+		else if (MEM_CMP_START(Config, "BeatmapPath"))
+			BEATMAP_PATH = ExtractConfigValue(V(Config));
+		else if (MEM_CMP_START(Config, "ReplayPath"))
+			REPLAY_PATH = ExtractConfigValue(V(Config));
+
+	#undef V
+
 	}
 	
 	static_assert((BANCHO_THREAD_COUNT >= 4 && ARIA_THREAD_COUNT >= 4),

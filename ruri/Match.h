@@ -369,7 +369,7 @@ namespace bPacket {
 
 }
 void Event_client_matchStart(_User *tP);
-const std::string ProcessCommand(_User* u, const std::string &Command, DWORD &PrivateRes);
+const std::string ProcessCommand(_User* u, const std::string& Command, DWORD &PrivateRes);
 
 
 std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWORD &PrivateRes, _Match* m) {
@@ -379,7 +379,7 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWOR
 	const DWORD Priv = u->privileges;
 	PrivateRes = 1;
 
-	const auto Split = EXPLODE_VEC(std::string, Command, ' ');
+	const auto Split = Explode_View(Command, ' ',8);
 
 	if (Split[0] == "!mp"){
 

@@ -5,36 +5,27 @@
 #define DMNL "\r\n\r\n"
 
 
-struct _HttpHeader{
-
-	const std::string Text;
-	const std::string Value;
-
-	_HttpHeader(const std::string &&Text,const std::string &&Value): Text(_M(Text)),Value(_M(Value)){}
-};
+const std::string Empty_string = "";
 
 struct _HttpRes {
 
 	std::vector<byte> Body;
 	std::vector<byte> Host;
-	std::vector<_HttpHeader> Headers;
+	SS_TUPLE_VEC Headers;
 
-	const std::string GetHeaderValue(const std::string &&Name)const {
+	__inline const std::string& GetHeaderValue(const std::string &&Name)const{
 
-		for (DWORD i = 0; i < Headers.size(); i++)
-			if (Headers[i].Text == Name)
-				return Headers[i].Value;
+		for (const auto& [Text, Value] : Headers)
+			if (Text == Name)
+				return Value;
 
-		return "";
+		return Empty_string;
 	}
-
-	_HttpRes(const std::vector<byte> &&Host, const std::vector<_HttpHeader>&& Headers, const std::vector<byte> &&Body) :Host(_M(Host)), Headers(_M(Headers)), Body(_M(Body)) {}
+	
 	_HttpRes(){}
-	//_HttpRes(_HttpRes&& a) : Body(_M(a.Body)), Host(_M(a.Host)), Headers(_M(a.Headers)) {}
-
 };
 
-const std::string ConstructResponse(const DWORD Code, const std::vector<_HttpHeader> &Headers,const std::vector<byte> &Body){
+const std::string ConstructResponse(const DWORD Code, const SS_TUPLE_VEC&Headers,const std::vector<byte> &Body){
 
 	std::string Return = [=]{
 
@@ -46,8 +37,8 @@ const std::string ConstructResponse(const DWORD Code, const std::vector<_HttpHea
 		return "HTTP/1.0 200 OK" MNL;
 	}();
 
-	for (const auto& H : Headers)
-		Return += H.Text + ": " + H.Value + MNL;
+	for (const auto& [Text, Value] : Headers)
+		Return += Text + ": " + Value + MNL;
 	
 
 	Return += "Content-Length: " + std::to_string(Body.size()) + MNL + "Connection: close" + DMNL;
@@ -87,17 +78,22 @@ struct _Con{
 		if (pSize == 0)
 			return 0;
 
-		const auto DATA = EXPLODE(VEC(byte),&p[0], pSize, '\r');
+		p.resize(pSize);
+
+		const auto DATA = Explode_View(p,'\r',64);
 
 		if (!DATA.size() || !DATA[0].size())
 			return 0;
 
-		const auto PageName = EXPLODE_VEC(VEC(byte), DATA[0], ' ');
-		
+
+		{
+			const auto PageName = Explode_View(DATA[0], ' ', 8);
+			res.Host = (PageName.size() > 1) ? VEC(byte)(begin(PageName[1]), end(PageName[1])) : VEC(byte) {};
+		}
+
 		int CurrentOffset = 1;
 
-		std::vector<_HttpHeader> Headers; Headers.reserve(32);
-		std::vector<byte> Body;
+		res.Headers.reserve(32);
 
 		{//Headers
 			for (DWORD i = CurrentOffset; i < DATA.size(); i++) {
@@ -107,11 +103,16 @@ struct _Con{
 				if (DATA[i].size() <= 1)
 					break;
 
-				const auto Head = EXPLODE(std::string, &DATA[i][1], DATA[i].size()-1,':');
+				const auto Head = Explode_View(DATA[i],':',2);
 
-				if (Head.size() < 2 || !Head[0].size() || Head[1].size() <= 1)continue;
+				if (Head.size() < 2 || Head[0].size() < 2 || Head[1].size() < 2)
+					continue;
 
-				Headers.push_back(_HttpHeader(_M(Head[0]), Head[1].substr(1,Head[1].size()-1)));
+				res.Headers.push_back(
+				TUPLE(std::string,std::string){
+					Head[0].substr(1,Head[0].size() - 1),
+					Head[1].substr(1,Head[1].size() - 1)
+				});
 			}
 		}
 
@@ -120,23 +121,21 @@ struct _Con{
 			bool FirstBody = 1;
 
 			for (DWORD i = CurrentOffset + 1; i < DATA.size(); i++){
-
 				if(FirstBody){
 					FirstBody = 0;
-					Body = std::vector<byte>(DATA[i].begin() + 1, DATA[i].end());
+					res.Body = std::vector<byte>(DATA[i].begin() + 1, DATA[i].end());
 				}
 				else{
-					Body.resize(Body.size() + DATA[i].size() + 1);
-					memcpy(&Body[Body.size() - DATA[i].size()], &DATA[i][0], DATA[i].size());
-					Body[Body.size() - (DATA[i].size() + 1)] = '\r';
+					if (!DATA[i].size()){
+						res.Body.push_back('\r');
+						continue;
+					}
+					res.Body.resize(res.Body.size() + DATA[i].size() + 1);
+					res.Body[res.Body.size() - (DATA[i].size() + 1)] = '\r';
+					memcpy(&res.Body[res.Body.size() - DATA[i].size()], &DATA[i][0], DATA[i].size());
 				}
 			}
 		}
-
-
-		res.Host = (PageName.size() > 1) ? _M(PageName[1]) : std::vector<byte>{};
-		res.Headers = _M(Headers);
-		res.Body = _M(Body);
 
 		return 1;
 	}
