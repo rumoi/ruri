@@ -181,7 +181,7 @@ struct _Channel{
 	}*/
 
 
-	void Bot_SendMessage(const std::string &&message){
+	void Bot_SendMessage(const std::string_view message){
 
 		if (!ChannelCount)return;
 

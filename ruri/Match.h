@@ -109,7 +109,7 @@ struct _Match{
 
 		if (b.size() == 0)return;
 		if (b.size() == 1)
-			return sendUpdate(_M(b[0]), Sender);
+			return sendUpdate(b[0], Sender);
 
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++){
 			_User *u = Slot[i].User;
@@ -369,10 +369,10 @@ namespace bPacket {
 
 }
 void Event_client_matchStart(_User *tP);
-const std::string ProcessCommand(_User* u, const std::string& Command, DWORD &PrivateRes);
+const std::string ProcessCommand(_User* u, const std::string_view Command, DWORD &PrivateRes);
 
 
-std::string ProcessCommandMultiPlayer(_User* u, const std::string &Command, DWORD &PrivateRes, _Match* m) {
+std::string ProcessCommandMultiPlayer(_User* u, const std::string_view Command, DWORD &PrivateRes, _Match* m) {
 
 	if (Command.size() == 0 || Command[0] != '!')return "";
 

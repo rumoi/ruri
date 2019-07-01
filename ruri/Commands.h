@@ -128,16 +128,16 @@ void RecalcSingleUserPP(const DWORD ID, _SQLCon &SQL){//This is relatively expen
 	}
 }
 
-void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
+void unRestrictUser(_User* Caller, const std::string UserName, DWORD ID) {
 
 	if (!Caller || !(Caller->privileges & Privileges::AdminManageUsers) || (UserName.size() == 0 && !ID))
 		return;
 
 	_SQLCon SQL;
 
-	const auto Respond = [=,&SQL](const std::string& Mess)->void {
+	const auto Respond = [=,&SQL](const std::string&& Mess)->void {
 		SQL.Disconnect();
-		return Caller->addQue(bPacket::Notification(_M(Mess)));
+		return Caller->addQue(bPacket::Notification(Mess));
 	};
 
 	if (!SQL.Connect())
@@ -193,7 +193,7 @@ void unRestrictUser(_User* Caller, const std::string &UserName, DWORD ID) {
 	return Respond("They have been unrestricted.");
 }
 
-void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
+void RestrictUser(_User* Caller, const std::string UserName, DWORD ID){
 	
 	if (!Caller || !(Caller->privileges & Privileges::AdminManageUsers) || (UserName.size() == 0 && !ID))
 		return;
@@ -202,7 +202,7 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 
 	const auto Respond = [=, &SQL](const std::string& Mess)->void {
 		SQL.Disconnect();
-		return (Caller) ? Caller->addQue(bPacket::Notification(_M(Mess))) : void();
+		return (Caller) ? Caller->addQue(bPacket::Notification(Mess)) : void();
 	};
 
 	if (!SQL.Connect())
@@ -237,7 +237,7 @@ void RestrictUser(_User* Caller, const std::string &UserName, DWORD ID){
 	if(BanPrivs & Privileges::AdminDev)
 		return Respond("Developers can only be demoted directly through the SQL.");
 
-	if(BanPrivs & Privileges::AdminManageUsers && !(Caller->privileges & Privileges::AdminDev) || ID < 1000)
+	if((BanPrivs & Privileges::AdminManageUsers) && !(Caller->privileges & Privileges::AdminDev) || ID < 1000)
 		return Respond("You do not have the perms to restrict that user.");
 
 	if (BanPrivs & Privileges::UserPublic){
@@ -385,7 +385,7 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 	
 	DeleteAndNull(res);
 
-	chan_Announce.Bot_SendMessage(_M(Announcement));
+	chan_Announce.Bot_SendMessage(Announcement);
 
 	_BeatmapSet* bData = GetBeatmapSetFromSetID(SetID, 0);
 
@@ -446,7 +446,7 @@ void UpdateAllUserStatsinGM(_User* Caller, const DWORD GM){
 	const auto Respond = [=, &SQL](const std::string&& Mess)->void {
 		SQL.Disconnect();
 		if (!Caller)return;
-		return Caller->addQue(bPacket::Notification(_M(Mess)));
+		return Caller->addQue(bPacket::Notification(Mess));
 	};
 
 	if (!SQL.Connect())
@@ -556,7 +556,7 @@ void FullRecalcPP(const std::string GM){
 	chan_Akatsuki.Bot_SendMessage("Fully Completed :)");
 }
 
-const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &PrivateRes){
+const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD &PrivateRes){
 
 	if (!u || Command.size() == 0 || Command[0] != '!')
 		return "";
@@ -615,7 +615,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 			const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
 
 			{
-				std::thread t(RestrictUser, u, _M(RestrictName), RestrictID);
+				std::thread t(RestrictUser, u, RestrictName, RestrictID);
 				t.detach();
 			}
 
@@ -632,7 +632,7 @@ const std::string ProcessCommand(_User* u,const std::string &Command, DWORD &Pri
 			const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
 
 			{
-				std::thread t(unRestrictUser, u, _M(RestrictName), RestrictID);
+				std::thread t(unRestrictUser, u, RestrictName, RestrictID);
 				t.detach();
 			}
 

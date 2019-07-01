@@ -1068,11 +1068,12 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 	std::string score,
 				bmk,//Beatmap hash - used to detect changing the map as it is loading.
 				c1,
-				pass,
 				osuver,
 				clienthash,
 				Image,//Used if osu thinks the person is flash light cheating.
 				iv,ReplayFile;
+
+	_MD5 pass;
 
 	const auto RawScoreData = EXPLODE_MULTI(std::string, &res.Body[0], res.Body.size(), "-------------------------------28947758029299\r\n");
 
@@ -1135,7 +1136,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			else if (Name == "bmk")
 				bmk = std::string(Start, End);
 			else if (Name == "pass")
-				pass = std::string(Start, End);
+				pass = _MD5(std::string(Start, End));
 			else if (Name == "osuver")
 				osuver = std::string(Start, End);
 			else if (Name == "s")
@@ -1145,7 +1146,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 		}
 
-		if (!iv.size() || !clienthash.size() || !osuver.size() || !score.size() || pass.size() != 32){//something very important is missing.
+		if (!iv.size() || !clienthash.size() || !osuver.size() || !score.size()){//something very important is missing.
 				LogError("Failed score.","Aria");
 				return TryScoreAgain(s);
 		}
@@ -1208,7 +1209,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		}
 		u.User->Stats[(sData.Mods & Relax ? sData.GameMode + 4 : sData.GameMode) % 8].PlayCount++;
 		const DWORD UserID = u.User->UserID;
-		if (!MD5CMP(u.User->Password, &pass[0])){
+		if (!(u.User->Password == pass)){
 			printf("%s> password wrong\n", sData.UserName.c_str());
 			return TryScoreAgain(s);
 		}		
@@ -1368,12 +1369,9 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	if (BeatmapMD5.size() != 32)
 		return SendAria404(s);
 
-	const std::string UserName = urlDecode(GetParam(URL,"&us="));
-	const std::string Password = GetParam(URL, "&ha=");
-	//Might want to lock the user or something in the future. just incase
+	_UserRef u(GetUserFromName(urlDecode(GetParam(URL, "&us="))),1);
 
-	_UserRef u(GetUserFromName(UserName),1);
-	if (!u.User || Password.size() != 32 || !MD5CMP(&Password[0],u.User->Password))
+	if (!u.User ||  !(_MD5(GetParam(URL, "&ha=")) == u.User->Password))
 		return SendAria404(s);
 
 	const DWORD Mods = StringToUInt32(GetParam(URL, "&mods="));
@@ -1381,7 +1379,6 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	const bool CustomClient = (URL.find("&vv=4") == std::string::npos);
 	const DWORD LType = StringToUInt32(GetParam(URL,"&v="));
 	const std::string ScoreTableName = (Mods & Relax) ? "scores_relax" : "scores";
-	const std::string DiffName = ExtractDiffName(urlDecode(GetParam(URL, "&f=")));
 
 	if ((u.User->actionMods & Relax) != (Mods & Relax)){//actionMods is outdated.
 		u.User->actionMods = Mods;
@@ -1397,7 +1394,9 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	if (Mode >= 8)
 		Mode = 0;
 
-	_BeatmapData*const BeatData = GetBeatmapCache(SetID,0, BeatmapMD5, _M(DiffName),&AriaSQL[s.ID]);
+	_BeatmapData*const BeatData = GetBeatmapCache(SetID,0, BeatmapMD5,
+		ExtractDiffName(urlDecode(GetParam(URL, "&f=")))
+		,&AriaSQL[s.ID]);
 
 	if (!BeatData || !BeatData->BeatmapID){
 
@@ -1524,7 +1523,7 @@ struct _UpdateCache{
 
 void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 
-	if (!MEM_CMP_START(Req, "/web/check-updates.php?action=check") && !MEM_CMP_START(Req, "/web/check-updates.php?action=path"))
+	if (!MEM_CMP_OFF(Req, "check",_strlen_("/web/check-updates.php?action=")) && !MEM_CMP_OFF(Req, "path", _strlen_("/web/check-updates.php?action=")))
 		return SendAria404(s);
 
 	const std::string URL(Req.begin() + 1,Req.end());
@@ -1547,7 +1546,7 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 
 	}
 
-	const std::string res = GET_WEB_CHUNKED("old.ppy.sh",URL);
+	const std::string res = GET_WEB_CHUNKED("old.ppy.sh",_M(URL));
 
 	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(res.begin(), res.end())));
 	s.Dis();
@@ -1593,7 +1592,7 @@ void GetReplay(const std::string &URL, _Con s) {
 	if (!Data.size())
 		return s.Dis();
 
-	s.SendData(ConstructResponse(200, Empty_Headers, _M(Data)));
+	s.SendData(ConstructResponse(200, Empty_Headers, Data));
 	
 	return s.Dis();
 }
@@ -1637,9 +1636,9 @@ void Thread_WebReplay(const uint64_t ID, _Con s) {
 		
 		Ret.push_back(res->getInt(2));//PlayMode
 		AddInt(Ret, 20190101);//osu version
-		AddString(Ret,res->getString(3));//beatmap md5
+		AddString_SQL(Ret, res->getString(3));//beatmap md5
 		AddString(Ret, GetUsernameFromCache(res->getInt(1)));//Username
-		AddString(Ret, res->getString(3));//checksum
+		AddString_SQL(Ret, res->getString(3));//checksum
 		AddShort(Ret, res->getInt(4));//count300
 		AddShort(Ret, res->getInt(5));//count100
 		AddShort(Ret, res->getInt(6));//count50
@@ -1683,10 +1682,9 @@ std::string RandomString(const DWORD Count){
 	static const char CharList[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 									 'A', 'B', 'C', 'D', 'E', 'F', '_', 'a', 'b', 'c',
 									 'd', 'e', 'f', '-', 'r', 'u', 'm', 'o', 'i', 'y', 'g', 'n' };
-
 	std::string rString(Count,'\0');
 
-	for (auto& c : rString)
+	for (char& c : rString)
 		c = CharList[BR::GetRand(0, 31)];
 	
 	return rString;
@@ -1742,9 +1740,9 @@ namespace MIRROR {
 				MirrorAPIQue.clear();
 				MirrorAPILock.unlock();
 
-				for (auto& Q : QueCopy){
-					Q.second.SendData(GET_WEB(MIRROR_IP,_M(Q.first)));
-					Q.second.Dis();
+				for (auto& [req,Con] : QueCopy){
+					Con.SendData(GET_WEB(MIRROR_IP, _M(req)));
+					Con.Dis();
 				}
 
 			}

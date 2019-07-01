@@ -435,7 +435,7 @@ struct _LTable {
 			TableCount[OFF] = 0;
 		}
 
-		Table[OFF][TableCount[OFF]] = A;
+		Table[OFF][TableCount[OFF]] = _M(A);
 
 		T* Ret = &Table[OFF][TableCount[OFF]];
 		TableCount[OFF]++;
@@ -492,7 +492,7 @@ _SQLCon SQL_BanchoThread[BANCHO_THREAD_COUNT];
 #include <random>
 
 
-std::string GET_WEB(const std::string &&HostName, const std::string &Page) {
+std::string GET_WEB(const std::string &&HostName, const std::string &&Page) {
 
 	SOCKET Socket_WEB = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -550,10 +550,16 @@ int CharHexToDecimal(const char c) {
 
 	return 0;
 }
+_inline int DecimalToHex(const char c) {
+	if (c <= 0x9)return '0' + c;
+	if (c <= 0xF)return 'a' + (c - 10);
 
-std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &Page){
+	return ' ';
+}
 
-	const std::string rp = GET_WEB(_M(HostName), Page);
+std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &&Page){
+
+	const std::string rp = GET_WEB(_M(HostName), _M(Page));
 
 	if (rp.size() == 0)
 		return "";
@@ -940,7 +946,7 @@ void AddUleb(VEC(byte) &v, DWORD s) {
 }
 
 
-_inline void AddString(std::vector<byte> &v, const std::string &Value){
+_inline void AddString(std::vector<byte> &v, const std::string_view Value){
 	const DWORD Size = Value.size();
 	AddUleb(v, Size);
 	if (Size) {
@@ -948,9 +954,10 @@ _inline void AddString(std::vector<byte> &v, const std::string &Value){
 		memcpy(&v[v.size() - Size], &Value[0], Size);
 	}
 }
-_inline void AddString(std::vector<byte> &v, const char* Value, const DWORD Size){
+_inline void AddString_SQL(std::vector<byte>& v, const sql::SQLString &&Value) {
+	const DWORD Size = Value.length();
 	AddUleb(v, Size);
-	if (Size) {
+	if (Size){
 		v.resize(v.size() + Size);
 		memcpy(&v[v.size() - Size], &Value[0], Size);
 	}
@@ -1266,6 +1273,46 @@ struct _Menu {
 
 void DisconnectUser(size_t Pointer);
 
+
+struct _MD5 {
+
+	char MD5[16];
+
+	void Zero(){ ZeroMemory(MD5, sizeof(MD5)); }
+
+	_MD5() { Zero(); }
+	_MD5(std::string&& Input) {
+		if (unlikely(Input.size() != 32)) {
+			ZeroMemory(MD5, sizeof(MD5));
+		}
+		else for (size_t i = 0; i < 16; i++)
+			MD5[i] = CharHexToDecimal(Input[i]) + (CharHexToDecimal(Input[16 + i]) << 4);//It does not really matter if the data is rearranged.
+	}
+
+	const bool operator==(const _MD5& x) const {
+		if (*(uint64_t*)& x.MD5[0] != *(uint64_t*)& this->MD5[0]
+			|| *(uint64_t*)& x.MD5[8] != *(uint64_t*)& this->MD5[8])
+			return 0;
+		return 1;
+	}
+
+	std::string to_string()const {
+
+		std::string ret;
+
+		if (*(uint64_t*)& this->MD5[0] || *(uint64_t*)& this->MD5[8]) {
+			ret.resize(32);
+
+			for (size_t i = 0; i < 16; i++) {
+				ret[i] = DecimalToHex(MD5[i] & 0xf);
+				ret[i + 16] = DecimalToHex((MD5[i] & 0xf0) >> 4);
+			}
+		}
+
+		return ret;
+	}
+};
+
 struct _User{
 
 	uint64_t choToken;
@@ -1274,7 +1321,7 @@ struct _User{
 	int silence_end;
 	std::string Username;
 	std::string Username_Safe;
-	char Password[32];//Could be half the size but who cares
+	_MD5 Password;
 	char ActionMD5[32];
 	DWORD actionMods;
 	int BeatmapID;
@@ -1417,7 +1464,7 @@ void reset() {
 		privileges = 0;
 		Username.clear();
 		Username_Safe.clear();
-		ZeroMemory(Password, 32);
+		Password.Zero();
 		ZeroMemory(ActionMD5, 32);
 		actionMods = 0;
 		BeatmapID = 0;
@@ -1453,12 +1500,20 @@ void reset() {
 	
 
 	void addQue(const _BanchoPacket &b) {
-		if (b.Type == NULL_PACKET || !choToken)return;
-
+		if (b.Type == NULL_PACKET)return;
 		qLock.lock();
-		if(choToken)Que.push_back(b);
+		if(choToken)
+			Que.push_back(b);
 		qLock.unlock();
 	}
+	void addQue(const _BanchoPacket&& b) {
+		if (b.Type == NULL_PACKET)return;
+		qLock.lock();
+		if (choToken)
+			Que.push_back(_M(b));
+		qLock.unlock();
+	}
+
 	void addQue(const VEC(_BanchoPacket) &b){
 		if (choToken && b.size()) {
 			qLock.lock();
@@ -1709,7 +1764,7 @@ DWORD GetIDFromName(const std::string &Name) {
 
 namespace bPacket {
 
-	_BanchoPacket Message(const std::string &senderName, const std::string &targetname, const std::string &message, const int senderId) {
+	_BanchoPacket Message(const std::string_view senderName, const std::string_view targetname, const std::string_view message, const int senderId) {
 
 		_BanchoPacket b(OPac::server_sendMessage);
 
@@ -1720,7 +1775,8 @@ namespace bPacket {
 
 		return b;
 	}
-	_BanchoPacket BotMessage(const std::string &Target, const std::string &message, const std::string &Name = BOT_NAME, const DWORD ID = 999) {
+
+	_BanchoPacket BotMessage_NonDefault(const std::string_view Target, const std::string_view message, const std::string_view Name , const DWORD ID = 999) {
 
 		_BanchoPacket b(OPac::server_sendMessage);
 
@@ -1733,6 +1789,21 @@ namespace bPacket {
 
 		return b;
 	}
+
+	_BanchoPacket BotMessage(const std::string_view Target, const std::string_view message) {
+
+		_BanchoPacket b(OPac::server_sendMessage);
+
+		b.Data.reserve(10 + BOT_NAME.size() + message.size() + Target.size());
+
+		AddString(b.Data, BOT_NAME);
+		AddString(b.Data, message);
+		AddString(b.Data, Target);
+		AddInt(b.Data,999);
+
+		return b;
+	}
+
 }
 
 #include "Channel.h"
@@ -1758,7 +1829,7 @@ const _BanchoPacket BOT_STATS = [] {
 
 namespace bPacket {
 
-	_inline _BanchoPacket Notification(const std::string &Mes) {
+	_inline _BanchoPacket Notification(const std::string_view Mes) {
 
 		_BanchoPacket b(OPac::server_notification);
 
@@ -1800,12 +1871,9 @@ namespace bPacket {
 		return b;
 	}
 
-	_inline _BanchoPacket GenericString(const short ID, const std::string &Value) {
-
+	_inline _BanchoPacket GenericString(const short ID, const std::string_view Value){
 		_BanchoPacket b(ID);
-
 		AddString(b.Data, Value);
-
 		return b;
 	}
 
@@ -1921,8 +1989,10 @@ namespace bPacket {
 \
 		AddString(b.Data, tP->ActionText);\
 		if (tP->ActionMD5[0] == 0)AddString(b.Data, "");\
-		else AddString(b.Data, std::string(tP->ActionMD5, 32));\
-\
+		else{\
+			AddUleb(b.Data,32);\
+			AddMem(b.Data, tP->ActionMD5, 32);\
+		}\
 		AddInt(b.Data, tP->actionMods);\
 		b.Data.push_back(tP->GameMode);\
 		AddInt(b.Data, tP->BeatmapID);\
@@ -1950,7 +2020,10 @@ namespace bPacket {
 		b.Data.push_back(tP->actionID);
 		AddString(b.Data, tP->ActionText);
 		if (tP->ActionMD5[0] == 0)AddString(b.Data, "");
-		else AddString(b.Data, tP->ActionMD5, 32);
+		else{
+			AddUleb(b.Data, 32);
+			AddMem(b.Data, tP->ActionMD5, 32);
+		}
 		AddInt(b.Data, tP->actionMods);
 		b.Data.push_back(tP->GameMode);
 		AddInt(b.Data, tP->BeatmapID);
@@ -2431,7 +2504,7 @@ float ezpp_NewAcc(ezpp_t ez, const float Acc) {
 #include "Aria.h"
 #include "Commands.h"
 
-void BotMessaged(_User *tP, const std::string &&Message){
+void BotMessaged(_User *tP, const std::string_view Message){
 	
 	if (Message.size() == 0)return;
 
@@ -2444,7 +2517,7 @@ void BotMessaged(_User *tP, const std::string &&Message){
 			const std::string Res = ProcessCommand(tP, Message, Unused);
 
 			if (Res.size())
-				tP->addQue(bPacket::BotMessage(tP->Username, _M(Res)));
+				tP->addQue(bPacket::BotMessage(tP->Username, Res));
 
 			return;
 		}
@@ -2641,7 +2714,7 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 	if (Message.size() == 0)return;
 
 	if (Target == BOT_NAME)
-		return BotMessaged(tP,_M(Message));
+		return BotMessaged(tP, Message);
 
 	_UserRef u(GetUserFromName(Target),1);
 
@@ -2658,7 +2731,7 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 		return b;
 		}());
 	else
-		u->addQue(bPacket::Message(tP->Username, _M(Target), _M(Message), tP->UserID));
+		u->addQue(bPacket::Message(tP->Username, Target, Message, tP->UserID));
 }
 
 void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const DWORD Size) {
@@ -2692,7 +2765,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 
 				if (s.size() == 0){
 					m->Lock.lock();
-					m->sendUpdate(bPacket::Message(tP->Username, _M(Target), _M(Message), tP->UserID), tP);
+					m->sendUpdate(bPacket::Message(tP->Username, Target, Message, tP->UserID), tP);
 					m->Lock.unlock();
 				}else{
 
@@ -2730,11 +2803,8 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 		return;
 	}else c = GetChannelByName(Target);
 
-	if (!c){
-		printf("Failed to find channel with the name %s\n",Target.c_str());
-		tP->addQue(bPacket::GenericString(OPac::server_channelKicked, _M(Target)));
-		return;
-	}
+	if (!c)
+		return tP->addQue(bPacket::GenericString(OPac::server_channelKicked, Target));
 
 	if (Message[0] == '!'){
 
@@ -2746,16 +2816,16 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 
 		if (Res.size()){
 			if (notVisible)
-				tP->addQue(bPacket::BotMessage(c->ChannelName, _M(Res)));
+				tP->addQue(bPacket::BotMessage(c->ChannelName, Res));
 			else
-				c->Bot_SendMessage(_M(Res));
+				c->Bot_SendMessage(Res);
 		}
 
 		return;
 	}
 
 	if (tP->privileges & Privileges::UserPublic)
-		c->SendPublicMessage(tP, bPacket::Message(tP->Username, _M(Target), _M(Message), tP->UserID));
+		c->SendPublicMessage(tP, bPacket::Message(tP->Username, Target, Message, tP->UserID));
 }
 
 void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWORD Size){
@@ -2951,12 +3021,14 @@ _inline void SendMatchList(_User *tP, const bool New) {
 	
 	for (DWORD i = 0; i < MAX_MULTI_COUNT; i++){
 
-		if (Match[i].PlayerCount && !Match[i].Tournament)
+		if (Match[i].PlayerCount && !Match[i].Tournament) {
 			if (Match[i].LobbyCache.Type == 0) {//TODO might want to improve this. Could cause pipeline issues.
 				Match[i].Lock.lock();
 				tP->addQue(bPacket::bMatch((New) ? OPac::server_newMatch : OPac::server_updateMatch, &Match[i], 0));
 				Match[i].Lock.unlock();
-			} else tP->addQue(Match[i].LobbyCache);
+			}
+			else tP->addQue(Match[i].LobbyCache);
+		}
 	}
 }
 
@@ -3073,7 +3145,7 @@ void Event_client_matchChangeSettings(_User *tP, const byte* const Packet, const
 
 		if (m->Settings.BeatmapID != -1){
 
-			m->sendUpdate(bPacket::BotMessage("#multiplayer",
+			m->sendUpdate(bPacket::BotMessage_NonDefault("#multiplayer",
 				"\nDirect is still being worked on\n(Akatsuki)[https://akatsuki.pw/d/" + std::to_string(m->Settings.BeatmapID) + "]   (Bloodcat)[https://bloodcat.com/osu?q=" + std::to_string(m->Settings.BeatmapID) + "]\n"
 				,FAKEUSER_NAME));
 		}
@@ -4057,11 +4129,11 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 		std::string Username = USERNAMESQL(LoginData[0]);
 
-		const std::string cPassword = USERNAMESQL(LoginData[1]);
+		const _MD5 cPassword(USERNAMESQL(LoginData[1]));
 
 		const auto ClientData = Explode_View(LoginData[2],'|', 5);
 
-		if (ClientData.size() != 5 || Username.size() > MAX_USERNAME_LENGTH || cPassword.size() != 32)
+		if (ClientData.size() != 5 || Username.size() > MAX_USERNAME_LENGTH)
 			return BanchoIncorrectLogin(s);
 
 		const std::string Username_Safe = Username;
@@ -4090,7 +4162,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 		bool NewLogin = 0;
 		_UserRef u(GetUserFromNameSafe(Username_Safe, 1),1);
 
-		if (u.User && MD5CMP(u->Password, &cPassword[0])){
+		if (u.User && u->Password == cPassword){
 			UserID = u->UserID;
 			Priv = u->privileges;//TODO make this able to be updated.
 			SilenceEnd = u->silence_end;
@@ -4110,7 +4182,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 			UserID = res->getInt(1);
 
-			if (bcrypt_checkpw(cPassword.c_str(), res->getString(2).c_str())){
+			if (bcrypt_checkpw(cPassword.to_string().c_str(), res->getString(2).c_str())){
 				DeleteAndNull(res);
 				return BanchoIncorrectLogin(s);//Might want to add a brute force lock out
 			}
@@ -4223,7 +4295,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 				u->Username = Username;
 
 			u->Username_Safe = Username_Safe;
-			memcpy(u->Password, &cPassword[0], 32);
+			u->Password = cPassword;
 
 			u->choToken = GenerateChoToken();
 
@@ -4651,7 +4723,7 @@ std::string ExtractConfigValue(const std::vector<byte> &Input){
 }
 
 int main() {
-	
+
 	const std::vector<byte> ConfigBytes = LOAD_FILE("config.ini");
 
 	if (!ConfigBytes.size()){
