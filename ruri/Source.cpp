@@ -1288,6 +1288,13 @@ struct _MD5 {
 		else for (size_t i = 0; i < 16; i++)
 			MD5[i] = CharHexToDecimal(Input[i]) + (CharHexToDecimal(Input[16 + i]) << 4);//It does not really matter if the data is rearranged.
 	}
+	_MD5(const std::string_view Input) {
+		if (unlikely(Input.size() != 32)) {
+			ZeroMemory(MD5, sizeof(MD5));
+		}
+		else for (size_t i = 0; i < 16; i++)
+			MD5[i] = CharHexToDecimal(Input[i]) + (CharHexToDecimal(Input[16 + i]) << 4);//It does not really matter if the data is rearranged.
+	}
 
 	const bool operator==(const _MD5& x) const {
 		if (*(uint64_t*)& x.MD5[0] != *(uint64_t*)& this->MD5[0]

@@ -867,7 +867,7 @@ bool CheckMapUpdate(_BeatmapData *BD, _SQLCon* SQL) {
 }
 
 
-_BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::string &MD5, const std::string &&DiffName, _SQLCon* SQL){
+_BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::string_view MD5, const std::string &&DiffName, _SQLCon* SQL){
 
 	//if (GameMode >= 8)return 0;
 
@@ -880,7 +880,7 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 		return 0;
 
 	if(!BS)
-		BS = GetBeatmapSetFromSetID((SetID) ? SetID : getSetID_fHash(MD5, SQL), SQL);
+		BS = GetBeatmapSetFromSetID((SetID) ? SetID : getSetID_fHash(std::string(MD5), SQL), SQL);
 
 	if (BS){
 
@@ -978,7 +978,7 @@ enum scoreOffset {
 	Score_Version
 };
 
-_inline std::string GetParam(const std::string &s, const std::string &&param) {
+_inline std::string GetParam(const std::string& s, const std::string&& param) {
 
 	DWORD Off = s.find(param);
 	if (Off == std::string::npos)return "";
@@ -995,6 +995,66 @@ _inline std::string GetParam(const std::string &s, const std::string &&param) {
 
 	return std::string(s.begin() + Off, s.begin() + End);
 }
+
+struct _GetParams {
+
+	std::vector<std::pair<int, std::string_view>> Params;
+
+	std::string_view get(const int Key)const{
+
+		for (auto [K, Value] : Params) {
+
+			if (K != Key)continue;
+
+			return Value;
+		}
+
+		return std::string_view();
+	}
+
+	_GetParams(const std::string_view URL) {
+
+		DWORD Start = URL.find('?');
+
+		if (Start != std::string::npos) {
+			Start++;
+
+			bool Name = 1;
+
+			std::string_view TempName;
+
+			for (DWORD i = Start; i < URL.size(); i++) {
+
+				if (Name) {
+					if (URL[i] != '=')
+						continue;
+					TempName = std::string_view((const char*)& URL[Start], i - Start);
+					Start = i + 1;
+					Name = 0;
+				}
+				else {
+
+					const bool Last = i == (URL.size() - 1) && ++i;//Special case for the last
+
+					if (!Last && URL[i] != '&')
+						continue;
+
+					Params.push_back({
+						WeakStringToInt(TempName),
+						std::string_view((const char*)& URL[Start],i - Start)
+						});
+					Start = i + 1;
+
+					Name = 1;
+				}
+			}
+		}
+	}
+
+	_GetParams(std::vector<std::pair<int, std::string_view>>&& Params) : Params(_M(Params)) {}
+};
+
+
 
 void SendAria404(_Con s){
 
@@ -1207,12 +1267,14 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			printf("%s> is not online?\n", sData.UserName.c_str());
 			return TryScoreAgain(s);
 		}
-		u.User->Stats[(sData.Mods & Relax ? sData.GameMode + 4 : sData.GameMode) % 8].PlayCount++;
+
 		const DWORD UserID = u.User->UserID;
 		if (!(u.User->Password == pass)){
 			printf("%s> password wrong\n", sData.UserName.c_str());
 			return TryScoreAgain(s);
 		}		
+
+		u.User->Stats[(sData.Mods & Relax ? sData.GameMode + 4 : sData.GameMode) % 8].PlayCount++;
 
 		if ((u.User->privileges & UserPublic) && !FailTime && !Quit && ReplayFile.size() > 250){
 			byte lGameMode = sData.GameMode;
@@ -1360,24 +1422,26 @@ std::string urlDecode(const std::string &SRC) {
 
 void osu_getScores(const _HttpRes &http, _Con s){
 	const char* mName = "Aria";
-	const std::string URL(http.Host.begin(), http.Host.end());
 
-	const std::string BeatmapMD5 = REMOVEQUOTES(GetParam(URL, "&c="));
 
-	const DWORD SetID = StringToUInt32(GetParam(URL,"&i="));
+	const auto Params = _GetParams(std::string_view((const char*)&http.Host[0], http.Host.size()));
+
+	const std::string_view BeatmapMD5 = Params.get(_WeakStringToInt_("c"));
+
+	const DWORD SetID = StringToUInt32(Params.get(_WeakStringToInt_("i")));
 
 	if (BeatmapMD5.size() != 32)
 		return SendAria404(s);
 
-	_UserRef u(GetUserFromName(urlDecode(GetParam(URL, "&us="))),1);
+	_UserRef u(GetUserFromName(urlDecode(std::string(Params.get(_WeakStringToInt_("us"))))),1);//Might want to look into a new urldecode..
 
-	if (!u.User ||  !(_MD5(GetParam(URL, "&ha=")) == u.User->Password))
+	if (!u.User ||  !(_MD5(Params.get(_WeakStringToInt_("ha"))) == u.User->Password))
 		return SendAria404(s);
 
-	const DWORD Mods = StringToUInt32(GetParam(URL, "&mods="));
-	DWORD Mode = StringToUInt32(GetParam(URL, "&m="));
-	const bool CustomClient = (URL.find("&vv=4") == std::string::npos);
-	const DWORD LType = StringToUInt32(GetParam(URL,"&v="));
+	const DWORD Mods = StringToUInt32(Params.get(_WeakStringToInt_("mods")));
+	DWORD Mode = StringToUInt32(Params.get(_WeakStringToInt_("m")));
+	const bool CustomClient = (Params.get(_WeakStringToInt_("vv")) != "4");
+	const DWORD LType = StringToUInt32(Params.get(_WeakStringToInt_("v")));
 	const std::string ScoreTableName = (Mods & Relax) ? "scores_relax" : "scores";
 
 	if ((u.User->actionMods & Relax) != (Mods & Relax)){//actionMods is outdated.
@@ -1395,16 +1459,12 @@ void osu_getScores(const _HttpRes &http, _Con s){
 		Mode = 0;
 
 	_BeatmapData*const BeatData = GetBeatmapCache(SetID,0, BeatmapMD5,
-		ExtractDiffName(urlDecode(GetParam(URL, "&f=")))
+		ExtractDiffName(urlDecode(std::string(Params.get(_WeakStringToInt_("f")))))
 		,&AriaSQL[s.ID]);
 
 	if (!BeatData || !BeatData->BeatmapID){
 
-		if (!BeatData) {
-			LogError(std::string("Failed to get the beatmap with md5 " + BeatmapMD5).c_str(), "Aria");
-		}
-
-		std::string BeatmapFailed = "-1|0";
+		const std::string BeatmapFailed = "-1|0";
 
 		s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(BeatmapFailed.begin(), BeatmapFailed.end())));
 		return s.Dis();
@@ -1525,10 +1585,10 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 
 	if (!MEM_CMP_OFF(Req, "check",_strlen_("/web/check-updates.php?action=")) && !MEM_CMP_OFF(Req, "path", _strlen_("/web/check-updates.php?action=")))
 		return SendAria404(s);
-
-	const std::string URL(Req.begin() + 1,Req.end());
 	int CacheOffset = -1;
-	
+
+	const std::string URL(Req.begin() + 1, Req.end());
+
 	const int Stream = WeakStringToInt(GetParam(URL, "stream="));
 	
 	for (DWORD i = 0; i < UpdateCache.size(); i++){
@@ -1546,7 +1606,7 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 
 	}
 
-	const std::string res = GET_WEB_CHUNKED("old.ppy.sh",_M(URL));
+	const std::string res = GET_WEB_CHUNKED("old.ppy.sh",std::string(Req.begin() + 1, Req.end()));
 
 	s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(res.begin(), res.end())));
 	s.Dis();
@@ -1581,9 +1641,10 @@ const std::string directToApiStatus(const std::string &directStatus) {//thank yo
 	return "1";
 }
 
-void GetReplay(const std::string &URL, _Con s) {
+void GetReplay(const std::string &URL, _Con s){
 
 	const uint64_t ScoreID = StringToUInt64(GetParam(URL, "&c="));
+
 	if (!ScoreID)
 		return s.Dis();
 
