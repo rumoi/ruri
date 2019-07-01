@@ -569,9 +569,11 @@ std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &&Pa
 	if (Start == std::string::npos)
 		return "";
 
+	const USHORT rn = *reinterpret_cast<USHORT*>("\r\n");
+
 	for (DWORD i = Start + 4; i < rp.size(); i++){
 		Start = i;
-		while (*(USHORT*)&rp[i] != *(USHORT*)"\r\n")i++;
+		while (*(USHORT*)&rp[i] != rn)i++;
 		DWORD ChunkSize = 0;
 		for (DWORD z = Start; z < i; z++){
 			ChunkSize = ChunkSize << 4;
