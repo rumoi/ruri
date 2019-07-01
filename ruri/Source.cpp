@@ -569,7 +569,7 @@ std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &&Pa
 	if (Start == std::string::npos)
 		return "";
 
-	const USHORT rn = *reinterpret_cast<USHORT*>("\r\n");
+	const USHORT rn = *(USHORT*)"\r\n";
 
 	for (DWORD i = Start + 4; i < rp.size(); i++){
 		Start = i;

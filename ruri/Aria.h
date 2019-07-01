@@ -1862,7 +1862,7 @@ void HandleAria(_Con s){
 		}
 	}else if (MEM_CMP_START(res.Host, "/web/osu-search.php")) {
 
-		const USHORT Key = *reinterpret_cast<USHORT*>("&r");
+		const USHORT Key = *(USHORT*)"&r";
 		DWORD Start = 0;
 
 		for (DWORD i = _strlen_("/web/osu-search.php"); i < res.Host.size() - 2; i++){
