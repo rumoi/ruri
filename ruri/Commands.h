@@ -193,9 +193,9 @@ void unRestrictUser(_User* Caller, const std::string UserName, DWORD ID) {
 	return Respond("They have been unrestricted.");
 }
 
-void RestrictUser(_User* Caller, const std::string UserName, DWORD ID){
+void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::string Reason){
 	
-	if (!Caller || !(Caller->privileges & Privileges::AdminManageUsers) || (UserName.size() == 0 && !ID))
+	if (!UserName.size() && !ID)
 		return;
 	
 	_SQLCon SQL;
@@ -237,7 +237,7 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID){
 	if(BanPrivs & Privileges::AdminDev)
 		return Respond("Developers can only be demoted directly through the SQL.");
 
-	if((BanPrivs & Privileges::AdminManageUsers) && !(Caller->privileges & Privileges::AdminDev) || ID < 1000)
+	if(Caller && (BanPrivs & Privileges::AdminManageUsers) && !(Caller->privileges & Privileges::AdminDev) || ID < 1000)
 		return Respond("You do not have the perms to restrict that user.");
 
 	if (BanPrivs & Privileges::UserPublic){
@@ -304,6 +304,18 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID){
 
 	}else return Respond("They already appear to be restricted.");
 	
+	if (Reason.size()){
+
+
+		Reason.insert(Reason.begin(), '\n');
+		ReplaceAll(Reason, "\'", "\'\'"); 
+			   
+		//std::string TotalReason = std::chrono::date::format("%F %T\n", time_point_cast<milliseconds>(system_clock::now()));
+
+
+		SQL.ExecuteUPDATE("UPDATE users SET notes=CONCAT(COALESCE(notes, ''),'" + Reason +"') WHERE id = " + std::to_string(ID) + " LIMIT 1");
+	}
+
 	return Respond("The deed is done.");
 }
 
@@ -615,7 +627,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
 
 			{
-				std::thread t(RestrictUser, u, RestrictName, RestrictID);
+				std::thread t(RestrictUser, u, RestrictName, RestrictID, std::string(CombineAllNextSplit(2,Split)));
 				t.detach();
 			}
 
@@ -624,8 +636,8 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 		case _WeakStringToInt_("!unrestrict"):
 		case _WeakStringToInt_("!unrestrictid"):{
-			if (Split.size() < 3)
-				return "!unrestrict(id) <name / id> <reason>";
+			if (Split.size() < 2)
+				return "!unrestrict(id) <name / id>";
 
 			const bool RestrictWithName = (Split[0].size() == _strlen_("!unrestrict"));
 			const std::string RestrictName = (RestrictWithName) ? USERNAMESQL(Split[1]) : "";

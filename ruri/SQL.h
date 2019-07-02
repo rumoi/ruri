@@ -112,34 +112,6 @@ struct _SQLCon {
 		LastMessage = clock_ms();
 		return ret;
 	}
-	/*bool ExecuteSQL(const std::string&& Query){
-
-		Lock.lock();
-
-		bool ret = 0;
-		sql::Statement* s = 0;
-
-		try {
-			CheckIsValid();
-			s = con->createStatement();
-			if (!s) {
-				Lock.unlock();
-				LastMessage = clock_ms();
-				return 0;
-			}
-			ret = s->execute(Query);
-
-		}
-		catch (sql::SQLException &e) {
-			printf("SQLERROR:%i\n", e.getErrorCode());
-		}
-		if (s)delete s;
-
-		Lock.unlock();
-		LastMessage = clock_ms();
-
-		return ret;
-	}*/
 
 	int ExecuteUPDATE(const std::string &Query, const bool DontLock = 0) {
 		if(!DontLock)Lock.lock();
@@ -224,10 +196,14 @@ struct _SQLKey {
 	const std::string Value;
 	const bool Text;
 
-	_SQLKey(const std::string &&Key, const std::string &&Value) : Key(_M(Key)), Value(_M(Value)), Text(1) {}
-	_SQLKey(const std::string &&Key, const int64_t Value) : Key(_M(Key)), Value(std::to_string(Value)), Text(0) {}
+	template<typename T>
+	_SQLKey(T&& Key, const std::string&& Value) : Key(std::forward<T>(Key)), Value(_M(Value)), Text(1) {}
+
+	template<typename T>
+	_SQLKey(T&& Key, const int64_t Value) : Key(std::forward<T>(Key)), Value(_M(std::to_string(Value))), Text(0) {}
 
 };
+
 
 const std::string SQL_INSERT(const std::string &&Table, const VEC(_SQLKey)&& Values) {
 	return "INSERT INTO " + Table + " (" + [&] {

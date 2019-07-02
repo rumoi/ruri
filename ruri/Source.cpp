@@ -915,6 +915,8 @@ _inline void AddShort(std::vector<byte> &v, const short Value) {
 	*(short*)&v[v.size() - 2] = Value;
 }
 
+
+
 #define AddVector(v,VALUE, TYPE)\
 	[&](const VEC(TYPE)& Value)->void{\
 		if(Value.size() == 0)return;\
@@ -1353,7 +1355,6 @@ struct _User{
 	bool SendToken;
 	bool inLobby;
 	bool HyperMode;
-	byte comMatchPage;
 	std::mutex SpecLock;
 	std::vector<_User*> Spectators;
 	//std::mutex MultiLock;
@@ -1367,6 +1368,18 @@ struct _User{
 
 	bool FriendsOnlyChat;
 
+	_Achievement Ach;//TODO: thread this.
+
+	std::vector<_BanchoPacket> Que;
+	std::vector<_DelayedBanchoPacket> dQue;
+	size_t ActiveChannels[MAX_CHAN_COUNT];//There is no way to resolve the actual size without restructuring xdxdxd
+
+	std::mutex qLock;
+	std::string c1Check;
+
+	std::mutex RefLock;
+	DWORD ref;
+
 	bool AddBlock(const DWORD UID){
 		if (UID < 1000)return 0;
 
@@ -1379,12 +1392,6 @@ struct _User{
 
 		return 0;
 	}
-
-	_Achievement Ach;//TODO: thread this.
-
-	std::vector<_BanchoPacket> Que;
-	std::vector<_DelayedBanchoPacket> dQue;
-	size_t ActiveChannels[MAX_CHAN_COUNT];//There is no way to resolve the actual size without restructuring xdxdxd
 
 	void AddChannel(const size_t C){
 		for (DWORD i = 0; i < MAX_CHAN_COUNT; i++){
@@ -1403,12 +1410,6 @@ struct _User{
 		}
 	}
 
-
-	std::mutex qLock;
-	std::string c1Check;
-	
-	std::mutex RefLock;
-	DWORD ref;
 	void addRef() {
 		RefLock.lock();
 		ref++;
@@ -1490,7 +1491,6 @@ void reset() {
 		Spectators.clear();
 		Que.clear();
 		dQue.clear();
-		comMatchPage = 0;
 		HyperMode = 0;
 		LastSentBeatmap = 0;
 		FriendsOnlyChat = 0;
@@ -4541,6 +4541,88 @@ void DoFillRank(DWORD I, bool TableName){
 		cOffset++;
 	}
 	if (res)delete res;
+}
+
+void PushUsers() {
+
+	{
+
+		struct CacheUsers {
+
+			VEC(DWORD) PrivTable;
+			VEC(byte) UserData;
+
+			void push_User(const _User& u){
+
+				VEC(byte) Data;
+
+				AddLong(Data, u.choToken ^ size_t(u.privileges));
+				AddInt(Data, u.UserID);
+				AddInt(Data, u.privileges);
+				AddInt(Data, u.silence_end);
+				AddString(Data, u.Username);
+				AddString(Data, u.Username_Safe);
+				AddMem(Data, &u.Password.MD5[0], 16);
+				AddMem(Data, &u.ActionMD5[0], 32);
+				AddInt(Data, u.actionMods);
+				AddInt(Data, u.BeatmapID);
+				Data.push_back(u.timeOffset);
+				Data.push_back(u.country);
+				Data.push_back(u.GameMode);
+				Data.push_back(u.actionID);
+				AddString(Data, u.ActionText);
+
+				if (!u.CurrentlySpectating)
+					AddInt(Data, 0);
+				else AddInt(Data, u.CurrentlySpectating->UserID);
+
+				{
+
+					AddInt(Data, u.Spectators.size());
+
+					for (const auto& Spec : u.Spectators)//Spectators changing at the very instant the server restarts is astronomically rare.
+						Spec ? AddInt(Data, Spec->UserID) : AddInt(Data, 0);
+
+				}
+
+				AddShort(Data, u.CurrentMatchID);
+				AddInt(Data, u.LastSentBeatmap);
+
+				AddMem(Data, &u.Friends[0], sizeof(u.Friends));
+				AddMem(Data, &u.Blocked[0], sizeof(u.Blocked));
+				Data.push_back(u.FriendsOnlyChat);
+
+				for (DWORD i = 0; i < sizeof(u.ActiveChannels) / sizeof(u.ActiveChannels[0]); i++)
+					u.ActiveChannels[i] ? AddInt(Data, ((_Channel*)u.ActiveChannels[i])->NameSum) : AddInt(Data, 0);
+
+				AddString(Data, u.c1Check);
+
+				PrivTable.push_back(u.privileges);
+				AddInt(UserData, Data.size());
+				AddVector(UserData, Data, byte);
+
+			}
+
+		};
+
+
+
+		CacheUsers Cached;
+
+		VEC(_User) UserTable;
+
+		for (const auto& User : Users) {
+
+			_UserRef u((_User*)& User, 0);
+
+			if (!(User.privileges & 1))//Banned users can feel the pain :)
+				continue;
+
+			Cached.push_User(User);
+		}
+
+	}
+
 }
 
 

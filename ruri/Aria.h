@@ -260,7 +260,7 @@ struct _LeaderBoardCache{
 
 					if (SQL){
 
-						ScoreInsert.push_back(_SQLKey("completed", "3"));
+						ScoreInsert.push_back(_SQLKey("completed", 3));
 
 						SQL->Lock.lock();
 
@@ -282,7 +282,7 @@ struct _LeaderBoardCache{
 					NewTop = 1;
 					LastRank = i + 1;
 				}else{
-					ScoreInsert.push_back(_SQLKey("completed", "2"));
+					ScoreInsert.push_back(_SQLKey("completed", 2));
 					SQL->ExecuteUPDATE(SQL_INSERT(TableName, _M(ScoreInsert)));
 				}
 				break;
@@ -290,7 +290,7 @@ struct _LeaderBoardCache{
 		}
 		if (!Done){
 
-			ScoreInsert.push_back(_SQLKey("completed", "3"));
+			ScoreInsert.push_back(_SQLKey("completed", 3));
 
 			SQL->Lock.lock();
 
@@ -779,8 +779,8 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 								_SQLKey("hit_length",Length),
 								_SQLKey("bpm", BPM),
 								_SQLKey("ranked", RankedStatus),
-								_SQLKey("latest_update", "0"),
-								_SQLKey("ranked_status_freezed", "0")
+								_SQLKey("latest_update", 0),
+								_SQLKey("ranked_status_freezed", 0)
 							}));
 
 						DeleteAndNull(AlreadyThere);
@@ -1002,7 +1002,7 @@ struct _GetParams {
 
 	std::string_view get(const int Key)const{
 
-		for (auto [K, Value] : Params) {
+		for (const auto [K, Value] : Params) {
 
 			if (K != Key)continue;
 
@@ -1028,7 +1028,7 @@ struct _GetParams {
 				if (Name) {
 					if (URL[i] != '=')
 						continue;
-					TempName = std::string_view((const char*)& URL[Start], i - Start);
+					TempName = std::string_view((const char*)&URL[Start], i - Start);
 					Start = i + 1;
 					Name = 0;
 				}
@@ -1041,7 +1041,7 @@ struct _GetParams {
 
 					Params.push_back({
 						WeakStringToInt(TempName),
-						std::string_view((const char*)& URL[Start],i - Start)
+						std::string_view((const char*)&URL[Start],i - Start)
 						});
 					Start = i + 1;
 
@@ -1377,9 +1377,9 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		_SQLKey("misses_count",sData.countMiss),
 		_SQLKey("time",time(0)),
 		_SQLKey("play_mode",sData.GameMode),
-		_SQLKey("completed",0),
+		_SQLKey("completed","0"),
 		_SQLKey("accuracy",std::to_string(sData.GetAcc())),
-		_SQLKey("pp",0)
+		_SQLKey("pp","0")
 		}));
 
 		return;
@@ -1811,6 +1811,67 @@ namespace MIRROR {
 
 }
 
+
+void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::string Reason);
+
+void LastFM(_GetParams&& Params, _Con s){
+
+	enum {
+		RelifeRunning = 1 << 0,
+		Console = 1 << 1,
+		//1<<2 can false flag. Do not use.
+		InvalidName = 1 << 3,
+		InvalidFile = 1 << 4,
+		RelifeLoaded = 1 << 5
+	};
+
+	const int Flags = [&]{
+
+		auto B = Params.get(_WeakStringToInt_("b"));
+		
+		return (B.size() && B[0] == 'a') ? StringToInt32(B) : 0;
+	}();
+
+
+	if (Flags & (RelifeLoaded | Console | InvalidName | InvalidFile | RelifeLoaded)){
+
+		_UserRef u(GetUserFromNameSafe(USERNAMESAFE(std::string(Params.get(_WeakStringToInt_("us"))))), 1);
+
+
+		if (!(!u) && u->Password == _MD5(Params.get(_WeakStringToInt_("ha"))) && u->privileges & UserPublic){
+			
+			for(DWORD i=0;i<16;i++)
+				u->addQue(bPacket::GenericString(0x69, "What did you think would happen?"));
+
+			const DWORD ID = u->UserID;
+
+			std::string FlagString;
+
+		#define FlagPrint(s) if(Flags & s)FlagString += "|"#s
+			FlagPrint(RelifeRunning);
+			FlagPrint(Console);
+			FlagPrint(InvalidName);
+			FlagPrint(InvalidFile);
+			FlagPrint(RelifeLoaded);
+		#undef FlagPrint
+
+			printf(KYEL "%i> Flags: %s\n" KRESET, ID, FlagString.c_str());
+
+			if (!(u->privileges & AdminDev) && Flags != RelifeLoaded){
+				std::thread t(RestrictUser, (_User*)0, "", ID, "Restricted for flags: " + FlagString);
+				t.detach();
+			}
+		}
+	}
+
+	s.SendData("HTTP/1.0 200 OK" MNL
+			   "Content-Length: 2" MNL
+				"Connection: close" DMNL
+				"-3");
+
+	return s.Dis();
+}
+
 #define IS_NUM(s)!(s < '0' || s > '9')
 
 void HandleAria(_Con s){
@@ -1839,7 +1900,7 @@ void HandleAria(_Con s){
 	}
 	else if (MEM_CMP_START(res.Host, "/web/osu-osz2-getscores.php"))
 		osu_getScores(res, s);
-	else if (MEM_CMP_START(res.Host, "/web/osu-search-set.php")){
+	else if (MEM_CMP_START(res.Host, "/web/osu-search-set.php")) {
 
 		std::string v;
 		v.reserve(8);
@@ -1855,27 +1916,28 @@ void HandleAria(_Con s){
 		if (SetID) {
 
 			MIRROR::MirrorAPILock.lock();
-			MIRROR::MirrorAPIQue.push_back({"api/set?b=" + std::to_string(SetID), s});
+			MIRROR::MirrorAPIQue.push_back({ "api/set?b=" + std::to_string(SetID), s });
 			MIRROR::MirrorAPILock.unlock();
 
 			DontCloseConnection = 1;
 		}
-	}else if (MEM_CMP_START(res.Host, "/web/osu-search.php")) {
+	}
+	else if (MEM_CMP_START(res.Host, "/web/osu-search.php")) {
 
 		const USHORT Key = *(USHORT*)"&r";
 		DWORD Start = 0;
 
-		for (DWORD i = _strlen_("/web/osu-search.php"); i < res.Host.size() - 2; i++){
-			if (*(USHORT*)&res.Host[i] == Key) {
+		for (DWORD i = _strlen_("/web/osu-search.php"); i < res.Host.size() - 2; i++) {
+			if (*(USHORT*)& res.Host[i] == Key) {
 				Start = i + 1;
 				break;
 			}
 		}
 
-		if (Start){
+		if (Start) {
 
 			MIRROR::MirrorAPILock.lock();
-			MIRROR::MirrorAPIQue.push_back({ "api/search?" + std::string(res.Host.begin() + Start, res.Host.end()),s});
+			MIRROR::MirrorAPIQue.push_back({ "api/search?" + std::string(res.Host.begin() + Start, res.Host.end()),s });
 			MIRROR::MirrorAPILock.unlock();
 
 			DontCloseConnection = 1;
@@ -1888,20 +1950,21 @@ void HandleAria(_Con s){
 		std::string v;
 		v.reserve(8);
 
-		for (DWORD i = 3; i < res.Host.size();i++)
+		for (DWORD i = 3; i < res.Host.size(); i++)
 			if (IS_NUM(res.Host[i]))
 				v.push_back(res.Host[i]);
 			else break;
-		
+
 		const DWORD ID = StringToUInt32(v);
 
-		if (ID){
-		std::thread a(Thread_DownloadOSZ, ID, s);
-		a.detach();
-		DontCloseConnection = 1;
+		if (ID) {
+			std::thread a(Thread_DownloadOSZ, ID, s);
+			a.detach();
+			DontCloseConnection = 1;
 		}
-	}else if (MEM_CMP_START(res.Host, "/web/maps/")){//used when updating a single maps .osu
-		std::thread a(Thread_UpdateOSU, std::string(res.Host.begin()+1, res.Host.end()), s);
+	}
+	else if (MEM_CMP_START(res.Host, "/web/maps/")) {//used when updating a single maps .osu
+		std::thread a(Thread_UpdateOSU, std::string(res.Host.begin() + 1, res.Host.end()), s);
 		a.detach();
 		DontCloseConnection = 1;
 	}
@@ -1909,8 +1972,11 @@ void HandleAria(_Con s){
 		std::thread a(Thread_WebReplay, MemToUInt64(&res.Host[_strlen_("/web/replays/")], res.Host.size() - _strlen_("/web/replays/")), s);
 		a.detach();
 		DontCloseConnection = 1;
-	}else if (MEM_CMP_START(res.Host, "/web/osu-screenshot.php"))
+	}
+	else if (MEM_CMP_START(res.Host, "/web/osu-screenshot.php"))
 		UploadScreenshot(res, s);
+	else if (MEM_CMP_START(res.Host, "/web/lastfm.php"))
+		LastFM(_GetParams(std::string_view((const char*)&res.Host[0],res.Host.size())),s);
 	else SendAria404(s);
 
 	if (!DontCloseConnection){
