@@ -224,7 +224,7 @@ struct _LeaderBoardCache{
 	#ifndef NO_RELAX
 		#define TableName std::string(s.Mods & Relax ? "scores_relax" : "scores")
 	#else
-		#define TableName "scores"
+		#define TableName std::string("scores")
 	#endif
 
 
@@ -1244,7 +1244,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 			if (sData.Mods & (Mods::Relax2 | Mods::Autoplay | (1 << 29)
 			#ifdef NO_RELAX
-				| Mods:Relax
+				| Mods::Relax
 			#endif
 				))
 				return ScoreFailed(s);
