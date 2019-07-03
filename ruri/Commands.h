@@ -86,7 +86,7 @@ void RecalcSingleUserPP(const DWORD ID, _SQLCon &SQL){//This is relatively expen
 	if (!ID)return;
 	
 	//TODO add other modes
-	for (DWORD i = 0; i < 8; i += 4) {
+	for (DWORD i = 0; i < GM_MAX; i += 4) {
 
 			const DWORD OppaiMode = i % 4;
 
@@ -247,9 +247,11 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 
 		SQL.ExecuteUPDATE("UPDATE users SET privileges = " + std::to_string(BanPrivs) + " AND ban_datetime = " + std::to_string(time(0)) + " WHERE id = " + std::to_string(ID),1);
 		SQL.ExecuteUPDATE("UPDATE scores SET pp = 0 WHERE completed = 3 AND userid = " + std::to_string(ID),1);
+	#ifndef NO_RELAX
 		SQL.ExecuteUPDATE("UPDATE scores_relax SET pp = 0 WHERE completed = 3 AND userid = " + std::to_string(ID),1);
-		SQL.ExecuteUPDATE("UPDATE users_stats SET pp_std = 0 AND pp_taiko = 0 AND pp_ctb = 0 AND pp_mania = 0 WHERE id = " + std::to_string(ID), 1);
 		SQL.ExecuteUPDATE("UPDATE rx_stats SET pp_std = 0 AND pp_taiko = 0 AND pp_ctb = 0 AND pp_mania = 0 WHERE id = " + std::to_string(ID), 1);
+	#endif
+		SQL.ExecuteUPDATE("UPDATE users_stats SET pp_std = 0 AND pp_taiko = 0 AND pp_ctb = 0 AND pp_mania = 0 WHERE id = " + std::to_string(ID), 1);
 		
 		for(DWORD i=0;i<8;i++)
 			UpdateRank(ID, i, 1);
@@ -494,9 +496,11 @@ void FullRecalcPP(const std::string GM){
 
 	SQL.ExecuteQuery("UPDATE scores SET pp = 0 WHERE completed = 3 AND pp > 0 AND play_mode = " + GM,1);
 	chan_Akatsuki.Bot_SendMessage("Set scores to 0");
+#ifndef NO_RELAX
 	SQL.ExecuteQuery("UPDATE scores_relax SET pp = 0 WHERE completed = 3 AND pp > 0 AND play_mode = " + GM,1);
 	chan_Akatsuki.Bot_SendMessage("Set scores_relax to 0");
-	
+#endif
+
 	struct SD { const std::string Hash; const DWORD BID; };
 
 	std::vector<SD> Maps;
@@ -547,7 +551,9 @@ void FullRecalcPP(const std::string GM){
 			DeleteAndNull(Score);
 		};
 		UpdateTable("scores",SQL, Map,GM);
+	#ifndef NO_RELAX
 		UpdateTable("scores_relax", SQL, Map,GM);
+	#endif
 	}
 	chan_Akatsuki.Bot_SendMessage("Finished recalculating PP. Removing PP from banned users.");
 
@@ -558,9 +564,12 @@ void FullRecalcPP(const std::string GM){
 		while (res && res->next()){
 			const std::string UserID = res->getString(1);
 			SQL.ExecuteUPDATE("UPDATE scores SET pp = 0 WHERE completed = 3 AND pp > 0 AND userid = " + UserID,1);
+		#ifndef NO_RELAX
 			SQL.ExecuteUPDATE("UPDATE scores_relax SET pp = 0 WHERE completed = 3 AND pp > 0 AND userid = " + UserID,1);
-			SQL.ExecuteUPDATE("UPDATE users_stats SET pp_std = 0 AND pp_taiko = 0 AND pp_ctb = 0 AND pp_mania = 0 WHERE id = " + UserID, 1);
 			SQL.ExecuteUPDATE("UPDATE rx_stats SET pp_std = 0 AND pp_taiko = 0 AND pp_ctb = 0 AND pp_mania = 0 WHERE id = " + UserID, 1);
+		#endif
+			SQL.ExecuteUPDATE("UPDATE users_stats SET pp_std = 0 AND pp_taiko = 0 AND pp_ctb = 0 AND pp_mania = 0 WHERE id = " + UserID, 1);
+			
 		}
 		DeleteAndNull(res);		
 	}

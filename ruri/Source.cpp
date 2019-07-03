@@ -140,7 +140,6 @@ enum RankStatus {
 
 #define _M(a) std::move(a)
 
-
 const int PING_TIMEOUT_OSU = 80000;//yes thanks peppy
 const int FREE_SLOT_TIME = 1800000;
 const bool USER_TEST = 0;
@@ -286,7 +285,6 @@ const unsigned int MAX_PACKET_LENGTH = 2816;
 #define RURI_UNIX_SOCKET "/tmp/ruri.sock"
 #define ARIA_UNIX_SOCKET "/tmp/aria.sock"
 
-
 #define likely(x)      __builtin_expect(!!(x), 1) 
 #define unlikely(x)    __builtin_expect(!!(x), 0) 
 #define _inline __attribute__((always_inline))
@@ -306,11 +304,24 @@ WSADATA wsData;
 #include <array>
 
 
+
+#ifndef NO_RELAX
+
+#define GM_MAX 7
+
+
+#else
+
+#define GM_MAX 3
+
+#endif
+
+
+
 const static std::string GameModeNames[] = {
 	"osu!","osu!taiko","osu!catch","osu!mania"
 	"osu!relax","osu!taiko(relax)","osu!catch(relax)","osu!mania(relax)"
 };
-
 
 constexpr size_t _strlen_(const char* s)noexcept{
 	return *s ? 1 + _strlen_(s + 1) : 0;
@@ -719,9 +730,9 @@ struct _RankList {
 		ID = I;
 		PP = P;
 	}
-}; std::vector<_RankList> RankList[8];
+}; std::vector<_RankList> RankList[GM_MAX + 1];
 DWORD RankListVersion[] = { 1,1,1,1,1,1,1,1 };
-std::shared_mutex RankUpdate[8];
+std::shared_mutex RankUpdate[GM_MAX + 1];
 
 void ReSortAllRank() {
 
@@ -1341,7 +1352,7 @@ struct _User{
 
 	std::mutex StatsAdd;
 
-	_UserStats Stats[8];//4 normal modes + 4 more relax ones
+	_UserStats Stats[GM_MAX + 1];//4 normal modes + 4 more relax ones
 
 	std::string ActionText;
 	int LastPacketTime;
@@ -1421,7 +1432,11 @@ struct _User{
 
 		if (GameMode > 3)return 3;
 
-		return (actionMods & Mods::Relax) ? GameMode + 4 : GameMode;
+		return
+		#ifndef NO_RELAX
+		(actionMods & Mods::Relax) ? GameMode + 4 :
+		#endif
+		GameMode;		
 	}
 
 	void SendToSpecs(const _BanchoPacket &b) {
@@ -4635,15 +4650,16 @@ void FillRankCache(){
 				t.join();
 		}
 
-		printf("Filling rank cache (relax)\n");
+		#ifndef NO_RELAX
 
+		printf("Filling rank cache (relax)\n");
 		{
 			std::array<std::thread, 4> threads = { std::thread(DoFillRank,0,1),std::thread(DoFillRank,1,1),std::thread(DoFillRank,2,1),std::thread(DoFillRank,3,1) };
 			for (auto& t : threads)
 				t.join();
 		}
-
-		printf("Completed both.\n");
+		#endif
+		printf("Completed.\n");
 }
 
 
@@ -4842,7 +4858,7 @@ int main() {
 	#undef V
 
 	}
-	
+
 	static_assert((BANCHO_THREAD_COUNT >= 4 && ARIA_THREAD_COUNT >= 4),
 		"BANCHO_THREAD_COUNT or ARIA_THREAD_COUNT can not be below 4");
 

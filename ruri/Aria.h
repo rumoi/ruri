@@ -221,7 +221,12 @@ struct _LeaderBoardCache{
 
 		MD5 = REMOVEQUOTES(MD5);
 		
+	#ifndef NO_RELAX
 		#define TableName std::string(s.Mods & Relax ? "scores_relax" : "scores")
+	#else
+		#define TableName "scores"
+	#endif
+
 
 		if (MD5.size() != 32){
 			printf("AddScore Incorrect md5 length\n");//should never happen
@@ -311,7 +316,11 @@ struct _LeaderBoardCache{
 		#undef TableName
 
 		if(NewTop)
-			std::sort(ScoreCache.begin(), ScoreCache.end() , (s.Mods & Relax) ? SortScoreCacheByPP : SortScoreCacheByScore);//Could optimize this by bounding it. Will do it if this ever becomes a problem (doubt it)
+			std::sort(ScoreCache.begin(), ScoreCache.end() ,
+		#ifndef NO_RELAX
+			(s.Mods & Relax) ? SortScoreCacheByPP :
+			#endif				
+				SortScoreCacheByScore);//Could optimize this by bounding it. Will do it if this ever becomes a problem (doubt it)
 
 		const DWORD NewRank = (!NewTop) ? 0 : GetRankByUID(s.UserID,1);
 		
@@ -344,12 +353,12 @@ struct _BeatmapData{
 	std::string DisplayTitle;
 	std::string DiffName;
 	std::string Hash;
-	_LeaderBoardCache* lBoard[8];
+	_LeaderBoardCache* lBoard[GM_MAX + 1];
 	int RankStatus;
 
 	~_BeatmapData() {
 
-		for (DWORD i = 0; i < 8; i++){
+		for (DWORD i = 0; i < GM_MAX + 1; i++){
 			DeleteAndNull(lBoard[i]);
 		}
 
@@ -1233,7 +1242,11 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 			sData.Mods = StringToUInt32(ScoreData[score_Mods]);
 
-			if (sData.Mods & (Mods::Relax2 | Mods::Autoplay | (1 << 29)))
+			if (sData.Mods & (Mods::Relax2 | Mods::Autoplay | (1 << 29)
+			#ifdef NO_RELAX
+				| Mods:Relax
+			#endif
+				))
 				return ScoreFailed(s);
 
 			sData.BeatmapHash = REMOVEQUOTES(std::string(IT_COPY(ScoreData[scoreOffset::score_FileCheckSum])));
@@ -1248,7 +1261,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			sData.Score = StringToUInt32(ScoreData[score_totalScore]);
 			sData.MaxCombo = StringToInt32(ScoreData[score_maxCombo]);
 			sData.FullCombo = (ScoreData[score_Perfect] == "True") ? 1 : 0;
-			sData.GameMode = StringToInt32(ScoreData[score_playMode]);
+			sData.GameMode = al_min(StringToInt32(ScoreData[score_playMode]),GM_MAX);
 			
 		}//Score Data is ready to read.
 
@@ -1270,9 +1283,18 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			return TryScoreAgain(s);
 		}		
 
-		u.User->Stats[(sData.Mods & Relax ? sData.GameMode + 4 : sData.GameMode) % 8].PlayCount++;
+		u.User->Stats[
+		#ifndef NO_RELAX
+			sData.Mods & Relax ? sData.GameMode + 4 :
+		#endif
+			sData.GameMode].PlayCount++;
 
-		if (const byte TrueGameMode = (sData.Mods & Relax) ? al_min(7, sData.GameMode + 4) : sData.GameMode;
+
+		if (const byte TrueGameMode =
+		#ifndef NO_RELAX
+			(sData.Mods & Relax) ? sData.GameMode + 4 :
+		#endif			
+			sData.GameMode;
 			(u.User->privileges & UserPublic) && !FailTime && !Quit && ReplayFile.size() > 250){
 
 			_BeatmapData *BD = GetBeatmapCache(0, 0, sData.BeatmapHash, "", &AriaSQL[s.ID]);
@@ -1354,7 +1376,11 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		s.SendData(ConstructResponse(200, Empty_Headers, FastVByteAlloc("error: no")));
 		s.Dis();
 
-		AriaSQL[s.ID].ExecuteUPDATE(SQL_INSERT(sData.Mods & Relax ? "scores_relax" : "scores",
+		AriaSQL[s.ID].ExecuteUPDATE(SQL_INSERT(
+		#ifndef NO_RELAX
+			sData.Mods & Relax ? "scores_relax" :
+		#endif
+			"scores",
 		{
 		_SQLKey("beatmap_md5",std::string(sData.BeatmapHash)),
 		_SQLKey("userid",UserID),
@@ -1431,21 +1457,27 @@ void osu_getScores(const _HttpRes &http, _Con s){
 	DWORD Mode = StringToUInt32(Params.get(_WeakStringToInt_("m")));
 	const bool CustomClient = (Params.get(_WeakStringToInt_("vv")) != "4");
 	const DWORD LType = StringToUInt32(Params.get(_WeakStringToInt_("v")));
+
+#ifndef NO_RELAX
+
 	const std::string ScoreTableName = (Mods & Relax) ? "scores_relax" : "scores";
 
-	if ((u.User->actionMods & Relax) != (Mods & Relax)){//actionMods is outdated.
+	if ((u.User->actionMods & Relax) != (Mods & Relax)) {//actionMods is outdated.
 		u.User->actionMods = Mods;
 		u.User->addQue(bPacket::UserStats(u.User));//Send the updates stats back to the client.
 	}
+
+	if (Mods & Relax)Mode += 4;
+	if (Mode >= 8)Mode = 0;
+
+#else
+
+	const std::string ScoreTableName = "scores";
+
+#endif
 	
 	if (u.User->actionID != bStatus::sPlaying && BeatmapMD5.size() == 32)
 		memcpy(&u.User->ActionMD5[0], &BeatmapMD5[0], 32);
-
-	if (Mods & Relax)
-		Mode += 4;
-
-	if (Mode >= 8)
-		Mode = 0;
 
 	_BeatmapData*const BeatData = GetBeatmapCache(SetID,0, BeatmapMD5,
 		ExtractDiffName(urlDecode(std::string(Params.get(_WeakStringToInt_("f")))))
@@ -1491,7 +1523,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 			if (s.UserID != 0) {
 				Response += std::to_string(s.ScoreID);//online id
 				Response += "|" + u.User->Username;//player name
-				Response += "|" + std::to_string((Mode>=4) ? int(s.pp + 0.5f) : s.Score);//total score
+				Response += "|" + std::to_string((Mode > 3) ? int(s.pp + 0.5f) : s.Score);//total score
 				Response += "|" + std::to_string(s.MaxCombo);//max combo
 				Response += "|" + std::to_string(s.count50);//count 50
 				Response += "|" + std::to_string(s.count100);//count 100
@@ -1536,7 +1568,7 @@ void osu_getScores(const _HttpRes &http, _Con s){
 
 				Response += "\n" + std::to_string(lScore->ScoreID)//online id
 				         + "|" + GetUsernameFromCache(lScore->UserID)//player name
-				         + "|" + std::to_string((Mode >= 4 || LType == RankingType::Country) ? int(lScore->pp + 0.5f) : lScore->Score)//total score
+				         + "|" + std::to_string((Mode > 3 || LType == RankingType::Country) ? int(lScore->pp + 0.5f) : lScore->Score)//total score
 						 + "|" + std::to_string(lScore->MaxCombo)//max combo
 						 + "|" + std::to_string(lScore->count50)//count 50
 						 + "|" + std::to_string(lScore->count100)//count 100
