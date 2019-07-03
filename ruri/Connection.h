@@ -11,7 +11,7 @@ struct _HttpRes {
 
 	std::vector<byte> Body;
 	std::vector<byte> Host;
-	SS_TUPLE_VEC Headers;
+	SS_PAIR_VEC Headers;
 
 	__inline const std::string& GetHeaderValue(const std::string &&Name)const{
 
@@ -25,7 +25,7 @@ struct _HttpRes {
 	_HttpRes(){}
 };
 
-const std::string ConstructResponse(const DWORD Code, const SS_TUPLE_VEC&Headers,const std::vector<byte> &Body){
+const std::string ConstructResponse(const DWORD Code, const SS_PAIR_VEC&Headers,const std::vector<byte> &Body){
 
 	std::string Return = [=]{
 
@@ -109,7 +109,7 @@ struct _Con{
 					continue;
 
 				res.Headers.push_back(
-				TUPLE(std::string,std::string){
+				PAIR(std::string,std::string){
 					Head[0].substr(1,Head[0].size() - 1),
 					Head[1].substr(1,Head[1].size() - 1)
 				});

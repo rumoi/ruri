@@ -190,7 +190,7 @@ struct _SQLCon {
 
 };
 
-struct _SQLKey {
+struct _SQLKey{
 
 	const std::string Key;
 	const std::string Value;
@@ -203,6 +203,7 @@ struct _SQLKey {
 	_SQLKey(T&& Key, const int64_t Value) : Key(std::forward<T>(Key)), Value(_M(std::to_string(Value))), Text(0) {}
 
 };
+
 
 
 const std::string SQL_INSERT(const std::string &&Table, const VEC(_SQLKey)&& Values) {
@@ -223,6 +224,7 @@ const std::string SQL_INSERT(const std::string &&Table, const VEC(_SQLKey)&& Val
 		return Return;
 	}() + ");";
 }
+
 const std::string SQL_SETUPDATE(const std::string &&Table, const VEC(_SQLKey) && Values, const std::string& Condition) {
 	return "UPDATE " + Table + " SET " + [&]{
 		std::string Return;
@@ -234,4 +236,3 @@ const std::string SQL_SETUPDATE(const std::string &&Table, const VEC(_SQLKey) &&
 		return Return;
 	}() + " WHERE " + Condition;
 }
-

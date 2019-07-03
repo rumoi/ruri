@@ -761,7 +761,7 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 								_SQLKey("hit_length",Length),
 								_SQLKey("bpm",BPM),
 								_SQLKey("ranked",RankedStatus)
-							}, "id =" + AlreadyThere->getString(1) + " LIMIT 1"));
+							}, "id=" + AlreadyThere->getString(1) + " LIMIT 1"));
 							
 						}else
 							SQLCon->ExecuteUPDATE(SQL_INSERT("beatmaps", {
@@ -1272,12 +1272,8 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 		u.User->Stats[(sData.Mods & Relax ? sData.GameMode + 4 : sData.GameMode) % 8].PlayCount++;
 
-		if ((u.User->privileges & UserPublic) && !FailTime && !Quit && ReplayFile.size() > 250){
-			byte lGameMode = sData.GameMode;
-
-			if (sData.Mods & Relax)lGameMode += 4;
-
-			if (lGameMode >= 8)lGameMode = 0;
+		if (const byte TrueGameMode = (sData.Mods & Relax) ? al_min(7, sData.GameMode + 4) : sData.GameMode;
+			(u.User->privileges & UserPublic) && !FailTime && !Quit && ReplayFile.size() > 250){
 
 			_BeatmapData *BD = GetBeatmapCache(0, 0, sData.BeatmapHash, "", &AriaSQL[s.ID]);
 
@@ -1317,7 +1313,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			
 			std::string ClientScoreUpdate;
 
-			bool NewBest = BD->AddScore(lGameMode, sc, &AriaSQL[s.ID],&ClientScoreUpdate);
+			bool NewBest = BD->AddScore(TrueGameMode, sc, &AriaSQL[s.ID],&ClientScoreUpdate);
 
 			std::string Charts =
 				"beatmapId: " + std::to_string(BD->BeatmapID) +
@@ -1346,14 +1342,11 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			s.SendData(ConstructResponse(200, Empty_Headers, std::vector<byte>(Charts.begin(), Charts.end())));
 			s.Dis();
 
-			if(NewBest && UpdateUserStatsFromDB(&AriaSQL[s.ID], UserID, lGameMode, u.User->Stats[lGameMode]))
+			if(NewBest && UpdateUserStatsFromDB(&AriaSQL[s.ID], UserID, TrueGameMode, u.User->Stats[TrueGameMode]))
 				u.User->addQue(bPacket::UserStats(u.User));
 
-			if (NewBest && sc.ScoreID && ReplayFile.size()){
-				//Might want to save the headers into the file its self.
-				//The only time having raw data would be nice is when someone changes their username. But is it really that big of an issue. Could leave the name as the userid and only resolve that (with the name cache) on fetch.
+			if (NewBest && sc.ScoreID && ReplayFile.size())
 				WriteAllBytes(REPLAY_PATH +std::to_string(sc.ScoreID) + ".osr",&ReplayFile[0], ReplayFile.size());
-			}
 
 			return;
 		}
@@ -1793,7 +1786,9 @@ namespace MIRROR {
 			if (MirrorAPIQue.size()){
 
 				MirrorAPILock.lock();
+
 				auto QueCopy = MirrorAPIQue;
+
 				MirrorAPIQue.clear();
 				MirrorAPILock.unlock();
 
@@ -1801,14 +1796,10 @@ namespace MIRROR {
 					Con.SendData(GET_WEB(MIRROR_IP, _M(req)));
 					Con.Dis();
 				}
-
 			}
-
 			Sleep(10);
 		}
-
 	}
-
 }
 
 
@@ -1836,7 +1827,6 @@ void LastFM(_GetParams&& Params, _Con s){
 	if (Flags & (RelifeLoaded | Console | InvalidName | InvalidFile | RelifeLoaded)){
 
 		_UserRef u(GetUserFromNameSafe(USERNAMESAFE(std::string(Params.get(_WeakStringToInt_("us"))))), 1);
-
 
 		if (!(!u) && u->Password == _MD5(Params.get(_WeakStringToInt_("ha"))) && u->privileges & UserPublic){
 			

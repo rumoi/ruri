@@ -140,6 +140,7 @@ enum RankStatus {
 
 #define _M(a) std::move(a)
 
+
 const int PING_TIMEOUT_OSU = 80000;//yes thanks peppy
 const int FREE_SLOT_TIME = 1800000;
 const bool USER_TEST = 0;
@@ -304,6 +305,13 @@ WSADATA wsData;
 #include <string>
 #include <array>
 
+
+const static std::string GameModeNames[] = {
+	"osu!","osu!taiko","osu!catch","osu!mania"
+	"osu!relax","osu!taiko(relax)","osu!catch(relax)","osu!mania(relax)"
+};
+
+
 constexpr size_t _strlen_(const char* s)noexcept{
 	return *s ? 1 + _strlen_(s + 1) : 0;
 }
@@ -394,10 +402,10 @@ constexpr size_t _strlen_(const char* s)noexcept{
 
 
 #define VEC(s) std::vector<s>
-#define TUPLE(a,b) std::tuple<a,b>
+#define PAIR(a,b) std::pair<a,b>
 #define IT_COPY(a) begin(a),end(a)
 
-#define SS_TUPLE_VEC VEC(TUPLE(std::string, std::string))
+#define SS_PAIR_VEC VEC(PAIR(std::string, std::string))
 
 const std::string BOT_NAME = "ruri";
 const std::string FAKEUSER_NAME = []{const byte a[] = { 226,128,140,226,128,141,0 }; return std::string((char*)a); }();
@@ -974,7 +982,7 @@ struct _BanchoPacket {
 
 	std::vector<byte> GetBytes() const{
 		const DWORD DataSize = Data.size();
-		std::vector<byte> Bytes(7 + DataSize);
+		std::vector<byte> Bytes(DataSize + 7);
 
 		byte* D = &Bytes[0];
 		
@@ -987,6 +995,7 @@ struct _BanchoPacket {
 
 		return Bytes;
 	}
+
 	const size_t GetSize()const {
 		return 7 + Data.size();
 	}
@@ -1026,11 +1035,18 @@ struct _BanchoPacket {
 		Type = ID;
 		Compression = 0;
 	}
-	_BanchoPacket(const short ID, const DWORD vSize) {
+	_BanchoPacket(const short ID, const DWORD vSize){
 		Type = ID;
 		Compression = 0;
 		Data.resize(vSize);
 	}
+	_BanchoPacket(const short ID, const DWORD vSize, bool HereToBeBetter):Data{0,0,0,0} {
+		Type = ID;
+		Compression = 0;
+		*(DWORD*)&Data[0] = vSize;
+	}
+
+
 };
 const _BanchoPacket erPacket(NULL_PACKET);
 
@@ -1089,23 +1105,6 @@ public:
 	}
 };
 
-/*
-#define EXPLODE(TYPE,DATA,LEN,DELMNT)[](const char*const d,const size_t Size)->VEC(TYPE){\
-	VEC(TYPE) Output;\
-	if(!d || !Size)\
-		return Output;\
-	const char* Start = d;\
-	for(size_t i = 0; i< Size;i++){\
-		if(d[i] == DELMNT){\
-			Output.push_back(TYPE(Start,d + i));\
-			Start = d + i + 1;\
-		}\
-	}\
-	if(Start != d + Size)\
-		Output.push_back(TYPE(Start,d + Size));\
-	return Output;\
-	}((const char*const)DATA,LEN)
-	*/
 #define EXPLODE_MULTI(TYPE,DATA,LEN,DELMNT)[](const char*const d,const size_t Size)->VEC(TYPE){\
 	VEC(TYPE) Output;\
 	if(!d || !Size)\
@@ -1135,7 +1134,7 @@ const VEC(std::string_view) Explode_View(const T& Input, const char Delim, const
 	if (Input.size()) {/*
 					  This branch has to be here.
 					  If a std::string_view is passed into Explode_View and the reference operator is called (&)
-					  with a square brackter array ([i]) It will offset the reference to the reference and NOT the original reference point.
+					  with a square bracket array ([i]) It will offset the reference to the reference and NOT the original reference point.
 					  This will crash on the first &Input[0] if the size is 0 as well - it will try to read unintalized memory;
 					  */
 		Views.reserve(ExpectedSize);
@@ -1156,9 +1155,6 @@ const VEC(std::string_view) Explode_View(const T& Input, const char Delim, const
 	}
 	return Views;
 }
-
-
-//#define EXPLODE_VEC(TYPE, VECT,DELMNT)EXPLODE(TYPE,&VECT[0],VECT.size(),DELMNT)
 
 #define _READINT32(s) [](const char* sP){					\
 				if(!sP)return 0;							\
@@ -1190,7 +1186,7 @@ _inline void AddStringToVector(std::vector<byte> &v, const std::string &s){
 #include "Connection.h"
 
 
-const SS_TUPLE_VEC Empty_Headers = {};
+const SS_PAIR_VEC Empty_Headers = {};
 
 const std::vector<byte> Empty_Byte;
 
@@ -1507,52 +1503,58 @@ void reset() {
 		LastPacketTime = INT_MIN;
 	}
 	
-
-	void addQue(const _BanchoPacket &b) {
-		if (b.Type == NULL_PACKET)return;
+	template<typename T>
+	void addQue(T &&b){
+		if (!choToken || b.Type == NULL_PACKET)
+			return;
 		qLock.lock();
-		if(choToken)
-			Que.push_back(b);
+		Que.push_back(std::forward<T>(b));
 		qLock.unlock();
 	}
-	void addQue(const _BanchoPacket&& b) {
-		if (b.Type == NULL_PACKET)return;
+
+	template<typename T>
+	void addQueDelay(T&& b) {
+		if (b.b.Type == NULL_PACKET || b.Time == 0 || !choToken)
+			return;
 		qLock.lock();
-		if (choToken)
-			Que.push_back(_M(b));
+		dQue.push_back(std::forward<T>(b));
 		qLock.unlock();
 	}
 
 	void addQue(const VEC(_BanchoPacket) &b){
-		if (choToken && b.size()) {
+		if (choToken && b.size()){
 			qLock.lock();
-			for (const auto& p : b){
-				if (p.Type == NULL_PACKET)
-					continue;
-				Que.push_back(p);
+			for (auto& p : b){
+				if (p.Type != NULL_PACKET)
+					Que.push_back(p);
 			}
-
 			qLock.unlock();
 		}
 	}
 
-	void addQueDelay(const _DelayedBanchoPacket &b) {
+	void addQue(std::initializer_list<_BanchoPacket>&& bundle) {
+		if (choToken && bundle.size()){
 
-		if (b.b.Type == NULL_PACKET || b.Time == 0 || !choToken)return;
-		
-		qLock.lock();
-		if(choToken)dQue.push_back(b);
-		qLock.unlock();
+			qLock.lock();
+
+			for (auto& b : bundle)
+				Que.emplace_back(_M(b));
+			
+			qLock.unlock();
+		}
 	}
 
-	void addQueNonLocking(const _BanchoPacket &b){
+
+	template<typename T>
+	void addQueNonLocking(T&& b){
 		if (b.Type == NULL_PACKET || !choToken)return;
-		Que.push_back(b);
+		Que.push_back(std::forward<T>(b));
 	}
-	void addQueDelayNonLocking(const _DelayedBanchoPacket &b) {
 
+	template<typename T>
+	void addQueDelayNonLocking(T&& b){
 		if (b.b.Type == NULL_PACKET || b.Time == 0 || !choToken)return;
-		dQue.push_back(b);
+		dQue.push_back(std::forward<T>(b));
 	}
 
 	void doQue(_Con s){
@@ -1613,7 +1615,7 @@ void reset() {
 		qLock.unlock();
 
 		if (SendBytes.size())
-			s.SendData(ConstructResponse(200, (!SendToken) ? Empty_Headers : SS_TUPLE_VEC{{"cho-token", std::to_string(choToken)}}, SendBytes));
+			s.SendData(ConstructResponse(200, (!SendToken) ? Empty_Headers : SS_PAIR_VEC{{"cho-token", std::to_string(choToken)}}, SendBytes));
 		else{
 		FEEDALIVE:
 			s.SendData(ConstructResponse(200, {}, SendBytes));
@@ -1867,8 +1869,8 @@ namespace bPacket {
 		return b;
 	}
 
-	#define bPacket4Byte(ID, VALUE)[&]()->const _BanchoPacket{_BanchoPacket b(ID,{0,0,0,0});*(DWORD*)&b.Data[0] = VALUE;return b;}()
-
+	#define bPacket4Byte(ID, VALUE) _BanchoPacket(ID,static_cast<DWORD>(VALUE),true)
+	
 	_inline _BanchoPacket RawData(const short ID, const byte* Value, const DWORD Size) {
 
 		_BanchoPacket b(ID);
@@ -1895,7 +1897,7 @@ namespace bPacket {
 		else
 			AddShort(b.Data, Value.size());
 
-		for (const auto& i : Value)
+		for (const auto i : Value)
 			AddInt(b.Data, i);
 
 		return b;
@@ -1909,7 +1911,7 @@ namespace bPacket {
 		else
 			AddShort(b.Data, Value.size());
 
-		for (const auto& i : Value)
+		for (const auto i : Value)
 			AddInt(b.Data, i);
 
 		return b;
@@ -4063,7 +4065,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 	//IngameMenu(tP,s);//Handles all the cool new clickable menus
 
 	tP->LastPacketTime = clock_ms();
-	
+
 	tP->doQue(s);
 
 }
@@ -4288,9 +4290,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 			u->FriendsOnlyChat = (ClientData[4] == "1");
 
-			u->timeOffset = MemToInt32(&ClientData[1][0], ClientData[1].size());
-
-			
+			u->timeOffset = MemToInt32(&ClientData[1][0], ClientData[1].size());			
 
 			u->country = CountryCode;// getCountryNum(res.GetHeaderValue("CF-IPCountry")); the nature of private servers disallow this.. i guess bancho could use this :(
 						   // Best course of action would to resolve it from cloudflare on registration, not verification.
@@ -4359,7 +4359,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 			u->addQueNonLocking(bPacket::UserPanel(999, 0));
 			u->addQueNonLocking(USER_STATS(999, 0));
 			
-			for (const auto& gUser : Users) {
+			for (auto& gUser : Users) {
 				if (!gUser.choToken || &gUser == u.User || u->isBlocked(gUser.UserID))
 					continue;
 				u->addQueNonLocking(bPacket::UserPanel(gUser.UserID, UserID));
@@ -4580,7 +4580,7 @@ void PushUsers() {
 
 					AddInt(Data, u.Spectators.size());
 
-					for (const auto& Spec : u.Spectators)//Spectators changing at the very instant the server restarts is astronomically rare.
+					for (const auto Spec : u.Spectators)//Spectators changing at the very instant the server restarts is astronomically rare.
 						Spec ? AddInt(Data, Spec->UserID) : AddInt(Data, 0);
 
 				}

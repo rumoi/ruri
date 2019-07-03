@@ -220,7 +220,7 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 		}
 		ID = res->getInt(1);
 		BanPrivs = res->getUInt(2);
-		delete res;
+		DeleteAndNull(res);
 	}
 	if (BanPrivs == -1){
 
@@ -231,7 +231,7 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 			return Respond("Failed to find a user with that ID");
 		}
 		BanPrivs = res->getUInt(1);
-		delete res;
+		DeleteAndNull(res);
 	}
 
 	if(BanPrivs & Privileges::AdminDev)
@@ -245,7 +245,7 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 		
 		//These could be done in one. But im pretty sure its better for SQL to do multiple smaller commands than one large one.
 
-		SQL.ExecuteUPDATE("UPDATE users SET privileges = " + std::to_string(BanPrivs) + " WHERE id = " + std::to_string(ID),1);
+		SQL.ExecuteUPDATE("UPDATE users SET privileges = " + std::to_string(BanPrivs) + " AND ban_datetime = " + std::to_string(time(0)) + " WHERE id = " + std::to_string(ID),1);
 		SQL.ExecuteUPDATE("UPDATE scores SET pp = 0 WHERE completed = 3 AND userid = " + std::to_string(ID),1);
 		SQL.ExecuteUPDATE("UPDATE scores_relax SET pp = 0 WHERE completed = 3 AND userid = " + std::to_string(ID),1);
 		SQL.ExecuteUPDATE("UPDATE users_stats SET pp_std = 0 AND pp_taiko = 0 AND pp_ctb = 0 AND pp_mania = 0 WHERE id = " + std::to_string(ID), 1);
@@ -306,8 +306,12 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 	
 	if (Reason.size()){
 
+		if (Caller)
+			Reason = "\n"+ Caller->Username_Safe + "> " +Reason;
+		else
+			Reason = "\nSERVER> " + Reason;
 
-		Reason.insert(Reason.begin(), '\n');
+
 		ReplaceAll(Reason, "\'", "\'\'"); 
 			   
 		//std::string TotalReason = std::chrono::date::format("%F %T\n", time_point_cast<milliseconds>(system_clock::now()));
@@ -627,7 +631,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
 
 			{
-				std::thread t(RestrictUser, u, RestrictName, RestrictID, std::string(CombineAllNextSplit(2,Split)));
+				std::thread t(RestrictUser, u, RestrictName, RestrictID,std::string(CombineAllNextSplit(2,Split)));
 				t.detach();
 			}
 
