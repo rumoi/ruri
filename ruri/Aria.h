@@ -333,7 +333,7 @@ struct _LeaderBoardCache{
 		
 		ScoreLock.unlock();
 
-		if (NewRank == 1 && ScoreCache.size() > 5)
+		if (!s.Loved && NewRank == 1 && ScoreCache.size() > 5)
 			chan_Announce.Bot_SendMessage("[https://osu.ppy.sh/u/" + std::to_string(s.UserID) + " " + GetUsernameFromCache(s.UserID) +
 				"] has achieved #1 on [https://osu.ppy.sh/b/" + std::to_string(BID) +" "+ MapName +"] ( " + RoundTo2(s.pp) + "pp )");
 

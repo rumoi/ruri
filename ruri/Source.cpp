@@ -1043,23 +1043,17 @@ struct _BanchoPacket {
 		Type = 0;
 		Compression = 0;
 	}
-	_BanchoPacket(const short ID) {
+
+	template<typename T>
+	_BanchoPacket(const short ID, T&& v) : Data(std::forward<T>(v)) {
 		Type = ID;
 		Compression = 0;
 	}
-	_BanchoPacket(const short ID, const std::vector<byte> &v): Data(v){
-		Type = ID;
-		Compression = 0;
-	}
-	_BanchoPacket(const short ID, const DWORD vSize){
+
+	_BanchoPacket(const short ID, const DWORD vSize = 0) {
 		Type = ID;
 		Compression = 0;
 		Data.resize(vSize);
-	}
-	_BanchoPacket(const short ID, const DWORD vSize, bool HereToBeBetter):Data{0,0,0,0} {
-		Type = ID;
-		Compression = 0;
-		*(DWORD*)&Data[0] = vSize;
 	}
 
 
@@ -1355,6 +1349,8 @@ struct _User{
 	float lat;
 	float lon;
 
+	std::vector<_BanchoPacket> Que;std::mutex qLock;
+
 	std::mutex StatsAdd;
 
 	_UserStats Stats[GM_MAX + 1];//4 normal modes + 4 more relax ones
@@ -1381,11 +1377,11 @@ struct _User{
 
 	_Achievement Ach;//TODO: thread this.
 
-	std::vector<_BanchoPacket> Que;
+	
 	std::vector<_DelayedBanchoPacket> dQue;
 	size_t ActiveChannels[MAX_CHAN_COUNT];//There is no way to resolve the actual size without restructuring xdxdxd
 
-	std::mutex qLock;
+	
 	std::string c1Check;
 
 	std::mutex RefLock;
@@ -1522,12 +1518,12 @@ void reset() {
 		LastPacketTime = INT_MIN;
 	}
 	
-	template<typename T>
-	void addQue(T &&b){
-		if (!choToken || b.Type == NULL_PACKET)
+	template<typename... T>
+	void addQue(T&& ... b) {
+		if (!choToken)
 			return;
 		qLock.lock();
-		Que.push_back(std::forward<T>(b));
+		Que.emplace_back(std::forward<T>(b)...);
 		qLock.unlock();
 	}
 
@@ -1888,7 +1884,11 @@ namespace bPacket {
 		return b;
 	}
 
-	#define bPacket4Byte(ID, VALUE) _BanchoPacket(ID,static_cast<DWORD>(VALUE),true)
+	#define bPacket4Byte(ID, VALUE) _BanchoPacket(ID,VEC(byte){\
+												static_cast<byte>(VALUE),\
+												static_cast<byte>(VALUE >> 8),\
+												static_cast<byte>(VALUE >> 16),\
+												static_cast<byte>(VALUE >> 24)})
 	
 	_inline _BanchoPacket RawData(const short ID, const byte* Value, const DWORD Size) {
 
@@ -1900,6 +1900,8 @@ namespace bPacket {
 
 		return b;
 	}
+	
+
 
 	_inline _BanchoPacket GenericString(const short ID, const std::string_view Value){
 		_BanchoPacket b(ID);
@@ -4121,14 +4123,14 @@ _inline byte getCountryNum(const USHORT isoCode){
 	return 0;
 }
 
-const std::vector<byte> PACKET_INCORRECTLOGIN = []{return _BanchoPacket(OPac::server_userID, {0xff,0xff,0xff,0xff}).GetBytes();}();
+const std::vector<byte> PACKET_INCORRECTLOGIN = []{return _BanchoPacket(OPac::server_userID, VEC(byte){0xff,0xff,0xff,0xff}).GetBytes();}();
 const std::vector<byte> PACKET_SERVERFULL = [] {
-	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, { 0xff,0xff,0xff,0xff }).GetBytes();
+	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, VEC(byte){ 0xff,0xff,0xff,0xff }).GetBytes();
 	AddVector(packet, bPacket::Notification("Server is currently full").GetBytes(),byte);
 	return packet;
 }();
 const std::vector<byte> PACKET_CLIENTOUTOFDATE = [] {
-	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, { 0xff,0xff,0xff,0xff }).GetBytes();
+	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, VEC(byte){ 0xff,0xff,0xff,0xff }).GetBytes();
 	AddVector(packet, bPacket::Notification("Your client is out of date!\nPlease update it.").GetBytes(),byte);
 	return packet;
 }();
