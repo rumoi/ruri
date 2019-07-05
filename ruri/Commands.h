@@ -325,7 +325,6 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 	return Respond("The deed is done.");
 }
 
-
 std::string CombineAllNextSplit(DWORD INDEX, const VEC(std::string_view) &SPLIT){
 
 	std::string comString = (SPLIT.size() > INDEX) ? std::string(begin(SPLIT[INDEX]),end(SPLIT[INDEX])) : "";
@@ -485,6 +484,65 @@ void UpdateAllUserStatsinGM(_User* Caller, const DWORD GM){
 	return Respond("Finished");
 }
 
+//Should be ran only once if a server is switching to ruri.
+void FixLoved() {
+
+	_SQLCon SQL;
+
+	SQL.Connect();
+
+	std::vector<std::pair<DWORD, std::string>> LovedMaps;
+
+
+	auto res = SQL.ExecuteQuery("SELECT beatmap_id, beatmap_md5 FROM beatmaps WHERE ranked = 5",1);
+
+
+	while (res && res->next())
+		LovedMaps.emplace_back(res->getUInt(1), res->getString(2));
+
+	chan_Akatsuki.Bot_SendMessage(std::to_string(LovedMaps.size()) + " Loved map leaderboards being updated");
+
+	for (auto& [ID,MD5] : LovedMaps){
+
+		const auto UpdateTable = [=,&SQL](const std::string&& TableName, const std::string& MODE){
+
+			SQL.ExecuteUPDATE("UPDATE " + TableName + " SET pp = 0.001, score = 0 WHERE beatmap_md5 = '" + MD5 + "'",1);
+
+			auto Score = SQL.ExecuteQuery("SELECT max_combo,mods,misses_count,accuracy,id FROM " + TableName + " WHERE beatmap_md5 = '" + MD5 + "' AND completed = 3 AND play_mode = " + MODE, 1);
+
+			if (!Score || !Score->next()) {
+				DeleteAndNull(Score);
+				return;
+			}
+			do {
+
+				ezpp_t ezpp = ezpp_new();
+				ezpp_set_mode(ezpp, 0);
+				ezpp_set_combo(ezpp, Score->getUInt(1));
+				ezpp_set_mods(ezpp, Score->getUInt(2));
+				ezpp_set_nmiss(ezpp, Score->getUInt(3));
+				ezpp_set_accuracy_percent(ezpp, Score->getDouble(4));
+
+				if (OppaiCheckMapDownload(ezpp, ID))
+					SQL.ExecuteUPDATE("UPDATE " + TableName + " SET score = " + std::to_string(int(ezpp->pp + 0.5f)) + " WHERE id = " + Score->getString(5), 1);
+				//else { ezpp_free(ezpp); break; }
+				ezpp_free(ezpp);
+
+			} while (Score->next());
+			DeleteAndNull(Score);
+		};
+		UpdateTable("scores", "0");
+#ifndef NO_RELAX
+		UpdateTable("scores_relax", "0");
+#endif
+
+	}
+	DeleteAndNull(res);
+
+	chan_Akatsuki.Bot_SendMessage("Loved map leaderboards updated");
+
+
+}
 
 void FullRecalcPP(const std::string GM){
 
@@ -777,8 +835,8 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 		}
 		case _WeakStringToInt_("!recalcusers"): {
 			
-			{
-				std::thread t(UpdateAllUserStatsinGM, u, 0);
+			if(Split.size() == 2){
+				std::thread t(UpdateAllUserStatsinGM, u, StringToInt32(Split[1]));
 				t.detach();
 			}
 
@@ -793,6 +851,15 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			}
 
 			return "running";
+		}
+		case _WeakStringToInt_("!fixloved"): {
+
+			chan_Akatsuki.Bot_SendMessage(u->Username + " is fixing loved xd");
+			{
+				std::thread t(FixLoved);
+				t.detach();
+			}
+			return "yes";
 		}
 		case _WeakStringToInt_("!rCount"):{
 			return std::to_string(u->ref) + "| Slot: " + std::to_string((size_t(u) - size_t(&Users[0])) / sizeof(_User));

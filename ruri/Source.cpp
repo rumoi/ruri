@@ -768,12 +768,17 @@ void ReSortRank(const DWORD i) {
 
 }
 struct _SQLQue{
-	std::mutex Lock;
+	std::mutex CommandLock;
 	std::vector<std::string> Commands;
+
+
+	_inline void lock() { CommandLock.lock(); }
+	_inline void unlock() { CommandLock.unlock(); }
+
 
 	void AddQue(const std::string &s){
 
-		MUTEX_LOCKGUARD(Lock);
+		MUTEX_LOCKGUARD(CommandLock);
 
 		Commands.push_back(s);
 	}
@@ -1362,6 +1367,7 @@ struct _User{
 	bool SendToken;
 	bool inLobby;
 	bool HyperMode;
+	bool FriendsOnlyChat;
 	std::mutex SpecLock;
 	std::vector<_User*> Spectators;
 	//std::mutex MultiLock;
@@ -1371,9 +1377,7 @@ struct _User{
 	//_Menu Menu;
 	DWORD Friends[256];
 
-	DWORD Blocked[32];
-
-	bool FriendsOnlyChat;
+	DWORD Blocked[32];	
 
 	_Achievement Ach;//TODO: thread this.
 
@@ -4139,10 +4143,8 @@ void BanchoServerFull(_Con s) {
 
 void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
-	if (res.Body.size() <= 1){
-		printf("Empty packet! (%s)\n",(char*)&res.Host[0]);
+	if (res.Body.size() <= 1)
 		return;
-	}
 
 	if (!choToken){//No token sent - Assume its the login request which only ever comes in once
 
@@ -4186,6 +4188,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 		int SilenceEnd = 0;
 		byte CountryCode = 0;
 		bool NewLogin = 0;
+
 		_UserRef u(GetUserFromNameSafe(Username_Safe, 1),1);
 
 		if (u.User && u->Password == cPassword){
@@ -4522,14 +4525,14 @@ void LazyThread(){
 
 		if (SQLExecQue.Commands.size()){
 
-			SQLExecQue.Lock.lock();
+			SQLExecQue.lock();
 			{
 				for (std::string& Command : SQLExecQue.Commands)
 					lThreadSQL.ExecuteUPDATE(_M(Command), 1);
 
 				SQLExecQue.Commands.clear();
 			}
-			SQLExecQue.Lock.unlock();
+			SQLExecQue.unlock();
 
 		}
 
@@ -4552,7 +4555,7 @@ void DoFillRank(DWORD I, bool TableName){
 	if (TableName)
 		I += 4;
 	while (res && res->next()) {
-		RankList[I].push_back({res->getUInt(1), res->getUInt(2)});
+		RankList[I].emplace_back(res->getUInt(1), res->getUInt(2));
 		cOffset++;
 	}
 	if (res)delete res;

@@ -241,7 +241,7 @@ int pp_ReadRawMapData(const std::string &Input, _RawBeatmap &Output){
 		if (SecondData) {
 			if (tBPM != LastMultiplier) {//Ignore timing points not related to bpm.
 				LastMultiplier = tBPM;
-				TimingPoints.push_back({
+				TimingPoints.emplace_back(
 					tOffset,tBPM,
 					[&]()->double {
 						if (tBPM > 0) {
@@ -250,7 +250,7 @@ int pp_ReadRawMapData(const std::string &Input, _RawBeatmap &Output){
 						}
 						return CLAMP(double(LastRealBPM * (-tBPM * 0.01)), 10., 1000.);
 					}()
-				});
+				);
 			}
 		}
 		else break;
