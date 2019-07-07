@@ -309,7 +309,6 @@ WSADATA wsData;
 
 #define GM_MAX 7
 
-
 #else
 
 #define GM_MAX 3
@@ -772,15 +771,15 @@ struct _SQLQue{
 	std::vector<std::string> Commands;
 
 
-	_inline void lock() { CommandLock.lock(); }
-	_inline void unlock() { CommandLock.unlock(); }
-
-
 	void AddQue(const std::string &s){
-
-		MUTEX_LOCKGUARD(CommandLock);
-
+		CommandLock.lock();		
 		Commands.push_back(s);
+		CommandLock.unlock();
+	}
+	void AddQue(const std::string&& s) {
+		CommandLock.lock();
+		Commands.push_back(_M(s));
+		CommandLock.unlock();
 	}
 
 }; _SQLQue SQLExecQue;
@@ -788,12 +787,12 @@ struct _SQLQue{
 
 DWORD GetRank(const DWORD UserID, const DWORD GameMode){//Could use the cached pp to tell around where its supposed to be?
 
-	if (UserID < 1000 || GameMode >= 8 || RankList[GameMode].size() == 0)
+	if (UserID < 1000 || GameMode > GM_MAX || RankList[GameMode].size() == 0)
 		return 0;
 
 	DWORD Rank = 0;
 	
-	RankUpdate[GameMode].lock_shared();	
+	RankUpdate[GameMode].lock_shared();
 
 	for (DWORD i = 0; i < RankList[GameMode].size(); i++){
 		if (RankList[GameMode][i].ID == UserID){
@@ -4527,14 +4526,14 @@ void LazyThread(){
 
 		if (SQLExecQue.Commands.size()){
 
-			SQLExecQue.lock();
+			SQLExecQue.CommandLock.lock();
 			{
 				for (std::string& Command : SQLExecQue.Commands)
 					lThreadSQL.ExecuteUPDATE(_M(Command), 1);
 
 				SQLExecQue.Commands.clear();
 			}
-			SQLExecQue.unlock();
+			SQLExecQue.CommandLock.unlock();
 
 		}
 
@@ -4699,7 +4698,7 @@ void BanchoWork(const DWORD ID){
 		Sleep(1);//It being 0 literally hogs an entire core so.. No?
 	}
 }
-
+#include "ruri_API.h"
 
 
 void receiveConnections(){
@@ -4729,6 +4728,12 @@ void receiveConnections(){
 		std::thread a(Aria_Main);
 		a.detach();
 	}
+#if defined(LINUX) && defined(API)
+	{
+		std::thread a(ruri_API);
+		a.detach();
+	}
+#endif
 
 	while (!ARIALOADED)
 		Sleep(100);
@@ -4834,7 +4839,7 @@ std::string ExtractConfigValue(const std::vector<byte> &Input){
 	return std::string(Input.begin() + Start, Input.begin() + End);
 }
 
-int main() {
+int main(){
 
 	const std::vector<byte> ConfigBytes = LOAD_FILE("config.ini");
 

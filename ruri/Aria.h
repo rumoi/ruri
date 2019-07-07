@@ -263,7 +263,6 @@ struct _LeaderBoardCache{
 			_SQLKey("pp", (!s.Loved) ? std::to_string(s.pp) : "0.001")
 		};
 
-
 		for (DWORD i = 0; i < ScoreCache.size(); i++){
 			if (ScoreCache[i].UserID == s.UserID){
 				LastScore = ScoreCache[i];
@@ -336,8 +335,6 @@ struct _LeaderBoardCache{
 		if (!s.Loved && NewRank == 1 && ScoreCache.size() > 5)
 			chan_Announce.Bot_SendMessage("[https://osu.ppy.sh/u/" + std::to_string(s.UserID) + " " + GetUsernameFromCache(s.UserID) +
 				"] has achieved #1 on [https://osu.ppy.sh/b/" + std::to_string(BID) +" "+ MapName +"] ( " + RoundTo2(s.pp) + "pp )");
-
-		printf("ScoreID: %llu\n", s.ScoreID);
 
 		if (Ret){
 			AppendScoreToString(Ret, LastRank, LastScore, 0);
@@ -890,9 +887,9 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 	if (BS && BS->Deleted)
 		return 0;
 
-	if(!BS)
+	if (!BS)
 		BS = GetBeatmapSetFromSetID((SetID) ? SetID : getSetID_fHash(std::string(MD5), SQL), SQL);
-
+		
 	if (BS){
 
 	int Tries = 0;
@@ -907,7 +904,7 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 
 			for (auto& Map : BS->Maps){
 
-				if ((ValidMD5 && Map.Hash == MD5) ||
+				if ((ValidMD5 && Map.Hash == MD5) || (BID && Map.BeatmapID == BID) || 
 					(DiffNameGiven && Map.DiffName == DiffName))//TODO: check if the servers md5 is out of date.
 					return &Map;
 			}
@@ -1287,9 +1284,31 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 		const DWORD sOffset =
 		#ifndef NO_RELAX
-			sData.Mods& Relax ? sData.GameMode + 4 :
+			sData.Mods & Relax ? sData.GameMode + 4 :
 		#endif
 			sData.GameMode;
+
+		{//Update total_score
+		#ifdef NO_RELAX
+			const std::string TableName = "users_stats";
+		#else
+			const std::string TableName = sData.Mods & Relax ? "rx_stats" : "users_stats";
+		#endif
+			const std::string Mode = [](const byte GM){
+				if (GM == 0)
+					return "std";//imagine being ripple
+				if (GM == 0)
+					return "taiko";
+				if (GM == 0)
+					return "ctb";
+
+				return "mania";
+			}(sData.GameMode);
+
+			SQLExecQue.AddQue("UPDATE " + TableName + " SET playcount_" + Mode + "=playcount_" + Mode + "+1,total_score_" + Mode +
+				" = total_score_" + Mode + "+" + std::to_string(sData.Score) + " WHERE id = " + std::to_string(UserID) + " LIMIT 1");
+		}
+
 
 		if (const byte TrueGameMode =
 		#ifndef NO_RELAX

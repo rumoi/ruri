@@ -102,6 +102,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions>/std:c++17 %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -116,6 +117,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions>/std:c++17 %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -135,6 +137,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
+      <AdditionalOptions>/std:c++17 %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -160,6 +163,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
+      <AdditionalOptions>/std:c++17 %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -167,6 +171,7 @@
     <ClCompile Include="BCrypt\bcrypt.c" />
     <ClCompile Include="BCrypt\crypt_blowfish.c" />
     <ClCompile Include="BCrypt\crypt_gensalt.c" />
+    <ClCompile Include="lz4.c" />
     <ClCompile Include="Source.cpp" />
     <ClCompile Include="BCrypt\wrapper.c" />
   </ItemGroup>
@@ -183,6 +188,8 @@
     <ClInclude Include="BCrypt\crypt.h" />
     <ClInclude Include="BCrypt\crypt_blowfish.h" />
     <ClInclude Include="BCrypt\crypt_gensalt.h" />
+    <ClInclude Include="LZ4\lz4.h" />
+    <ClInclude Include="ruri_API.h" />
     <ClInclude Include="Linux.h" />
     <ClInclude Include="Match.h" />
     <ClInclude Include="oppai.h" />

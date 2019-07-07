@@ -60,6 +60,18 @@ struct _Slot {
 		Skipped = 0;
 		CurrentMods = 0;
 	}
+	void reset() {
+
+		SlotStatus = SlotStatus::Open;
+		SlotTeam = 0;
+		Loaded = 0;
+		Completed = 0;
+		Failed = 0;
+		Skipped = 0;
+		CurrentMods = 0;
+
+	}
+
 	_Slot(_User* u) {
 		User = u;
 		SlotStatus = SlotStatus::Open;
@@ -384,6 +396,35 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string_view Command, 
 	if (Split[0] == "!mp"){
 
 		if (Split.size() < 2)return "";
+
+
+		if (Split[1] == "here") {
+			if (!(Priv & (Privileges::AdminDev | Privileges::UserTournamentStaff)))
+				goto INSUFFICIENTPRIV;
+
+			if (Split.size() != 3)
+				return "!mp here <username>";
+
+			_UserRef Target(GetUserFromNameSafe(USERNAMESAFE(std::string(Split[2]))), 0);
+
+			if (!Target)
+				return "Coult not find user";
+
+			Match->Lock.lock();
+
+			for (byte i = 0; i < 16; i++){
+				if (!Match->Slot[i].User) {
+					Match->Slot[i].User = Target.User;
+					Match->Slot[i].reset();
+					Match->Slot[i].SlotStatus = SlotStatus::NotReady;
+					Target->addQue(bPacket::bMatch(server_matchJoinSuccess, Match, 1));
+					break;
+				}
+			}
+
+			Match->Lock.unlock();
+			return Target->Username + " forced into match";
+		}
 
 		if (Split[1] == "host"){
 			if (!(Priv & (Privileges::AdminDev | Privileges::UserTournamentStaff)))

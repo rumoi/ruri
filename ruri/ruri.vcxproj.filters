@@ -36,6 +36,9 @@
     <ClCompile Include="BCrypt\wrapper.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="lz4.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Connection.h">
@@ -108,6 +111,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Linux.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ruri_API.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LZ4\lz4.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

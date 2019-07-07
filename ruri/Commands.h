@@ -277,22 +277,14 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 							continue;
 
 						Map.lBoard[p]->ScoreLock.lock();
-						bool Updated = 0;
-						for (auto& Score : Map.lBoard[p]->ScoreCache){
 
-							if (Score.UserID == ID) {
-
-								Score.Score = 0;
-								Score.pp = 0;
-
-								Updated = 1;
+						for (auto it = Map.lBoard[p]->ScoreCache.begin(); it != Map.lBoard[p]->ScoreCache.end(); ++it){
+							if (it->UserID == ID){
+								std::rotate(it, it + 1, Map.lBoard[p]->ScoreCache.end());
+								Map.lBoard[p]->ScoreCache.pop_back();
 								break;
 							}
-							
 						}
-						if(Updated)
-							std::sort(Map.lBoard[p]->ScoreCache.begin(), Map.lBoard[p]->ScoreCache.end(),
-									 (p >= 3) ? SortScoreCacheByPP : SortScoreCacheByScore);
 
 						Map.lBoard[p]->ScoreLock.unlock();
 					}
@@ -541,6 +533,48 @@ void FixLoved() {
 
 	chan_Akatsuki.Bot_SendMessage("Loved map leaderboards updated");
 
+
+}
+
+//If for what ever reason scores get out of sync (merging/backing up scores table)
+void reCalcScore_Playcount(){
+
+
+	_SQLCon SQL;
+	SQL.Connect();
+
+	VEC(DWORD) Users_ID;
+	Users_ID.reserve(UsernameCache.size());
+
+	{
+		auto res = SQL.ExecuteQuery("SELECT id FROM users WHERE 1");
+		while (res && res->next())Users_ID.push_back(res->getInt(1));
+		DeleteAndNull(res);
+	}
+
+	for (const DWORD UserID : Users_ID){
+		
+		const std::string stringUID = std::to_string(UserID);
+		chan_DevLog.Bot_SendMessage(stringUID);
+
+		const std::string GM[] = { "std","taiko","ctb","mania"};
+
+		for (DWORD i = 0; i < GM_MAX;i++){
+
+			auto res = SQL.ExecuteQuery("SELECT score FROM "+ std::string((i > 3) ? "scores_relax" : "scores") +" WHERE play_mode="+std::to_string(i % 4)+"&&userid=" + stringUID);
+			int Total = 0;
+			int Count = 0;
+			while (res && res->next()){
+				Count++;
+				Total += res->getInt(1);
+			}
+			DeleteAndNull(res);
+			const std::string tName = (i > 3) ? "rx_stats" : "user_stats";
+			SQL.ExecuteUPDATE("UPDATE " + tName +  " SET total_score_"+GM[i % 4]+"=" + std::to_string(Total) + ",playcount_"+GM[i % 4]+"=" + std::to_string(Count));
+		}
+
+
+	}
 
 }
 
@@ -857,6 +891,14 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			chan_Akatsuki.Bot_SendMessage(u->Username + " is fixing loved xd");
 			{
 				std::thread t(FixLoved);
+				t.detach();
+			}
+			return "yes";
+		}
+		case _WeakStringToInt_("!fixplaycount"): {
+
+			{
+				std::thread t(reCalcScore_Playcount);
 				t.detach();
 			}
 			return "yes";

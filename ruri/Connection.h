@@ -140,6 +140,31 @@ struct _Con{
 		return 1;
 	}
 
+	bool SendRawData(const void* Dataa, const DWORD Size){
+
+		const char* Data = (const char*)Dataa;
+
+		if (!s)
+			return 0;
+
+		DWORD Count = 0;
+
+		while (Count < Size) {
+
+			int SendSize = Size - Count;
+
+			if (SendSize > MAX_PACKET_LENGTH)SendSize = MAX_PACKET_LENGTH;
+
+			if (send(s, (char*)&Data[Count], SendSize, 0) == SOCKET_ERROR) {
+				return 0;
+			}
+
+			Count += SendSize;
+
+		}
+		return 1;
+	}
+
 	bool SendData(const std::string &&Data){
 
 		if (!s)
