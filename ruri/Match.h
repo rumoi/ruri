@@ -331,17 +331,17 @@ namespace bPacket {
 
 		_BanchoPacket b(Packet);
 
-		AddShort(b.Data, m->MatchId);
+		AddStream(b.Data, m->MatchId);
 		b.Data.push_back((m->inProgress || m->PlayersLoading));
 		b.Data.push_back(m->Settings.MatchType);
-		AddInt(b.Data, m->Settings.Mods);
+		AddStream(b.Data, m->Settings.Mods);
 		AddString(b.Data, m->Settings.Name);
 
 		if(SendPassword)AddString(b.Data, m->Settings.Password);
 		else (m->Settings.Password.size()) ? AddString(b.Data, "*") : AddString(b.Data, "");		
 
 		AddString(b.Data, m->Settings.BeatmapName);
-		AddInt(b.Data, m->Settings.BeatmapID);
+		AddStream(b.Data, m->Settings.BeatmapID);
 		AddString(b.Data, m->Settings.BeatmapChecksum);
 
 		b.Data.resize(b.Data.size() + (NORMALMATCH_MAX_COUNT * 2));
@@ -353,10 +353,10 @@ namespace bPacket {
 
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++){
 			if (m->Slot[i].User)
-				AddInt(b.Data, m->Slot[i].User->UserID);
+				AddStream(b.Data, m->Slot[i].User->UserID);
 		}
 
-		AddInt(b.Data, m->HostID);
+		AddStream(b.Data, m->HostID);
 		b.Data.push_back(m->Settings.PlayMode);
 		b.Data.push_back(m->Settings.ScoringType);
 		b.Data.push_back(m->Settings.TeamType);
@@ -370,7 +370,7 @@ namespace bPacket {
 			}
 			AddMem(b.Data, Mods, 64);
 		}
-		AddInt(b.Data, m->Seed);
+		AddStream(b.Data, m->Seed);
 
 		if (!SendPassword)
 			m->LobbyCache = b;

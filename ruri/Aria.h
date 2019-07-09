@@ -1297,9 +1297,9 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			const std::string Mode = [](const byte GM){
 				if (GM == 0)
 					return "std";//imagine being ripple
-				if (GM == 0)
+				if (GM == 1)
 					return "taiko";
-				if (GM == 0)
+				if (GM == 2)
 					return "ctb";
 
 				return "mania";
@@ -1329,7 +1329,6 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			const bool Loved = (BD->RankStatus == LOVED);
 
 			if (BD->RankStatus >= RANKED){
-		
 
 				u.User->Stats[sOffset].PlayCount++;
 				u.User->Stats[sOffset].tScore += sData.Score;
@@ -1348,10 +1347,10 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 					ezpp_set_accuracy(ez, sData.count100, sData.count50);
 					ezpp_set_combo(ez, sData.MaxCombo);
 					ezpp_set_mode(ez, sData.GameMode);
-						if (!OppaiCheckMapDownload(ez, BD->BeatmapID)) {
-							printf("Could not download\n");
-							return TryScoreAgain(s);
-						}
+					if (!OppaiCheckMapDownload(ez, BD->BeatmapID)) {
+						printf("Could not download\n");
+						return TryScoreAgain(s);
+					}
 				
 					PP = ezpp_pp(ez);
 
@@ -1425,9 +1424,9 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		_SQLKey("misses_count",sData.countMiss),
 		_SQLKey("time",time(0)),
 		_SQLKey("play_mode",sData.GameMode),
-		_SQLKey("completed","0"),
+		_SQLKey("completed",0),
 		_SQLKey("accuracy",std::to_string(sData.GetAcc())),
-		_SQLKey("pp","0")
+		_SQLKey("pp",0)
 		}));
 
 		return;
@@ -1751,26 +1750,26 @@ void Thread_WebReplay(const uint64_t ID, _Con s) {
 		Ret.reserve(256 + Total.size());
 		
 		Ret.push_back(res->getInt(2));//PlayMode
-		AddInt(Ret, 20190101);//osu version
+		AddStream(Ret, 20190101);//osu version
 		AddString_SQL(Ret, res->getString(3));//beatmap md5
 		AddString(Ret, GetUsernameFromCache(res->getInt(1)));//Username
 		AddString_SQL(Ret, res->getString(3));//checksum
-		AddShort(Ret, res->getInt(4));//count300
-		AddShort(Ret, res->getInt(5));//count100
-		AddShort(Ret, res->getInt(6));//count50
-		AddShort(Ret, res->getInt(7));//countGeki
-		AddShort(Ret, res->getInt(8));//countKatu
-		AddShort(Ret, res->getInt(9));//countMiss
-		AddInt(Ret, res->getUInt(10));//totalScore
-		AddShort(Ret, res->getInt(11));//MaxCombo
+		AddStream(Ret, USHORT(res->getInt(4)));//count300
+		AddStream(Ret, USHORT(res->getInt(5)));//count100
+		AddStream(Ret, USHORT(res->getInt(6)));//count50
+		AddStream(Ret, USHORT(res->getInt(7)));//countGeki
+		AddStream(Ret, USHORT(res->getInt(8)));//countKatu
+		AddStream(Ret, USHORT(res->getInt(9)));//countMiss
+		AddStream(Ret, res->getUInt(10));//totalScore
+		AddStream(Ret, USHORT(res->getInt(11)));//MaxCombo
 		Ret.push_back(res->getBoolean(12));//Perfect
-		AddInt(Ret, res->getUInt(13));//Mods
+		AddStream(Ret, res->getUInt(13));//Mods
 		AddString(Ret, "");//life
-		AddLong(Ret, UnixToDateTime(res->getUInt(14)));//Date
-		AddInt(Ret,Data.size());
-		AddVector(Ret, Data, byte);
+		AddStream(Ret, UnixToDateTime(res->getUInt(14)));//Date
+		AddStream(Ret,USHORT(Data.size()));
+		AddVector(Ret, _M(Data));
 
-		AddLong(Ret, ID);
+		AddStream(Ret, ID);
 
 		return Ret;
 	}();

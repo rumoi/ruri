@@ -539,7 +539,6 @@ void FixLoved() {
 //If for what ever reason scores get out of sync (merging/backing up scores table)
 void reCalcScore_Playcount(){
 
-
 	_SQLCon SQL;
 	SQL.Connect();
 
@@ -548,7 +547,10 @@ void reCalcScore_Playcount(){
 
 	{
 		auto res = SQL.ExecuteQuery("SELECT id FROM users WHERE 1");
-		while (res && res->next())Users_ID.push_back(res->getInt(1));
+
+		while (res && res->next())
+			Users_ID.push_back(res->getInt(1));
+
 		DeleteAndNull(res);
 	}
 

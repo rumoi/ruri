@@ -6,8 +6,8 @@ extern "C" {
 
 enum class API_ID {
 	Stats_Get,//
-	GlobalLeaderBoard_All,//
-	GlobalLeaderBoard_Range,//{int Start, int End}
+	GlobalLeaderBoard_All,//{byte GM}
+	GlobalLeaderBoard_Range,//{byte GM, int Start, int End}
 	MapLeaderboard_Get,//{int SID, int BID, byte gm, int Start, int End}
 	MapLeaderboard_GetBest,//{int SID, int BID, byte gm, int UserId}
 	User_SetPrivileges,//{int UID, int newpriv}
@@ -39,7 +39,7 @@ void API_MapLeaderboard_Get(int &Count, const char* p, VEC(byte) &Res, _SQLCon *
 			
 		DeleteAndNull(res);
 
-		if(!SID)return AddInt(Res, 0);
+		if(!SID)return AddStream(Res, 0);
 	}
 
 	_BeatmapData* const BD = GetBeatmapCache(SID, BID, "", "", SQL);
@@ -52,36 +52,55 @@ void API_MapLeaderboard_Get(int &Count, const char* p, VEC(byte) &Res, _SQLCon *
 
 			const int End = al_min(LeaderBoard->ScoreCache.size(), EndRange);
 
-			Start > End ? AddInt(Res, 0) : AddInt(Res, End - Start);
+			Start > End ? AddStream(Res, 0) : AddStream(Res, End - Start);
 
-			for (int i = Start; i < End; i++) {
+			for (int i = Start; i < End; i++){
 
 				const _ScoreCache* const Score = &LeaderBoard->ScoreCache[i];
 
-				AddInt(Res, Score->ScoreID);
-				AddInt(Res, Score->UserID);
-				AddInt(Res, Score->Time);
-				AddInt(Res, *(float*)& Score->pp);
-				AddInt(Res, Score->Mods);
-				AddInt(Res, Score->Score);
-				AddShort(Res, Score->count300);
-				AddShort(Res, Score->count100);
-				AddShort(Res, Score->count50);
-				AddShort(Res, Score->countGeki);
-				AddShort(Res, Score->countKatu);
-				AddShort(Res, Score->countMiss);
+				AddStream(Res, Score->ScoreID);
+				AddStream(Res, Score->UserID);
+				AddStream(Res, Score->Time);
+				AddStream(Res, Score->pp);
+				AddStream(Res, Score->Mods);
+				AddStream(Res, Score->Score);
+				AddStream(Res, Score->count300);
+				AddStream(Res, Score->count100);
+				AddStream(Res, Score->count50);
+				AddStream(Res, Score->countGeki);
+				AddStream(Res, Score->countKatu);
+				AddStream(Res, Score->countMiss);
 				Res.push_back(Score->FullCombo);
-
 			}
-
-
 			LeaderBoard->ScoreLock.unlock_shared();
 
 		}
-	}else return AddInt(Res, 0);
+	}else return AddStream(Res, 0);
+}
+
+void API_GlobalLeaderBoard_Range(int& Count, const char* p, VEC(byte)& Res, _SQLCon* SQL){
+
+	const byte GM = al_min(p[Count],GM_MAX); Count++;
+	const int Start = *(int*)&p[Count]; Count += 4;
+	const int EndRange = *(int*)&p[Count]; Count += 4;
+
+	RankUpdate[GM].lock_shared();
+
+	const int End = al_min(RankList[GM].size(), EndRange);
+
+	Start > End ? AddStream(Res, 0) : AddStream(Res, End - Start);
+
+	for (DWORD i = Start; i < End; i++){
+		AddStream(Res, RankList[GM][i].ID);
+		AddStream(Res, RankList[GM][i].PP);
+	}
+
+	RankUpdate[GM].unlock_shared();
+
 }
 
 void WorkAPI(_Con s, _SQLCon *SQL){
+
 	DWORD pSize = 0;
 	std::vector<byte> p;
 	p.reserve(USHORT(-1));
@@ -120,9 +139,12 @@ void WorkAPI(_Con s, _SQLCon *SQL){
 			switch (API_ID(PacketID)){
 
 			case API_ID::Stats_Get:
-				AddInt(Res, COUNT_CURRENTONLINE);
-				AddInt(Res, COUNT_MULTIPLAYER);
-				AddInt(Res, COUNT_REQUESTS);
+				AddStream(Res, COUNT_CURRENTONLINE);
+				AddStream(Res, COUNT_MULTIPLAYER);
+				AddStream(Res, COUNT_REQUESTS);
+				break;
+			case API_ID::GlobalLeaderBoard_Range:
+				API_GlobalLeaderBoard_Range(Count, (const char*)& p[0], Res, SQL);
 				break;
 			case API_ID::MapLeaderboard_Get:
 				API_MapLeaderboard_Get(Count, (const char*)&p[0], Res, SQL);
@@ -134,25 +156,37 @@ void WorkAPI(_Con s, _SQLCon *SQL){
 				Count+=4;
 
 				if (!Ref){
-					AddShort(Res, -1);
+					Res.push_back(-1);
 					break;
 				}
-
 				Res.push_back(Ref->actionID);
 				Res.push_back(Ref->GameMode);
-				AddInt(Res, Ref->actionMods);
-				AddInt(Res, Ref->BeatmapID);
+				AddStream(Res, Ref->actionMods);
+				AddStream(Res, Ref->BeatmapID);
 				AddString(Res, Ref->ActionText);
 				if (_User* Spec = Ref->CurrentlySpectating; Spec)
-					AddInt(Res, Spec->UserID);
-				else AddInt(Res, 0);
-				AddInt(Res, Ref->Spectators.size());//TODO: Could send who is spectating them instead of just a number
-				AddShort(Res, Ref->CurrentMatchID);
+					AddStream(Res, Spec->UserID);
+				else AddStream(Res, 0);
+				AddStream(Res, Ref->Spectators.size());//TODO: Could send who is spectating them instead of just a number
+				AddStream(Res, Ref->CurrentMatchID);
 
 				break;
 			case API_ID::User_GetRank:
-				AddInt(Res, GetRank(*(int*)&p[Count], p[Count + 4]));
+				AddStream(Res, GetRank(*(int*)&p[Count], p[Count + 4]));
 				Count += 5;
+				break;
+			case API_ID::User_GetAllOnline:
+				if (VEC(DWORD) UserIDs;1){
+					UserIDs.reserve(MAX_USER_COUNT);
+
+					for (const auto& User : Users)
+						if (User.choToken)
+							UserIDs.push_back(User.choToken);
+
+					AddStream(Res, int(UserIDs.size()));
+					AddVector(Res, _M(UserIDs));
+
+				}
 				break;
 
 			default:

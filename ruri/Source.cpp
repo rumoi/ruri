@@ -1,4 +1,3 @@
-#define _WINSOCK_DEPRECATED_NO_WARNINGS
 
 enum Privileges{
 	UserBanned = 0,
@@ -107,8 +106,6 @@ enum RankStatus {
 	QUALIFIED = 4,
 	LOVED = 5
 };
-
-#define WIN32_LEAN_AND_MEAN
 
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
@@ -263,7 +260,8 @@ enum LoginReply {
 const unsigned int MAX_PACKET_LENGTH = 2816;
 
 #ifndef LINUX
-
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#define WIN32_LEAN_AND_MEAN
 #include <WS2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
 #include <Windows.h>
@@ -900,6 +898,7 @@ namespace BR {
 void LogError(int i){
 	printf(KRED "ERROR CODE: %i\n" KRESET, i);
 }
+
 void LogError(const char * t, const char* f = 0){
 	if(f)return (void)printf(KMAG "%s> " KRED "ERROR: %s\n" KRESET,f, t);
 	printf(KRED "ERROR: %s\n" KRESET, t);
@@ -909,43 +908,32 @@ void LogMessage(const char* t, const char* f = 0) {
 	if (f)return (void)printf(KMAG "%s> " KRESET "%s\n" KRESET, f, t);
 	printf(KMAG "Log: %s\n" KRESET, t);
 }
+
 void LogMessage(std::string t) {
 	printf(KMAG "Log: %s\n" KRESET, t.c_str());
 }
 
-
 void ReplaceAll(std::string &str, const std::string& from, const std::string& to) {
 	size_t start_pos = 0;
-	while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
+	while ((start_pos = str.find(from, start_pos)) != std::string::npos){
 		str.replace(start_pos, from.length(), to);
 		start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
 	}
 }
+template<typename T>
+	_inline void AddStream(VEC(byte)&v, const T V){
+		v.resize(v.size() + sizeof(V));
+		*(T*)&v[v.size() - sizeof(V)] = V;
+	}
 
-_inline void AddInt(std::vector<byte> &v, const int Value) {
-	v.resize(v.size() + 4);
-	*(int*)&v[v.size() - 4] = Value;
-}
-_inline void AddLong(std::vector<byte> &v, const long long Value) {
-	v.resize(v.size() + 8);
-	*(long long*)&v[v.size() - 8] = Value;
-}
-_inline void AddByte(std::vector<byte> &v, const byte Value) {
-	v.push_back(Value);
-}
-_inline void AddShort(std::vector<byte> &v, const short Value) {
-	v.resize(v.size() + 2);
-	*(short*)&v[v.size() - 2] = Value;
-}
-
-
-
-#define AddVector(v,VALUE, TYPE)\
-	[&](const VEC(TYPE)& Value)->void{\
-		if(Value.size() == 0)return;\
-		v.resize(v.size() + Value.size());\
-		memcpy(&v[v.size() - Value.size()], &Value[0], Value.size());\
-	}(_M(VALUE))
+template<typename T>
+	_inline void AddVector(VEC(byte) &v, const T& Value){
+		if (unlikely(Value.size() == 0))
+			return;
+		const size_t Size = Value.size() * sizeof(Value[0]);
+		v.resize(v.size() + Size);
+		memcpy(&v[v.size() - Size], &Value[0], Size);
+	}
 
 _inline void AddMem(std::vector<byte> &v, const void* Value, const DWORD Size) {
 	if (Size == 0)return;
@@ -971,7 +959,6 @@ void AddUleb(VEC(byte) &v, DWORD s) {
 	else v.push_back(0);
 
 }
-
 
 _inline void AddString(std::vector<byte> &v, const std::string_view Value){
 	const DWORD Size = Value.size();
@@ -1023,7 +1010,7 @@ struct _BanchoPacket {
 		D[2] = Compression;
 		*(DWORD*)(D + 3) = Data.size();
 		AddMem(Bytes, D, 7);
-		AddVector(Bytes, Data, byte);
+		AddVector(Bytes, Data);
 	}
 	void GetBytesRaw(byte* &D) const{
 		
@@ -1375,7 +1362,6 @@ struct _User{
 	DWORD Blocked[32];	
 
 	_Achievement Ach;//TODO: thread this.
-
 	
 	std::vector<_DelayedBanchoPacket> dQue;
 	size_t ActiveChannels[MAX_CHAN_COUNT];//There is no way to resolve the actual size without restructuring xdxdxd
@@ -1796,7 +1782,7 @@ namespace bPacket {
 		AddString(b.Data, senderName);
 		AddString(b.Data, message);
 		AddString(b.Data, targetname);
-		AddInt(b.Data, senderId);
+		AddStream(b.Data, senderId);
 
 		return b;
 	}
@@ -1810,7 +1796,7 @@ namespace bPacket {
 		AddString(b.Data, Name);
 		AddString(b.Data, message);
 		AddString(b.Data, Target);
-		AddInt(b.Data, ID);
+		AddStream(b.Data, ID);
 
 		return b;
 	}
@@ -1824,7 +1810,7 @@ namespace bPacket {
 		AddString(b.Data, BOT_NAME);
 		AddString(b.Data, message);
 		AddString(b.Data, Target);
-		AddInt(b.Data,999);
+		AddStream(b.Data,999);
 
 		return b;
 	}
@@ -1836,19 +1822,19 @@ namespace bPacket {
 
 const _BanchoPacket BOT_STATS = [] {
 	_BanchoPacket b(OPac::server_userStats);
-	AddInt(b.Data, 999);
+	AddStream(b.Data, 999);
 	b.Data.push_back(0);//actionID
 	AddString(b.Data, "");//actiontext
 	AddString(b.Data, "");//md5
-	AddInt(b.Data, 0);//mods
+	AddStream(b.Data, 0);//mods
 	b.Data.push_back(0);//gamemode
-	AddInt(b.Data, 0);//beatmapid
-	AddLong(b.Data, 0);//rankedscore
-	AddInt(b.Data, 0);//acc
-	AddInt(b.Data, 0);//playcount
-	AddLong(b.Data, 0);//total score
-	AddInt(b.Data, 0);//gamerank
-	AddShort(b.Data, 0);//pp
+	AddStream(b.Data, 0);//beatmapid
+	AddStream(b.Data, (long long)0);//rankedscore
+	AddStream(b.Data, 0);//acc
+	AddStream(b.Data, 0);//playcount
+	AddStream(b.Data, (long long)0);//total score
+	AddStream(b.Data, 0);//gamerank
+	AddStream(b.Data, short(0));//pp
 	return b;
 }();
 
@@ -1868,7 +1854,7 @@ namespace bPacket {
 
 		AddString(b.Data, c->ChannelName);
 		AddString(b.Data, c->ChannelDesc);
-		AddShort(b.Data, c->ChannelCount);
+		AddStream(b.Data, short(c->ChannelCount));
 
 		return b;
 	}
@@ -1878,7 +1864,7 @@ namespace bPacket {
 
 		AddString(b.Data, Name);
 		AddString(b.Data, Desc);
-		AddShort(b.Data, Count);
+		AddStream(b.Data, short(Count));
 
 		return b;
 	}
@@ -1913,12 +1899,12 @@ namespace bPacket {
 		_BanchoPacket b(ID);
 
 		if (BigHeader)
-			AddInt(b.Data, Value.size());
+			AddStream(b.Data, DWORD(Value.size()));
 		else
-			AddShort(b.Data, Value.size());
+			AddStream(b.Data, USHORT(Value.size()));
 
 		for (const auto i : Value)
-			AddInt(b.Data, i);
+			AddStream(b.Data, i);
 
 		return b;
 	}
@@ -1927,12 +1913,12 @@ namespace bPacket {
 		_BanchoPacket b(ID);
 
 		if(BigHeader)
-			AddInt(b.Data, Value.size());
+			AddStream(b.Data, DWORD(Value.size()));
 		else
-			AddShort(b.Data, Value.size());
+			AddStream(b.Data, USHORT(Value.size()));
 
 		for (const auto i : Value)
-			AddInt(b.Data, i);
+			AddStream(b.Data, i);
 
 		return b;
 	}
@@ -1942,7 +1928,7 @@ namespace bPacket {
 
 		if (UserID < 1000){
 			_BanchoPacket b(OPac::server_userPanel);
-			AddInt(b.Data, UserID);
+			AddStream(b.Data, UserID);
 
 			switch (UserID){
 			case 999:
@@ -1959,9 +1945,9 @@ namespace bPacket {
 			b.Data.push_back(0);//timezone
 			b.Data.push_back(BOT_LOCATION);//country
 			b.Data.push_back(UserType::Peppy);//userank
-			AddInt(b.Data, 0);//long
-			AddInt(b.Data, 0);//lat
-			AddInt(b.Data, 0);//gamerank
+			AddStream(b.Data, 0);//long
+			AddStream(b.Data, 0);//lat
+			AddStream(b.Data, 0);//gamerank
 			return b;
 		}
 
@@ -1971,15 +1957,15 @@ namespace bPacket {
 
 		_BanchoPacket b(OPac::server_userPanel);
 
-		AddInt(b.Data, UserID);
+		AddStream(b.Data, UserID);
 		AddString(b.Data, tP->Username);
 		b.Data.push_back(24 + tP->timeOffset);
 		b.Data.push_back(tP->country);
 		b.Data.push_back((UserID != AskerID) ? GetUserType(tP->privileges) : UserType::Supporter);
-		AddInt(b.Data, *(int*)&tP->lon);
-		AddInt(b.Data, *(int*)&tP->lat);
+		AddStream(b.Data, tP->lon);
+		AddStream(b.Data, tP->lat);
 		const DWORD sOff = tP->GetStatsOffset();
-		AddInt(b.Data, tP->Stats[sOff].getRank(sOff,tP->UserID));
+		AddStream(b.Data, tP->Stats[sOff].getRank(sOff,tP->UserID));
 
 		return b;
 	}
@@ -1987,15 +1973,15 @@ namespace bPacket {
 
 		_BanchoPacket b(OPac::server_userPanel);
 
-		AddInt(b.Data, tP->UserID);
+		AddStream(b.Data, tP->UserID);
 		AddString(b.Data, tP->Username);
 		b.Data.push_back(24 + tP->timeOffset);
 		b.Data.push_back(tP->country);
 		b.Data.push_back(GetUserType(tP->privileges));
-		AddInt(b.Data, *(int*)&tP->lon);
-		AddInt(b.Data, *(int*)&tP->lat);
+		AddStream(b.Data, tP->lon);
+		AddStream(b.Data, tP->lat);
 		const DWORD sOff = tP->GetStatsOffset();
-		AddInt(b.Data, tP->Stats[sOff].getRank(sOff,tP->UserID));
+		AddStream(b.Data, tP->Stats[sOff].getRank(sOff,tP->UserID));
 
 		return b;
 	}
@@ -2015,7 +2001,7 @@ namespace bPacket {
 \
 		_BanchoPacket b(OPac::server_userStats);\
 		b.Data.reserve(128);\
-		AddInt(b.Data, UserID);\
+		AddStream(b.Data, UserID);\
 		b.Data.push_back(tP->actionID);\
 \
 		AddString(b.Data, tP->ActionText);\
@@ -2024,15 +2010,15 @@ namespace bPacket {
 			AddUleb(b.Data,32);\
 			AddMem(b.Data, tP->ActionMD5, 32);\
 		}\
-		AddInt(b.Data, tP->actionMods);\
+		AddStream(b.Data, tP->actionMods);\
 		b.Data.push_back(tP->GameMode);\
-		AddInt(b.Data, tP->BeatmapID);\
-		AddLong(b.Data, tP->Stats[Off].rScore);\
-		AddInt(b.Data, *(int*)&tP->Stats[Off].Acc);\
-		AddInt(b.Data, (tP->Stats[Off].pp > USHORT(-1)) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount);\
-		AddLong(b.Data, tP->Stats[Off].tScore);\
-		AddInt(b.Data, tP->Stats[Off].getRank(Off, tP->UserID));\
-		AddShort(b.Data, USHORT(tP->Stats[Off].pp));\
+		AddStream(b.Data, tP->BeatmapID);\
+		AddStream(b.Data, tP->Stats[Off].rScore);\
+		AddStream(b.Data, tP->Stats[Off].Acc);\
+		AddStream(b.Data, (tP->Stats[Off].pp > USHORT(-1)) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount);\
+		AddStream(b.Data, tP->Stats[Off].tScore);\
+		AddStream(b.Data, tP->Stats[Off].getRank(Off, tP->UserID));\
+		AddStream(b.Data, USHORT(tP->Stats[Off].pp));\
 \
 		return b;\
 	}(UID,AID)
@@ -2047,7 +2033,7 @@ namespace bPacket {
 		_BanchoPacket b(OPac::server_userStats);
 		b.Data.reserve(128);
 
-		AddInt(b.Data, tP->UserID);
+		AddStream(b.Data, tP->UserID);
 		b.Data.push_back(tP->actionID);
 		AddString(b.Data, tP->ActionText);
 		if (tP->ActionMD5[0] == 0)AddString(b.Data, "");
@@ -2055,15 +2041,15 @@ namespace bPacket {
 			AddUleb(b.Data, 32);
 			AddMem(b.Data, tP->ActionMD5, 32);
 		}
-		AddInt(b.Data, tP->actionMods);
+		AddStream(b.Data, tP->actionMods);
 		b.Data.push_back(tP->GameMode);
-		AddInt(b.Data, tP->BeatmapID);
-		AddLong(b.Data, tP->Stats[Off].rScore);
-		AddInt(b.Data, *(int*)&tP->Stats[Off].Acc);
-		AddInt(b.Data, (tP->Stats[Off].pp > USHORT(-1)) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount);
-		AddLong(b.Data, tP->Stats[Off].tScore);
-		AddInt(b.Data, tP->Stats[Off].getRank(Off, tP->UserID));
-		AddShort(b.Data, USHORT(tP->Stats[Off].pp));
+		AddStream(b.Data, tP->BeatmapID);
+		AddStream(b.Data, tP->Stats[Off].rScore);
+		AddStream(b.Data, tP->Stats[Off].Acc);
+		AddStream(b.Data, (tP->Stats[Off].pp > USHORT(-1)) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount);
+		AddStream(b.Data, tP->Stats[Off].tScore);
+		AddStream(b.Data, tP->Stats[Off].getRank(Off, tP->UserID));
+		AddStream(b.Data, USHORT(tP->Stats[Off].pp));
 
 		return b;
 	}
@@ -2222,7 +2208,6 @@ void Event_client_channelJoin(_User *tP,const byte* const Packet, const DWORD Si
 
 	const std::string ChannelName = ReadUleb(O,O + Size);
 
-
 	_Channel *c = GetChannelByName(ChannelName);
 
 	/*if(!c && tP->CurrentlySpectating && ChannelName != "#spectator") {
@@ -2231,13 +2216,13 @@ void Event_client_channelJoin(_User *tP,const byte* const Packet, const DWORD Si
 	}*/
 	
 	if (!c) {
-		tP->addQue(bPacket::GenericString(OPac::server_channelKicked, ChannelName.c_str()));
+		tP->addQue(bPacket::GenericString(OPac::server_channelKicked, ChannelName));
 		return;
 	}
 
 	c->JoinChannel(tP);
 
-	tP->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess, ChannelName.c_str()));
+	tP->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess, ChannelName));
 
 }
 void Event_client_channelPart(_User *tP, const byte* const Packet, const DWORD Size){
@@ -2308,7 +2293,17 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 
 #include <fstream>
 
-_inline DWORD FileExistCheck(const std::string &filename) {
+
+#ifndef LINUX
+#include <filesystem>
+_inline DWORD GetFileSize(const std::string &filename){	
+	std::error_code er;
+	if (const DWORD Size = std::filesystem::file_size(filename, er); !er)
+		return Size;
+	return 0;
+}
+#else
+_inline DWORD GetFileSize(const std::string& filename) {
 	std::ifstream ifs(filename, std::ios::binary | std::ios::ate);
 	if (ifs.is_open()) {
 		ifs.close();
@@ -2319,7 +2314,7 @@ _inline DWORD FileExistCheck(const std::string &filename) {
 }
 
 
-
+#endif
 
 _inline bool WriteAllBytes(const std::string &filename, const void* data, const DWORD Size);
 bool DownloadMapFromOsu(const int ID) {
@@ -2345,10 +2340,9 @@ static const std::string String_Space = " ";
 
 bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 
-	const std::string MapPath = BEATMAP_PATH + std::to_string(BID) + ".osu";
-	
+	const std::string MapPath = BEATMAP_PATH + std::to_string(BID) + ".osu";	
 
-	const DWORD Size = FileExistCheck(MapPath);
+	const DWORD Size = GetFileSize(MapPath);
 
 	if (!Size && !DownloadMapFromOsu(BID)) {
 		printf(KRED "Failed to download %i.osu\n" KRESET, BID);
@@ -2371,7 +2365,7 @@ bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 
 bool OppaiCheckMapDownload_New(ezpp_t ez, const DWORD BID, const std::string &File) {
 
-	if (!FileExistCheck(File) && !DownloadMapFromOsu(BID)) {
+	if (!GetFileSize(File) && !DownloadMapFromOsu(BID)) {
 		printf(KRED "Failed to download %i.osu\n" KRESET, BID);
 		WriteAllBytes(File, &String_Space[0], String_Space.size());//Stop it from trying it over and over again.
 		return 0;
@@ -2400,6 +2394,7 @@ inline bool WriteAllBytes(const std::string &filename, const std::string &res) {
 
 	return 1;
 }*/
+
 _inline bool WriteAllBytes(const std::string &filename, const void* data, const DWORD Size){
 
 	std::ofstream ifs;
@@ -4125,12 +4120,12 @@ _inline byte getCountryNum(const USHORT isoCode){
 const std::vector<byte> PACKET_INCORRECTLOGIN = []{return _BanchoPacket(OPac::server_userID, VEC(byte){0xff,0xff,0xff,0xff}).GetBytes();}();
 const std::vector<byte> PACKET_SERVERFULL = [] {
 	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, VEC(byte){ 0xff,0xff,0xff,0xff }).GetBytes();
-	AddVector(packet, bPacket::Notification("Server is currently full").GetBytes(),byte);
+	AddVector(packet, _M(bPacket::Notification("Server is currently full").GetBytes()));
 	return packet;
 }();
 const std::vector<byte> PACKET_CLIENTOUTOFDATE = [] {
 	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, VEC(byte){ 0xff,0xff,0xff,0xff }).GetBytes();
-	AddVector(packet, bPacket::Notification("Your client is out of date!\nPlease update it.").GetBytes(),byte);
+	AddVector(packet, _M(bPacket::Notification("Your client is out of date!\nPlease update it.").GetBytes()));
 	return packet;
 }();
 
@@ -4575,16 +4570,16 @@ void PushUsers() {
 
 				VEC(byte) Data;
 
-				AddLong(Data, u.choToken ^ size_t(u.privileges));
-				AddInt(Data, u.UserID);
-				AddInt(Data, u.privileges);
-				AddInt(Data, u.silence_end);
+				AddStream(Data, u.choToken ^ size_t(u.privileges));
+				AddStream(Data, u.UserID);
+				AddStream(Data, u.privileges);
+				AddStream(Data, u.silence_end);
 				AddString(Data, u.Username);
 				AddString(Data, u.Username_Safe);
 				AddMem(Data, &u.Password.MD5[0], 16);
 				AddMem(Data, &u.ActionMD5[0], 32);
-				AddInt(Data, u.actionMods);
-				AddInt(Data, u.BeatmapID);
+				AddStream(Data, u.actionMods);
+				AddStream(Data, u.BeatmapID);
 				Data.push_back(u.timeOffset);
 				Data.push_back(u.country);
 				Data.push_back(u.GameMode);
@@ -4592,33 +4587,33 @@ void PushUsers() {
 				AddString(Data, u.ActionText);
 
 				if (!u.CurrentlySpectating)
-					AddInt(Data, 0);
-				else AddInt(Data, u.CurrentlySpectating->UserID);
+					AddStream(Data, 0);
+				else AddStream(Data, u.CurrentlySpectating->UserID);
 
 				{
 
-					AddInt(Data, u.Spectators.size());
+					AddStream(Data, u.Spectators.size());
 
 					for (const auto Spec : u.Spectators)//Spectators changing at the very instant the server restarts is astronomically rare.
-						Spec ? AddInt(Data, Spec->UserID) : AddInt(Data, 0);
+						Spec ? AddStream(Data, Spec->UserID) : AddStream(Data, 0);
 
 				}
 
-				AddShort(Data, u.CurrentMatchID);
-				AddInt(Data, u.LastSentBeatmap);
+				AddStream(Data, u.CurrentMatchID);
+				AddStream(Data, u.LastSentBeatmap);
 
 				AddMem(Data, &u.Friends[0], sizeof(u.Friends));
 				AddMem(Data, &u.Blocked[0], sizeof(u.Blocked));
 				Data.push_back(u.FriendsOnlyChat);
 
 				for (DWORD i = 0; i < sizeof(u.ActiveChannels) / sizeof(u.ActiveChannels[0]); i++)
-					u.ActiveChannels[i] ? AddInt(Data, ((_Channel*)u.ActiveChannels[i])->NameSum) : AddInt(Data, 0);
+					u.ActiveChannels[i] ? AddStream(Data, ((_Channel*)u.ActiveChannels[i])->NameSum) : AddStream(Data, 0);
 
 				AddString(Data, u.c1Check);
 
 				PrivTable.push_back(u.privileges);
-				AddInt(UserData, Data.size());
-				AddVector(UserData, Data, byte);
+				AddStream(UserData, Data.size());
+				AddVector(UserData, _M(Data));
 
 			}
 
@@ -4698,8 +4693,8 @@ void BanchoWork(const DWORD ID){
 		Sleep(1);//It being 0 literally hogs an entire core so.. No?
 	}
 }
-#include "ruri_API.h"
 
+#include "ruri_API.h"
 
 void receiveConnections(){
 
@@ -4713,7 +4708,6 @@ void receiveConnections(){
 			a.detach();
 		}
 	}
-
 
 	FillRankCache();
 
@@ -4841,6 +4835,7 @@ std::string ExtractConfigValue(const std::vector<byte> &Input){
 
 int main(){
 
+
 	const std::vector<byte> ConfigBytes = LOAD_FILE("config.ini");
 
 	if (!ConfigBytes.size()){
@@ -4850,20 +4845,20 @@ int main(){
 
 	for (const auto& Config : Explode_View(ConfigBytes, '\n',1)){
 
-	#define V(s)std::vector<byte>(s.cbegin(),s.cend())
+	#define V std::vector<byte>(Config.cbegin(),Config.cend())
 
 		if (MEM_CMP_START(Config, "osu_API_Key"))
-			osu_API_KEY = ExtractConfigValue(V(Config));
+			osu_API_KEY = ExtractConfigValue(V);
 		else if (MEM_CMP_START(Config, "SQL_Password"))
-			SQL_Password = ExtractConfigValue(V(Config));
+			SQL_Password = ExtractConfigValue(V);
 		else if (MEM_CMP_START(Config, "SQL_Username"))
-			SQL_Username = ExtractConfigValue(V(Config));
+			SQL_Username = ExtractConfigValue(V);
 		else if (MEM_CMP_START(Config, "SQL_Schema"))
-			SQL_Schema = ExtractConfigValue(V(Config));
+			SQL_Schema = ExtractConfigValue(V);
 		else if (MEM_CMP_START(Config, "BeatmapPath"))
-			BEATMAP_PATH = ExtractConfigValue(V(Config));
+			BEATMAP_PATH = ExtractConfigValue(V);
 		else if (MEM_CMP_START(Config, "ReplayPath"))
-			REPLAY_PATH = ExtractConfigValue(V(Config));
+			REPLAY_PATH = ExtractConfigValue(V);
 
 	#undef V
 
