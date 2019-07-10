@@ -2962,6 +2962,7 @@ void ReadMatchData(_Match *m, const byte* const Packet,const DWORD Size, bool Sa
 	if (!Safe){
 		m->Settings.Password = ReadUleb(O,End);
 		ReplaceAll(m->Settings.Password," ","_");
+		ReplaceAll(m->Settings.Password, "//private", "");
 	}
 	else SkipUleb(O,End);
 	m->Settings.BeatmapName = ReadUleb(O,End);
@@ -4845,20 +4846,20 @@ int main(){
 
 	for (const auto& Config : Explode_View(ConfigBytes, '\n',1)){
 
-	#define V std::vector<byte>(Config.cbegin(),Config.cend())
+	#define V ExtractConfigValue(std::vector<byte>(Config.cbegin(),Config.cend()))
 
 		if (MEM_CMP_START(Config, "osu_API_Key"))
-			osu_API_KEY = ExtractConfigValue(V);
+			osu_API_KEY = V;
 		else if (MEM_CMP_START(Config, "SQL_Password"))
-			SQL_Password = ExtractConfigValue(V);
+			SQL_Password = V;
 		else if (MEM_CMP_START(Config, "SQL_Username"))
-			SQL_Username = ExtractConfigValue(V);
+			SQL_Username = V;
 		else if (MEM_CMP_START(Config, "SQL_Schema"))
-			SQL_Schema = ExtractConfigValue(V);
+			SQL_Schema = V;
 		else if (MEM_CMP_START(Config, "BeatmapPath"))
-			BEATMAP_PATH = ExtractConfigValue(V);
+			BEATMAP_PATH = V;
 		else if (MEM_CMP_START(Config, "ReplayPath"))
-			REPLAY_PATH = ExtractConfigValue(V);
+			REPLAY_PATH = V;
 
 	#undef V
 
