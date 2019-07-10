@@ -423,6 +423,12 @@ const std::string FAKEUSER_NAME = []{const byte a[] = { 226,128,140,226,128,141,
 #include <mutex>
 #include <shared_mutex>
 
+template<typename T, typename T2>
+_inline size_t GetIndex(const T& Start, const T2& End) {
+	return (size_t(&End) - size_t(&Start[0])) / sizeof(Start[0]);
+}
+
+
 template<typename T, typename KeyType = DWORD>
 struct _LTable {
 
@@ -1723,17 +1729,20 @@ _User* GetUserFromToken(const uint64_t Token) {
 
 	return 0;
 }
-_User* GetUserFromName(const std::string &Name, const bool Force = 0){
 
-	if (Name.size() == 0)return 0;
+template<typename T>
+	_User* GetUserFromName(const T& Name, const bool Force = 0){
 
-	for (auto& User : Users){
-		UserDoubleCheck((User.choToken || Force) && Name == User.Username)
-		return &User;
+		if (Name.size() == 0)return 0;
+
+		for (auto& User : Users){
+			UserDoubleCheck((User.choToken || Force) && Name == User.Username)
+			return &User;
+		}
+
+		return 0;
 	}
 
-	return 0;
-}
 _User* GetUserFromNameSafe(const std::string &Name, const bool Force = 0) {
 
 	if (Name.size() == 0)return 0;
@@ -2192,6 +2201,13 @@ _inline std::string ReadUleb(size_t &O, const size_t Max) {
 	O += Size;
 
 	return std::string(S, Size);
+}
+_inline std::string_view ReadUleb_View(size_t& O, const size_t Max){
+
+	const DWORD Size = ReadUlebSize(O, Max);
+	const char*const S = (char*)O;
+	O += Size;
+	return std::string_view(S, Size);
 }
 
 _inline void SkipUleb(size_t &O, const size_t Max){
@@ -2731,8 +2747,8 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 
 	SkipUleb(O, End);//Skip sender. It is useless
 
-	const std::string Message = ReadUleb(O, End);
-	const std::string Target = ReadUleb(O, End);
+	const std::string_view Message = ReadUleb_View(O, End);
+	const std::string_view Target = ReadUleb_View(O, End);
 
 	if (O + 4 > End)return;
 	const int ID = *(int*)O;
@@ -2774,7 +2790,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 		return TRIMSTRING(Why_can_MSVC_compile_and_work_fine_with_no_locals_but_GCC_eats_massive_dog_shit__Thanks_GCC);
 	}();
 
-	const std::string Target = ReadUleb(O, End);
+	const std::string_view Target = ReadUleb_View(O, End);
 
 	if (Message.size() == 0 || Target == "#highlight" || Target == "#userlog")
 		return;
@@ -2980,13 +2996,13 @@ void ReadMatchData(_Match *m, const byte* const Packet,const DWORD Size, bool Sa
 	
 	if (!Safe){
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++) {
-			m->Slot[i].SlotStatus = tSlotStatus[i];
-			m->Slot[i].SlotTeam = tSlotTeam[i];
+			m->Slots[i].SlotStatus = tSlotStatus[i];
+			m->Slots[i].SlotTeam = tSlotTeam[i];
 		}
 	}
 
 	for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++)
-		if (m->Slot[i].SlotStatus & SlotStatus::HasPlayer)
+		if (m->Slots[i].SlotStatus & SlotStatus::HasPlayer)
 			O += 4;
 	
 	if (O + 4 > End)return;
@@ -3002,7 +3018,7 @@ void ReadMatchData(_Match *m, const byte* const Packet,const DWORD Size, bool Sa
 		memcpy(tCurrentMods, (void*)O, NORMALMATCH_MAX_COUNT * 4);
 
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++)
-			m->Slot[i].CurrentMods = tCurrentMods[i];		
+			m->Slots[i].CurrentMods = tCurrentMods[i];		
 
 		O += NORMALMATCH_MAX_COUNT * 4;
 	}
@@ -3030,8 +3046,8 @@ void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD S
 	m->PlayersLoading = 0;
 	m->Settings.Mods = 0;
 	m->PlayerCount = 1;
-	m->Slot[0].SlotStatus = SlotStatus::NotReady;
-	m->Slot[0].User = tP;
+	m->Slots[0].SlotStatus = SlotStatus::NotReady;
+	m->Slots[0].User = tP;
 	tP->CurrentMatchID = m->MatchId;
 	m->Tournament = 0;
 
@@ -3069,38 +3085,33 @@ void Event_client_partMatch(_User *tP){
 	m->Lock.unlock();
 }
 
-void Event_client_matchChangeSlot(_User *const tP, const byte* const Packet, const DWORD Size) {
-	
-	if (!tP->CurrentMatchID || Size < 4)return;
+void Event_client_matchChangeSlot(_User *const tP, const byte* const Packet, const DWORD Size){
 
-	DWORD NewSlot = *(DWORD*)&Packet[0];
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m && Size == 4){
 
-	if (NewSlot >= 16)
-		NewSlot = 15;
+		const DWORD NewSlot = al_min(*(DWORD*)& Packet[0], MULTI_MAXSIZE - 1);
+		byte OldSlot = MULTI_MAXSIZE;
 
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
+		m->Lock.lock();
+		for (auto& Slot : m->Slots)
+			if (Slot.User == tP) {
+				OldSlot = GetIndex(m->Slots, Slot);
+				break;
+			}
 
-	if (!m)return;
-	
-	m->Lock.lock();
+		_Slot& Old = m->Slots[OldSlot];
+		_Slot& New = m->Slots[NewSlot];
 
-	DWORD OldSlot = 16;
-
-	for (DWORD i = 0; i < 16; i++) {
-
-		if (m->Slot[i].User == tP) {
-			OldSlot = i;
-			break;
+		if (OldSlot != MULTI_MAXSIZE && OldSlot != NewSlot && !New.User &&
+			New.SlotStatus != SlotStatus::Locked && Old.SlotStatus != SlotStatus::Ready) {
+			New = Old;
+			Old.reset();
+			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
 		}
-	}
-	
-	if (OldSlot != 16 && OldSlot != NewSlot && !(m->Slot[NewSlot].SlotStatus & SlotStatus::Locked) && !(m->Slot[OldSlot].SlotStatus & SlotStatus::Ready) && !m->Slot[NewSlot].User){
-		m->Slot[NewSlot] = m->Slot[OldSlot];
-		m->Slot[OldSlot] = _Slot();
-		m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
-	}
 
-	m->Lock.unlock();
+		m->Lock.unlock();
+
+	}
 
 }
 
@@ -3153,28 +3164,24 @@ void Event_client_matchChangeSettings(_User *tP, const byte* const Packet, const
 
 		if (m->Settings.FreeMod){
 			for (DWORD i = 0; i < 16; i++){
-				if (m->Slot[i].User)m->Slot[i].CurrentMods = NonTimeMods;
-				else m->Slot[i].CurrentMods = 0;
+				if (m->Slots[i].User)m->Slots[i].CurrentMods = NonTimeMods;
+				else m->Slots[i].CurrentMods = 0;
 			}
 			m->Settings.Mods = TimeMods;
 		}
 		else {
 			for (DWORD i = 0; i < 16; i++) {
-				if (m->Slot[i].User == tP)
-					m->Settings.Mods = m->Slot[i].CurrentMods + TimeMods;
+				if (m->Slots[i].User == tP)
+					m->Settings.Mods = m->Slots[i].CurrentMods + TimeMods;
 				
-				m->Slot[i].CurrentMods = 0;
+				m->Slots[i].CurrentMods = 0;
 			}
 		}
 	}
 
-	if (PreviousBeatmapID != m->Settings.BeatmapID) {
-
+	if (PreviousBeatmapID != m->Settings.BeatmapID){
 		if (m->Settings.BeatmapID != -1){
-
-			m->sendUpdate(bPacket::BotMessage_NonDefault("#multiplayer",
-				"\nDirect is still being worked on\n(Akatsuki)[https://akatsuki.pw/d/" + std::to_string(m->Settings.BeatmapID) + "]   (Bloodcat)[https://bloodcat.com/osu?q=" + std::to_string(m->Settings.BeatmapID) + "]\n"
-				,FAKEUSER_NAME));
+			m->sendUpdate(bPacket::BotMessage("#multiplayer","(Bloodcat)[https://bloodcat.com/osu?q=" + std::to_string(m->Settings.BeatmapID) + "]"));
 		}
 	}
 
@@ -3192,78 +3199,64 @@ void Event_client_matchLock(_User *tP, const byte* const Packet, const DWORD Siz
 
 	if (Size != 4)return;
 
-	const DWORD SlotID = *(DWORD*)&Packet[0];
+	const DWORD& SlotID = Packet[0];
 
-	if (SlotID >= 16)return;
+	if(_Match * m = getMatchFromID(tP->CurrentMatchID);
+					m && SlotID < MULTI_MAXSIZE){
 
-	if (!tP->CurrentMatchID)return;
-	
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
-	if (!m)return;
+		m->Lock.lock();
 
-	m->Lock.lock();
+		if (m->HostID == tP->UserID){
 
-	if (m->HostID != tP->UserID){//Non host trying to change settings
+			if (_Slot& Slot = m->Slots[SlotID]; Slot.SlotStatus & SlotStatus::HasPlayer) {
+				if (Slot.User != tP)
+					m->removeUser(Slot.User, 1);
+			}else
+				Slot.SlotStatus = (Slot.SlotStatus == SlotStatus::Open) ? SlotStatus::Locked : SlotStatus::Open;
+
+			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+		}
+
 		m->Lock.unlock();
-		return;
 	}
 
-	if (m->Slot[SlotID].SlotStatus & SlotStatus::HasPlayer) {
-		if(m->Slot[SlotID].User != tP)
-			m->removeUser(m->Slot[SlotID].User, 1);
-	}else m->Slot[SlotID].SlotStatus = (m->Slot[SlotID].SlotStatus & SlotStatus::Open) ? SlotStatus::Locked : SlotStatus::Open;
-
-	m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
-
-	m->Lock.unlock();
 }
 
 void Event_client_matchChangeMods(_User *tP, const byte* const Packet, const DWORD Size){
 
-	if (Size != 4)return;
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID);m && Size == 4){
 
-	if (!tP->CurrentMatchID)return;
+		const DWORD Mods = *(DWORD*)&Packet[0];
 
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
-	if (!m)return;
+		MUTEX_LOCKGUARD(m->Lock);
 
-	DWORD Mods = *(DWORD*)&Packet[0];
+		const bool isHost = (m->HostID == tP->UserID);
 
-	m->Lock.lock();
+		if (!m->Settings.FreeMod){
+			if (!isHost)return;
+			m->Settings.Mods = Mods;
+		}else{
 
-	const bool isHost = (m->HostID == tP->UserID);
+			int SlotID = MULTI_MAXSIZE;
 
-	if (!m->Settings.FreeMod) {
+			for(auto& Slot : m->Slots)
+				if (Slot.User == tP) {
+					SlotID = GetIndex(m->Slots,Slot);
+					break;
+				}
 
-		if (!isHost){
-			m->Lock.unlock();
-			return;
-		}
+			if (SlotID != MULTI_MAXSIZE){
+				if (isHost)
+					m->Settings.Mods = Mods & TimeAltering;
 
-		m->Settings.Mods = Mods;
-	}else{
-
-		int SlotID = -1;
-
-		for (int i = 0; i < NORMALMATCH_MAX_COUNT; i++){
-			if (m->Slot[i].User == tP) {
-				SlotID = i;
-				break;
+				m->Slots[SlotID].CurrentMods = Mods - (Mods & TimeAltering);
 			}
 		}
 
-		if (SlotID != -1){
-
-			if(isHost)
-				m->Settings.Mods = Mods & TimeAltering;
-
-			Mods -= Mods & TimeAltering;
-			m->Slot[SlotID].CurrentMods = Mods;
-		}
+		m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
 	}
 
-	m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
-	m->Lock.unlock();
+	
 }
 
 void Event_client_joinMatch(_User *tP, const byte* const Packet, const DWORD Size) {
@@ -3278,315 +3271,215 @@ void Event_client_joinMatch(_User *tP, const byte* const Packet, const DWORD Siz
 	if (O + 4 > End)return;
 
 	const USHORT MatchID = USHORT(*(DWORD*)O); O += 4;
-	const std::string Password = ReadUleb(O,End);
+	const std::string_view Password = ReadUleb_View(O,End);
 
-	/*if (!MatchID){//Clickable menu hack
-
-		if (Password.size() == 0 || !tP->Menu.State)
-			return tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));;
-		
-		auto menuCommands = Explode(Password, '|');
-
-		bool Auth = 0;
-
-
-		for (DWORD i = 0; i < menuCommands.size(); i++) {
-
-			if(menuCommands[i] == "next")
-				tP->Menu.ChangePage = 1;
-			else if (menuCommands[i] == "back") {
-				tP->Menu.ChangePage = -1;
-			}
-			else if (menuCommands[i] == "exit") {
-				tP->Menu.State = 0;
-				tP->Menu.ChangePage = 0;
-			}
-			else if (StringCompareStart(menuCommands[i], "iaux1=")) {
-				auto s = Explode(menuCommands[i], '=');
-				if (s.size() == 2)tP->Menu.aux1 = Safe_atoi(s[1].c_str());
-			}
-			else if (StringCompareStart(menuCommands[i], "saux1=")) {
-				auto s = Explode(menuCommands[i], '=');
-				if (s.size() == 2)tP->Menu.saux1 = s[1];
-			}
-
-		}
-		tP->Menu.ForceReDraw = 1;
-
-		return tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));;
-	}*/
-	
-	_Match* m = getMatchFromID(tP->CurrentMatchID);
-	
-	if (m) {
+	if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
 		m->Lock.lock();
 		m->removeUser(tP, 0);
 		m->Lock.unlock();
 	}
 
-	m = getMatchFromID(MatchID);
-
 	bool Failed = 1;
 
-	if (m){
+	if (_Match * m = getMatchFromID(MatchID); m){
 
 		m->Lock.lock();
 
-		if (m->Settings.Password.size() == 0 || m->Settings.Password == Password && m->PlayerCount){//Dont let players join empty matchs.
+		if (m->Settings.Password.size() == 0 || m->Settings.Password == Password && m->PlayerCount) {//Dont let players join empty matchs.
 
-			for (DWORD i = 0; i < 16; i++){
+			for (auto& Slot : m->Slots){
 
-				if (m->Slot[i].SlotStatus == SlotStatus::Open && !m->Slot[i].User){
+				if (Slot.SlotStatus == SlotStatus::Open && !Slot.User){
 
-					m->Slot[i].User = tP;
-					m->Slot[i].SlotStatus = SlotStatus::NotReady;
-					m->Slot[i].CurrentMods = 0;
-					m->Slot[i].Completed = 0;
-					m->Slot[i].Failed = 0;
-					m->Slot[i].Loaded = 0;
-					m->Slot[i].Skipped = 0;
-
-					tP->qLock.lock();
+					m->PlayerCount++;
+					Slot.reset();
+					Slot.SlotStatus = SlotStatus::NotReady;
+					Slot.User = tP;
 
 					tP->CurrentMatchID = m->MatchId;
 
-					tP->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "#multiplayer"));
-					tP->addQueNonLocking(bPacket::bMatch(OPac::server_matchJoinSuccess, m, 1));
-
-					tP->qLock.unlock();
-
-					m->PlayerCount++;
-
-					m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1),tP);
+					tP->addQue({
+						bPacket::GenericString(OPac::server_channelJoinSuccess, "#multiplayer"),
+						bPacket::bMatch(OPac::server_matchJoinSuccess, m, 1)
+						});
+					m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1), tP);
 					Failed = 0;
 					break;
 				}
 			}
-		}	
+		}
+
 		m->Lock.unlock();
 	}
-	else tP->addQueNonLocking(bPacket4Byte(OPac::server_disposeMatch, MatchID));// could be a disbanded match - send this to clear it out.
 	
 	if (Failed)
-		tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));
+		tP->addQue({bPacket4Byte(OPac::server_disposeMatch, MatchID),_BanchoPacket(OPac::server_matchJoinFail)});
 	else tP->inLobby = 0;
 }
 
-void Event_client_matchChangeTeam(_User *tP) {
+void Event_client_matchChangeTeam(_User *tP){
 
-	if (!tP->CurrentMatchID)return;
-	
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
+	if (_Match* m = getMatchFromID(tP->CurrentMatchID); m){
 
-	if (!m)return;
+		m->Lock.lock();
 
-	m->Lock.lock();
+		for (auto& Slot : m->Slots)
+			if (Slot.User == tP){
+				Slot.SlotTeam = !Slot.SlotTeam;
+				m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+				break;
+			}
 
-	for (DWORD i = 0; i < 16; i++) {
+		m->Lock.unlock();
 
-		if (m->Slot[i].User == tP) {
-			m->Slot[i].SlotTeam = !m->Slot[i].SlotTeam;
-			break;
-		}
 	}
-
-	m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
-
-	m->Lock.unlock();
 }
 
-void Event_client_matchNoBeatmap(_User *tP) {
+void Event_client_matchNoBeatmap(_User *tP){
 
-	if (!tP->CurrentMatchID)return;
+	if (_Match* m = getMatchFromID(tP->CurrentMatchID); m){
 
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
+		m->Lock.lock();
 
-	if (!m)return;
+		for (auto& Slot : m->Slots)
+			if (Slot.User == tP){
+				if (Slot.SlotStatus != SlotStatus::NoMap){
+					Slot.SlotStatus = SlotStatus::NoMap;
+					m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+				}
+				break;
+			}
 
-	m->Lock.lock();
-
-	for (DWORD i = 0; i < 16; i++){
-		if (m->Slot[i].User == tP){
-			m->Slot[i].SlotStatus = SlotStatus::NoMap;
-			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
-			break;
-		}
+		m->Lock.unlock();
 	}
 
-	m->Lock.unlock();
 }
 
 void Event_client_matchHasBeatmap(_User *tP){
 
-	if (!tP->CurrentMatchID)return;
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
 
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
+		m->Lock.lock();
 
-	if (!m)return;
+		for (auto& Slot : m->Slots)
+			if (Slot.User == tP) {
+				if (Slot.SlotStatus == SlotStatus::NoMap) {
+					Slot.SlotStatus = SlotStatus::NotReady;
+					m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+				}break;
+			}
 
-	m->Lock.lock();
-
-	for (DWORD i = 0; i < 16; i++){
-		if (m->Slot[i].User == tP){
-			if (m->Slot[i].SlotStatus == SlotStatus::NoMap) {
-				m->Slot[i].SlotStatus = SlotStatus::NotReady;
-				m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
-			}break;
-		}
+		m->Lock.unlock();
 	}
-
-	
-
-	m->Lock.unlock();
 }
 
 void Event_client_matchTransferHost(_User *tP, const byte* const Packet, const DWORD Size){
 
-	if (Size != 4)return;
 
-	const DWORD SlotID = *(DWORD*)&Packet[0];
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m && Size == 4) {
 
-	if (SlotID >= 16)return;
+		const DWORD SlotID = al_min(*(DWORD*)&Packet[0],MULTI_MAXSIZE-1);
 
-	if (!tP->CurrentMatchID)return;
+		m->Lock.lock();
 
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
-	if (!m)return;
+		_Slot& Slot = m->Slots[SlotID];
 
-	m->Lock.lock();
+		if (m->HostID == tP->UserID && Slot.User && Slot.User->choToken){
 
-	if (m->HostID != tP->UserID || !m->Slot[SlotID].User|| !m->Slot[SlotID].User->choToken) {//Non host trying to set the host..
+			m->HostID = Slot.User->UserID;
+
+			Slot.User->addQue(_BanchoPacket(OPac::server_matchTransferHost));
+
+			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+		}
+
 		m->Lock.unlock();
-		return;
+
 	}
 
-	m->HostID = m->Slot[SlotID].User->UserID;
-
-	m->Slot[SlotID].User->addQue(_BanchoPacket(OPac::server_matchTransferHost));
-
-	m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
-
-	m->Lock.unlock();
 }
 
 void Event_client_matchReady(_User *tP) {
 
-	if (!tP->CurrentMatchID)return;//not in a match currently
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
 
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
+		m->Lock.lock();
 
-	if (!m)return;
+		for (auto& Slot : m->Slots)
+			if (Slot.User == tP){
+				Slot.SlotStatus = SlotStatus::Ready;
+				m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+				break;
+			}
 
-	m->Lock.lock();
-
-	for (DWORD i = 0; i < 16; i++) {
-
-		if (m->Slot[i].User == tP) {
-
-			m->Slot[i].SlotStatus = SlotStatus::Ready;
-
-			break;
-		}
+		m->Lock.unlock();
 	}
-
-	m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
-
-	m->Lock.unlock();
 }
 
 void Event_client_matchNotReady(_User *tP){
 
-	if (!tP->CurrentMatchID)return;//not in a match currently
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
 
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
+		m->Lock.lock();
 
-	if (!m)return;
+		for (auto& Slot : m->Slots)
+			if (Slot.User == tP) {
+				Slot.SlotStatus = SlotStatus::NotReady;
+				m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+				break;
+			}
 
-	m->Lock.lock();
-
-	for (DWORD i = 0; i < 16; i++) {
-
-		if (m->Slot[i].User == tP) {
-
-			m->Slot[i].SlotStatus = SlotStatus::NotReady;
-
-			break;
-		}
+		m->Lock.unlock();
 	}
-
-	m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
-
-	m->Lock.unlock();
 }
 
 void Event_client_matchStart(_User *tP) {
 
 	if (!tP->CurrentMatchID)return;//not in a match currently
 
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
+		m->Lock.lock();
 
-	if (!m)return;
-
-	m->Lock.lock();
-
-	if (m->HostID != tP->UserID || m->Settings.BeatmapID == -1) {
-		m->Lock.unlock();
-		return;
-	}
-	
-	m->ClearPlaying();
-
-	for (DWORD i = 0; i < 16; i++){
-
-		if (m->Slot[i].SlotStatus == SlotStatus::Ready || m->Slot[i].SlotStatus == SlotStatus::NotReady) {
-			m->Slot[i].SlotStatus = SlotStatus::Playing;
-			m->Slot[i].Loaded = 0;
-			m->Slot[i].Failed = 0;
-			m->Slot[i].Skipped = 0;
-			m->Slot[i].Completed = 0;
+		if (m->HostID != tP->UserID || m->Settings.BeatmapID == -1) {
+			m->Lock.unlock();
+			return;
 		}
+
+		m->ClearPlaying();
+
+		for (auto& Slot : m->Slots)
+			if (Slot.SlotStatus == SlotStatus::Ready || Slot.SlotStatus == SlotStatus::NotReady){
+				Slot.resetPlaying();
+				Slot.SlotStatus = SlotStatus::Playing;
+			}
+
+		m->sendUpdate(bPacket::bMatch(OPac::server_matchStart, m, 1));
+
+		m->Lock.unlock();
 	}
 
-	m->sendUpdate(bPacket::bMatch(OPac::server_matchStart, m, 1));
-
-	m->Lock.unlock();
 }
 
-void Event_client_matchLoadComplete(_User *tP) {
+void Event_client_matchLoadComplete(_User *tP){
 
-	if (!tP->CurrentMatchID)return;//not in a match currently
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
 
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
+		MUTEX_LOCKGUARD(m->Lock);
 
-	if (!m)return;
+		bool AllLoaded = 1;
 
-	m->Lock.lock();
+		for (auto& Slot : m->Slots)
+			if (Slot.User == tP)
+				Slot.Loaded = 1;
+			else if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Loaded)
+				AllLoaded = 0;
 
-	for (DWORD i = 0; i < 16; i++){
-
-		if (m->Slot[i].User == tP){
-
-			m->Slot[i].Loaded = 1;
-			break;
-		}
+		if (AllLoaded)
+			m->sendUpdates({
+				_BanchoPacket(OPac::server_matchAllPlayersLoaded),
+				bPacket::bMatch(OPac::server_updateMatch, m, 1)
+				});
 	}
-
-	bool AllLoaded = 1;
-
-	for (DWORD i = 0; i < 16; i++) {
-		if (m->Slot[i].SlotStatus == SlotStatus::Playing && m->Slot[i].Loaded == 0){
-			AllLoaded = 0;
-			break;
-		}
-	}
-
-	if (AllLoaded)
-		m->sendUpdates({
-			_BanchoPacket(OPac::server_matchAllPlayersLoaded),
-			bPacket::bMatch(OPac::server_updateMatch, m, 1)
-		});
-
-	m->Lock.unlock();
 }
 
 void Event_client_matchScoreUpdate(_User *tP, const byte* const Packet, const DWORD Size){
@@ -3594,119 +3487,98 @@ void Event_client_matchScoreUpdate(_User *tP, const byte* const Packet, const DW
 	if (Size < 10)return;
 	if (!tP->CurrentMatchID)return;//not in a match currently
 
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m && Size >= 10) {
 
-	if (!m)return;
+		_BanchoPacket b(OPac::server_matchScoreUpdate);
+		AddMem(b.Data, Packet, Size);
 
-	_BanchoPacket b(OPac::server_matchScoreUpdate);
-	AddMem(b.Data, Packet, Size);
+		m->Lock.lock();
+		
+		for (auto& Slot : m->Slots)
+			if (Slot.User == tP) {
+				b.Data[4] = (byte)GetIndex(m->Slots, Slot);
+				m->sendUpdate(_M(b));
+				break;
+			}
 
-	m->Lock.lock();
+		m->Lock.unlock();
 
-	byte Slot = 0;
-
-	for (byte i = 0; i < 16; i++){
-		if (m->Slot[i].User == tP){
-			Slot = i;
-			break;
-		}
 	}
-	
-	b.Data[4] = Slot;
-
-	m->sendUpdate(b);
-
-	m->Lock.unlock();
 }
 
 void Event_client_matchComplete(_User *tP) {
 
-	if (!tP->CurrentMatchID)return;//not in a match currently
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
 
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
+		m->Lock.lock();
 
-	if (!m)return;
+		for (auto& Slot : m->Slots)
+			if (Slot.User == tP)
+				Slot.Completed = 1;
 
-	m->Lock.lock();
+		bool AllFinished = 1;
 
-	for (DWORD i = 0; i < 16; i++){
-		if (m->Slot[i].User == tP){
-			m->Slot[i].Completed = 1;
+		for (auto& Slot : m->Slots)
+			if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Completed) {
+				AllFinished = 0;
+				break;
+			}
+
+		if (AllFinished){
+
+			m->ClearPlaying();
+
+			m->sendUpdates({
+				_BanchoPacket(OPac::server_matchComplete),
+				bPacket::bMatch(OPac::server_updateMatch, m, 1)
+				});
 		}
+
+		m->Lock.unlock();
 	}
-
-	bool AllFinished = 1;
-
-	for (DWORD i = 0; i < 16; i++) {
-		if (m->Slot[i].SlotStatus == SlotStatus::Playing && m->Slot[i].Loaded == 0){
-			AllFinished = 0;
-			break;
-		}
-	}
-
-	if (AllFinished){
-
-		m->ClearPlaying();
-
-		m->sendUpdates({
-			_BanchoPacket(OPac::server_matchComplete),
-			bPacket::bMatch(OPac::server_updateMatch, m, 1)
-		});
-	}
-
-	m->Lock.unlock();
 }
 
 void Event_client_matchFailed(_User *tP) {
 
-	if (!tP->CurrentMatchID)return;//not in a match currently
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
 
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
+		m->Lock.lock();
 
-	if (!m)return;
+		for (auto& Slot : m->Slots)
+			if (Slot.User == tP) {
+				m->sendUpdate(bPacket4Byte(OPac::server_matchPlayerFailed, GetIndex(m->Slots, Slot)));
+				break;
+			}
 
-	m->Lock.lock();
-
-	for (DWORD i = 0; i < 16; i++){
-		if (m->Slot[i].User == tP){
-			m->sendUpdate(bPacket4Byte(OPac::server_matchPlayerFailed,i));
-			break;
-		}
-	}	
-
-	m->Lock.unlock();
+		m->Lock.unlock();
+	}
 }
 
 void Event_client_matchSkipRequest(_User* tP) {
-	const USHORT MID = tP->CurrentMatchID;
-	if (!MID)return;//not in a match currently
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
 
-	_Match *m = getMatchFromID(MID);
-	if (!m)return;
+		m->Lock.lock();
 
-	m->Lock.lock();
+		for (auto& Slot : m->Slots)
+			if (Slot.User == tP) {
+				Slot.Skipped = 1;
+				m->sendUpdate(bPacket4Byte(OPac::server_matchPlayerSkipped, GetIndex(m->Slots, Slot)));
+				break;
+			}
 
-	for (DWORD i = 0; i < 16; i++){
-		if (m->Slot[i].User == tP){
-			m->Slot[i].Skipped = 1;
-			m->sendUpdate(bPacket4Byte(OPac::server_matchPlayerSkipped, i));
-			break;
-		}
+		bool AllPlayersSkipped = 1;
+
+		for (auto& Slot : m->Slots)
+			if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Skipped) {
+				AllPlayersSkipped = 0;
+				break;
+			}
+
+		if (AllPlayersSkipped)
+			m->sendUpdate(_BanchoPacket(OPac::server_matchSkip));
+
+		m->Lock.unlock();
 	}
-
-	bool AllPlayersSkipped = 1;
-
-	for (DWORD i = 0; i < 16; i++){
-		if (m->Slot[i].SlotStatus == SlotStatus::Playing && !m->Slot[i].Skipped) {
-			AllPlayersSkipped = 0;
-			break;
-		}
-	}
-
-	if(AllPlayersSkipped)
-		m->sendUpdate(_BanchoPacket(OPac::server_matchSkip));
-
-	m->Lock.unlock();
 }
 
 void Event_client_invite(_User *tP, const byte* const Packet, const DWORD Size){

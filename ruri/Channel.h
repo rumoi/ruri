@@ -227,7 +227,7 @@ constexpr size_t ChannelListSize() noexcept{
 	return sizeof(ChannelList) / sizeof(_Channel*);
 }
 
-_inline _Channel* GetChannelByName(const std::string &Name){
+_inline _Channel* GetChannelByName(std::string_view Name){
 
 	const int Sum = WeakStringToInt(Name);
 
