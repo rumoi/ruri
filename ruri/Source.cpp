@@ -3051,11 +3051,10 @@ void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD S
 	tP->CurrentMatchID = m->MatchId;
 	m->Tournament = 0;
 
-
-	tP->qLock.lock();
-	tP->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess,"#multiplayer"));
-	tP->addQueNonLocking(bPacket::bMatch(OPac::server_matchJoinSuccess,m,1));
-	tP->qLock.unlock();
+	tP->addQue({
+		bPacket::GenericString(OPac::server_channelJoinSuccess,"#multiplayer"),
+		bPacket::bMatch(OPac::server_matchJoinSuccess,m,1)
+		});
 }
 
 _inline void SendMatchList(_User *tP, const bool New) {
@@ -3089,7 +3088,7 @@ void Event_client_matchChangeSlot(_User *const tP, const byte* const Packet, con
 
 	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m && Size == 4){
 
-		const DWORD NewSlot = al_min(*(DWORD*)& Packet[0], MULTI_MAXSIZE - 1);
+		const DWORD NewSlot = al_min(*(DWORD*)&Packet[0], MULTI_MAXSIZE - 1);
 		byte OldSlot = MULTI_MAXSIZE;
 
 		m->Lock.lock();
@@ -3099,14 +3098,15 @@ void Event_client_matchChangeSlot(_User *const tP, const byte* const Packet, con
 				break;
 			}
 
-		_Slot& Old = m->Slots[OldSlot];
-		_Slot& New = m->Slots[NewSlot];
+		if (OldSlot != MULTI_MAXSIZE && OldSlot != NewSlot){
+			_Slot& Old = m->Slots[OldSlot];
+			_Slot& New = m->Slots[NewSlot];
 
-		if (OldSlot != MULTI_MAXSIZE && OldSlot != NewSlot && !New.User &&
-			New.SlotStatus != SlotStatus::Locked && Old.SlotStatus != SlotStatus::Ready) {
-			New = Old;
-			Old.reset();
-			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+			if (!New.User && New.SlotStatus != SlotStatus::Locked && Old.SlotStatus != SlotStatus::Ready) {
+				New = Old;
+				Old = _Slot();
+				m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+			}
 		}
 
 		m->Lock.unlock();

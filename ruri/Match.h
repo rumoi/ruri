@@ -251,7 +251,7 @@ struct _Match{
 
 		HostID = 0;
 		for (auto& Slot : Slots)
-			Slot.reset();
+			Slot = _Slot();
 
 		inProgress = 0;
 		PlayersLoading = 0;
@@ -333,7 +333,7 @@ namespace bPacket {
 		AddStream(b.Data, m->Settings.BeatmapID);
 		AddString(b.Data, m->Settings.BeatmapChecksum);
 
-		b.Data.reserve(b.Data.size() + (NORMALMATCH_MAX_COUNT * 2));
+		//b.Data.reserve(b.Data.size() + (NORMALMATCH_MAX_COUNT * 2));
 
 		for (const auto& Slot : m->Slots)
 			b.Data.push_back(Slot.SlotStatus);
@@ -356,7 +356,7 @@ namespace bPacket {
 			DWORD Mods[NORMALMATCH_MAX_COUNT];
 
 			for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++){
-				if (!m->Slots[i].User)Mods[i] ^= Mods[i];
+				if (!m->Slots[i].User)Mods[i] = 0;
 				else Mods[i] = m->Slots[i].CurrentMods;
 			}
 

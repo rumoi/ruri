@@ -3,6 +3,8 @@
 #include "aes.h"
 #include "Base64.h"
 
+void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::string Reason);
+
 #define ARIA_THREAD_COUNT 8
 
 struct _Score {
@@ -1347,12 +1349,19 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 					ezpp_set_accuracy(ez, sData.count100, sData.count50);
 					ezpp_set_combo(ez, sData.MaxCombo);
 					ezpp_set_mode(ez, sData.GameMode);
-					if (!OppaiCheckMapDownload(ez, BD->BeatmapID)) {
+					if (!OppaiCheckMapDownload(ez, BD->BeatmapID)){
 						printf("Could not download\n");
 						return TryScoreAgain(s);
 					}
 				
 					PP = ezpp_pp(ez);
+
+					if (PP < 30000.f){
+						if (((sData.Mods & Relax) && PP > 1400.f) || (!(sData.Mods & Relax) && PP > 700.f)) {
+							std::thread t(RestrictUser, (_User*)0, "", UserID, "Restricted due too high pp gain in a single play: " + std::to_string(PP));
+							t.detach();
+						}
+					}
 
 				 MapStars = (sData.Mods & (NoFail | Relax | Relax2)) ? 0.f : ezpp_stars(ez);
 				}else u->addQue(bPacket::Notification("That gamemode is currently not supported for pp.\nYour score will still be saved for future calculations."));
@@ -1766,7 +1775,7 @@ void Thread_WebReplay(const uint64_t ID, _Con s) {
 		AddStream(Ret, res->getUInt(13));//Mods
 		AddString(Ret, "");//life
 		AddStream(Ret, UnixToDateTime(res->getUInt(14)));//Date
-		AddStream(Ret,USHORT(Data.size()));
+		AddStream(Ret,DWORD(Data.size()));
 		AddVector(Ret, _M(Data));
 
 		AddStream(Ret, ID);
@@ -1866,9 +1875,6 @@ namespace MIRROR {
 		}
 	}
 }
-
-
-void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::string Reason);
 
 void LastFM(_GetParams&& Params, _Con s){
 
@@ -2155,7 +2161,6 @@ void Aria_Main(){
 #ifndef LINUX
 		int clientSize = sizeof(client);
 		ZeroMemory(&client, clientSize);
-
 		SOCKET s = accept(listening, (sockaddr*)&client, &clientSize);
 #else
 		SOCKET s = accept(listening, 0, 0);
