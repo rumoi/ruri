@@ -116,9 +116,8 @@ struct _Match{
 	DWORD PlayerCount;
 	std::array<_Slot, MULTI_MAXSIZE> Slots;
 	int Seed;
+	int LastUpdate;
 
-	_BanchoPacket LobbyCache;
-	
 	_inline void sendUpdate(const _BanchoPacket &b, const _User*const Sender = 0){
 		for (auto& S : Slots)
 			if (_User*const u = S.User;
@@ -177,6 +176,7 @@ struct _Match{
 			if (Slot.User == u){
 
 				Slot.reset();
+				Slot.User = 0;
 
 				if (Kicked){
 					u->addQue(bPacket4Byte(OPac::server_disposeMatch, MatchId));
@@ -216,7 +216,6 @@ struct _Match{
 						sendUpdate(_BanchoPacket(OPac::server_matchAllPlayersLoaded));
 					}
 				}
-
 
 				break;
 			}
@@ -263,6 +262,8 @@ struct _Match{
 };
 
 _Match Match[MAX_MULTI_COUNT];
+
+std::tuple<std::shared_mutex,int, _BanchoPacket> LobbyCache[MAX_MULTI_COUNT];
 
 /*
 struct _CommunityMatch{
@@ -333,8 +334,6 @@ namespace bPacket {
 		AddStream(b.Data, m->Settings.BeatmapID);
 		AddString(b.Data, m->Settings.BeatmapChecksum);
 
-		//b.Data.reserve(b.Data.size() + (NORMALMATCH_MAX_COUNT * 2));
-
 		for (const auto& Slot : m->Slots)
 			b.Data.push_back(Slot.SlotStatus);
 		for (const auto& Slot : m->Slots)
@@ -364,9 +363,8 @@ namespace bPacket {
 		}
 		AddStream(b.Data, m->Seed);
 
-		if (!SendPassword)
-			m->LobbyCache = b;
-		else m->LobbyCache.Type = 0;
+		if (SendPassword)
+			m->LastUpdate = clock();
 
 		return b;
 	}
@@ -411,6 +409,8 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string_view Command, 
 					Slot.SlotStatus = SlotStatus::NotReady;
 					Target->addQue(bPacket::bMatch(OPac::server_matchJoinSuccess, m, 1));
 					m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1),Target.User);
+					m->PlayerCount++;
+					break;
 				}
 			}
 

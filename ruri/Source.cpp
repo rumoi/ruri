@@ -739,7 +739,7 @@ std::shared_mutex RankUpdate[GM_MAX + 1];
 
 void ReSortAllRank() {
 
-	for (DWORD i = 0; i < 8; i++){
+	for (DWORD i = 0; i <= GM_MAX; i++){
 
 		RankUpdate[i].lock();
 		RankListVersion[i]++;
@@ -812,7 +812,8 @@ DWORD GetRank(const DWORD UserID, const DWORD GameMode){//Could use the cached p
 
 void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
 
-	if (!PP || UserID < 1000 || GameMode >= 8)return;
+	if (!PP || UserID < 1000 || GameMode > GM_MAX)
+		return;
 
 	RankUpdate[GameMode].lock();
 	
@@ -1894,8 +1895,6 @@ namespace bPacket {
 
 		return b;
 	}
-	
-
 
 	_inline _BanchoPacket GenericString(const short ID, const std::string_view Value){
 		_BanchoPacket b(ID);
@@ -2908,10 +2907,7 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 		if (!fSpec) {
 			if(Add)fSpec = tP;
 			Add = 0;
-			continue;
-		}
-
-		if (fSpec != tP){
+		}else if (fSpec != tP){
 			fSpec->addQue(b);
 			tP->addQue(bPacket4Byte(OPac::server_fellowSpectatorJoined, fSpec->UserID));
 		}else Add = 0;
@@ -3062,26 +3058,36 @@ _inline void SendMatchList(_User *tP, const bool New) {
 	if(!tP->inLobby)return;
 	
 	for (DWORD i = 0; i < MAX_MULTI_COUNT; i++){
+		if (Match[i].PlayerCount && !Match[i].Tournament){
 
-		if (Match[i].PlayerCount && !Match[i].Tournament) {
-			if (Match[i].LobbyCache.Type == 0) {//TODO might want to improve this. Could cause pipeline issues.
+			auto& [Lock, UpdateTime, Cache] = LobbyCache[i];
+
+			const bool OutOfDate = Match[i].LastUpdate != UpdateTime;
+			
+			if (OutOfDate){
+				S_MUTEX_LOCKGUARD(Lock);
 				Match[i].Lock.lock();
-				tP->addQue(bPacket::bMatch((New) ? OPac::server_newMatch : OPac::server_updateMatch, &Match[i], 0));
+				UpdateTime = Match[i].LastUpdate;
+				Cache = bPacket::bMatch(OPac::server_updateMatch, &Match[i],0);
+				tP->addQue(Cache);
 				Match[i].Lock.unlock();
+
+			}else{
+				S_MUTEX_SHARED_LOCKGUARD(Lock);
+				tP->addQue(Cache);
 			}
-			else tP->addQue(Match[i].LobbyCache);
+
 		}
 	}
 }
 
 void Event_client_partMatch(_User *tP){
-	if (!tP->CurrentMatchID)return;
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
-	if (!m)return;
-	m->Lock.lock();
-	m->removeUser(tP, 0);
-	m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
-	m->Lock.unlock();
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m){
+		m->Lock.lock();
+		m->removeUser(tP, 0);
+		m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+		m->Lock.unlock();
+	}
 }
 
 void Event_client_matchChangeSlot(_User *const tP, const byte* const Packet, const DWORD Size){
@@ -3089,24 +3095,24 @@ void Event_client_matchChangeSlot(_User *const tP, const byte* const Packet, con
 	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m && Size == 4){
 
 		const DWORD NewSlot = al_min(*(DWORD*)&Packet[0], MULTI_MAXSIZE - 1);
-		byte OldSlot = MULTI_MAXSIZE;
+
+		_Slot* OldSlot = 0;
 
 		m->Lock.lock();
 		for (auto& Slot : m->Slots)
 			if (Slot.User == tP) {
-				OldSlot = GetIndex(m->Slots, Slot);
+				OldSlot = &Slot;
 				break;
 			}
 
-		if (OldSlot != MULTI_MAXSIZE && OldSlot != NewSlot){
-			_Slot& Old = m->Slots[OldSlot];
-			_Slot& New = m->Slots[NewSlot];
+		_Slot& New = m->Slots[NewSlot];
 
-			if (!New.User && New.SlotStatus != SlotStatus::Locked && Old.SlotStatus != SlotStatus::Ready) {
-				New = Old;
-				Old = _Slot();
-				m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
-			}
+		if (OldSlot && OldSlot != &New &&
+			!New.User && New.SlotStatus != SlotStatus::Locked && OldSlot->SlotStatus != SlotStatus::Ready){
+
+			New = *OldSlot;
+			*OldSlot = _Slot();
+			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
 		}
 
 		m->Lock.unlock();
@@ -4103,9 +4109,15 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 			if (Username != GetUsernameFromCache(UserID))
 				UsernameCacheUpdateName(UserID, Username, &SQL_BanchoThread[s.ID]);
 
-			const std::string TableName[] = {"users_stats","rx_stats"};
+			static std::string const TableName[] = {"users_stats","rx_stats"};
 
-			for(byte z = 0; z < 2; z++){
+			for(byte z = 0; z < 				
+			#ifndef NO_RELAX
+				2
+			#else
+				1
+			#endif				
+				; z++){
 
 				res = con->ExecuteQuery("SELECT ranked_score_std, playcount_std, total_score_std, avg_accuracy_std,pp_std,"
 					"ranked_score_taiko, playcount_taiko, total_score_taiko, avg_accuracy_taiko, pp_taiko,"
@@ -4302,7 +4314,7 @@ void DisconnectUser(_User *u){
 
 	Event_client_stopSpectating(u);
 
-	for (byte i = 0; i < 8; i++)
+	for (byte i = 0; i <= GM_MAX; i++)
 		u->Stats[i].reset();
 
 	u->Spectators.clear();
@@ -4716,9 +4728,9 @@ int main(){
 		return 0;
 	}
 
-	for (const auto& Config : Explode_View(ConfigBytes, '\n',1)){
-
 	#define V ExtractConfigValue(std::vector<byte>(Config.cbegin(),Config.cend()))
+
+	for (const auto& Config : Explode_View(ConfigBytes, '\n',1)){
 
 		if (MEM_CMP_START(Config, "osu_API_Key"))
 			osu_API_KEY = V;
@@ -4733,9 +4745,9 @@ int main(){
 		else if (MEM_CMP_START(Config, "ReplayPath"))
 			REPLAY_PATH = V;
 
-	#undef V
-
 	}
+
+	#undef V
 
 	static_assert((BANCHO_THREAD_COUNT >= 4 && ARIA_THREAD_COUNT >= 4),
 		"BANCHO_THREAD_COUNT or ARIA_THREAD_COUNT can not be below 4");

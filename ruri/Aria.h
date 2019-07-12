@@ -1356,13 +1356,14 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				
 					PP = ezpp_pp(ez);
 
+#ifndef NO_RELAX
 					if (PP < 30000.f){
 						if (((sData.Mods & Relax) && PP > 1400.f) || (!(sData.Mods & Relax) && PP > 700.f)) {
 							std::thread t(RestrictUser, (_User*)0, "", UserID, "Restricted due too high pp gain in a single play: " + std::to_string(PP));
 							t.detach();
 						}
 					}
-
+#endif
 				 MapStars = (sData.Mods & (NoFail | Relax | Relax2)) ? 0.f : ezpp_stars(ez);
 				}else u->addQue(bPacket::Notification("That gamemode is currently not supported for pp.\nYour score will still be saved for future calculations."));
 			}
@@ -1803,9 +1804,11 @@ void Thread_UpdateOSU(const std::string URL, _Con s){
 }
 
 std::string RandomString(const DWORD Count){
+
 	static const char CharList[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 									 'A', 'B', 'C', 'D', 'E', 'F', '_', 'a', 'b', 'c',
 									 'd', 'e', 'f', '-', 'r', 'u', 'm', 'o', 'i', 'y', 'g', 'n' };
+
 	std::string rString(Count,'\0');
 
 	for (char& c : rString)
@@ -1817,7 +1820,7 @@ std::string RandomString(const DWORD Count){
 #define IT_ADD(s) size_t(&*s)
 
 void UploadScreenshot(const _HttpRes &res, _Con s){
-	
+
 	if (res.Body.size() < 1000 || res.Body.size() > 2000000)
 		return;
 
@@ -1834,16 +1837,14 @@ void UploadScreenshot(const _HttpRes &res, _Con s){
 		return s.Dis();
 
 	it += _strlen_(SCREENSHOT_START);
+
 	const auto end = res.Body.end() - _strlen_(SCREENSHOT_END);
 
-	if (end < it)
-		return s.Dis();
-	
-	const std::string Filename = RandomString(8) + ".png";
-
-	WriteAllBytes("/home/ss/" + Filename, &*it, end - it);
-
-	s.SendData(ConstructResponse(200, {}, VEC(byte)(Filename.begin(), Filename.end())));
+	if (end > it) {
+		const std::string Filename = RandomString(8) + ".png";
+		WriteAllBytes("/home/ss/" + Filename, &*it, end - it);
+		s.SendData(ConstructResponse(200, {}, VEC(byte)(Filename.begin(), Filename.end())));
+	}
 
 	return s.Dis();
 }

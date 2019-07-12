@@ -245,15 +245,15 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 		
 		//These could be done in one. But im pretty sure its better for SQL to do multiple smaller commands than one large one.
 
-		SQL.ExecuteUPDATE("UPDATE users SET privileges = " + std::to_string(BanPrivs) + " AND ban_datetime = " + std::to_string(time(0)) + " WHERE id = " + std::to_string(ID),1);
+		SQL.ExecuteUPDATE("UPDATE users SET privileges = " + std::to_string(BanPrivs) + ", ban_datetime = " + std::to_string(time(0)) + " WHERE id = " + std::to_string(ID),1);
 		SQL.ExecuteUPDATE("UPDATE scores SET pp = 0 WHERE completed = 3 AND userid = " + std::to_string(ID),1);
 	#ifndef NO_RELAX
 		SQL.ExecuteUPDATE("UPDATE scores_relax SET pp = 0 WHERE completed = 3 AND userid = " + std::to_string(ID),1);
-		SQL.ExecuteUPDATE("UPDATE rx_stats SET pp_std = 0 AND pp_taiko = 0 AND pp_ctb = 0 AND pp_mania = 0 WHERE id = " + std::to_string(ID), 1);
+		SQL.ExecuteUPDATE("UPDATE rx_stats SET pp_std = 0, pp_taiko = 0, pp_ctb = 0, pp_mania = 0 WHERE id = " + std::to_string(ID), 1);
 	#endif
-		SQL.ExecuteUPDATE("UPDATE users_stats SET pp_std = 0 AND pp_taiko = 0 AND pp_ctb = 0 AND pp_mania = 0 WHERE id = " + std::to_string(ID), 1);
+		SQL.ExecuteUPDATE("UPDATE users_stats SET pp_std = 0, pp_taiko = 0, pp_ctb = 0, pp_mania = 0 WHERE id = " + std::to_string(ID), 1);
 		
-		for(DWORD i=0;i<8;i++)
+		for(DWORD i=0;i <= GM_MAX;i++)
 			UpdateRank(ID, i, 1);
 		{
 			_UserRef Banned(GetUserFromID(ID), 1);
@@ -272,7 +272,7 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 
 			for (DWORD z = 0; z < BucketSize; z++){
 				for (auto& Map : BeatmapSet_Cache.Table[i][z].Maps){
-					for (DWORD p = 0; p < 8; p++){
+					for (DWORD p = 0; p <= GM_MAX; p++){
 						if (!Map.lBoard[p])
 							continue;
 
@@ -586,8 +586,6 @@ void FullRecalcPP(const std::string GM){
 
 	if (!SQL.Connect())
 		return;
-
-
 	SQL.ExecuteQuery("UPDATE scores SET pp = 0 WHERE completed = 3 AND pp > 0 AND play_mode = " + GM,1);
 	chan_Akatsuki.Bot_SendMessage("Set scores to 0");
 #ifndef NO_RELAX
@@ -621,7 +619,7 @@ void FullRecalcPP(const std::string GM){
 			chan_Akatsuki.Bot_SendMessage("Score recalculation is " + RoundTo2((float(Count) / float(Maps.size())) * 100) + "% complete.");
 
 		const auto UpdateTable = [](const std::string&& TableName, _SQLCon &SQL,const SD& MAP, const std::string& MODE){
-			auto Score = SQL.ExecuteQuery("SELECT max_combo,mods,misses_count,accuracy,id FROM "+ TableName +" WHERE beatmap_md5 = '" + MAP.Hash + "' AND completed = 3 AND play_mode = " + MODE, 1);
+			auto Score = SQL.ExecuteQuery("SELECT max_combo,mods,misses_count,accuracy,id FROM "+ TableName +" WHERE beatmap_md5 = '" + MAP.Hash + "' AND completed = 3 AND pp = 0 AND play_mode = " + MODE, 1);
 
 			if (!Score || !Score->next()){
 				DeleteAndNull(Score);
@@ -709,14 +707,13 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 		}
 	}
 
-	if (!(u->privileges & Privileges::AdminManageBeatmaps))
-		return "That is not a command.";
+	if (u->privileges & Privileges::AdminManageBeatmaps) {
+		//BAT Commands
+		if (CommandHash == _WeakStringToInt_("!map"))
+			return Split.size() > 2 ? MapStatusUpdate(u, WeakStringToInt(Split[1]), StringToUInt32(Split[2]), (Split.size() > 3) ? StringToUInt32(Split[3]) : 0)
+			: "!map <rank/love/unrank> <setid> optional<beatmapid>";
 
-	//BAT Commands
-	if (CommandHash == _WeakStringToInt_("!map"))
-		return Split.size() > 2 ? MapStatusUpdate(u, WeakStringToInt(Split[1]), StringToUInt32(Split[2]), (Split.size() > 3) ? StringToUInt32(Split[3]) : 0)
-								: "!map <rank/love/unrank> <setid> optional<beatmapid>";
-
+	}
 	if (!(u->privileges & Privileges::AdminManageUsers))
 		return "That is not a command.";
 
