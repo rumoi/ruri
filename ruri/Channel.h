@@ -214,14 +214,14 @@ struct _Channel{
 
 
 
-_Channel chan_Akatsuki("#akatsuki","Akatsuki General.", IRC_Public, IRC_Public,1);
+_Channel chan_General("#General","General Chat.", IRC_Public, IRC_Public,1);
 _Channel chan_Announce("#announce", "Public announcements.", IRC_Public, IRC_Admin);//Announcement being an option is on purpose
 _Channel chan_Supporter("#supporter", "Supporter only chat.", IRC_Supporter, IRC_Supporter,1);
 _Channel chan_Admin("#admin", "Command dumpster.", IRC_Admin, IRC_Admin,1);
 _Channel chan_DevLog("#devlog", "Log all the things.", IRC_Dev, IRC_Dev, 1);
 _Channel chan_Lobby("#lobby", "Chat with others browsing for a lobby.", IRC_Public, IRC_Public);
 
-_Channel* const ChannelList[] = {&chan_Akatsuki,&chan_Announce,&chan_Supporter,&chan_Admin,&chan_DevLog,&chan_Lobby};
+_Channel* const ChannelList[] = {&chan_General,&chan_Announce,&chan_Supporter,&chan_Admin,&chan_DevLog,&chan_Lobby};
 
 constexpr size_t ChannelListSize() noexcept{
 	return sizeof(ChannelList) / sizeof(_Channel*);

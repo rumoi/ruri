@@ -144,229 +144,233 @@ enum HitObjectType
 #include "pp_ctb.h"
 #include "pp_mania.h"
 
+namespace pp_base{
 
-_LTable<_RawBeatmap> RawMapCache;
+	_LTable<_RawBeatmap> Cache_RawMap;
 
-int pp_ReadRawMapData(const std::string &Input, _RawBeatmap &Output){
-	
-	const std::vector<byte> &RawMap = LOAD_FILE(Input);
+	int ReadRawMapData(const std::string& Input, _RawBeatmap& Output) {
 
-	if (RawMap.size() <= 17 || memcmp(&RawMap[0], "osu file format v", 17))
-		return PPFAIL_NOBEATMAP;
+		const std::vector<byte> RawMap = LOAD_FILE(Input);
 
-	const char* Start = (char*)&RawMap[0];
-	const char* End = (char*)&RawMap[RawMap.size()];
+		if (RawMap.size() <= 17 || memcmp(&RawMap[0], "osu file format v", 17))
+			return PPFAIL_NOBEATMAP;
 
-	const char* CO = Start + 17;
-	
-	_MapHeaders& Headers = Output.Headers;
+		const char* Start = (char*)& RawMap[0];
+		const char* End = (char*)& RawMap[RawMap.size()];
 
-	byte& MapVersion = Headers.MapVersion;
-	byte& MapMode = Headers.MapMode;
+		const char* CO = Start + 17;
 
-	float& CircleSize = Headers.CircleSize;
-	float& OverallDifficulty = Headers.OverallDifficulty;
-	float& ApproachRate = Headers.ApproachRate;
-	double& SliderMultiplier = Headers.SliderMultiplier;
-	double& SliderTickRate = Headers.SliderTickRate;
+		_MapHeaders& Headers = Output.Headers;
 
-	while (CO != End && *CO >= '0' && *CO <= '9') {
-		MapVersion *= 10;
-		MapVersion += *CO - '0';
-		CO++;
-	}
+		byte& MapVersion = Headers.MapVersion;
+		byte& MapMode = Headers.MapMode;
 
-	const char* RevertCO = CO;
+		float& CircleSize = Headers.CircleSize;
+		float& OverallDifficulty = Headers.OverallDifficulty;
+		float& ApproachRate = Headers.ApproachRate;
+		double& SliderMultiplier = Headers.SliderMultiplier;
+		double& SliderTickRate = Headers.SliderTickRate;
 
-	FindNext(CO, End, "\nMode: ");
-
-	if (!CO)CO = RevertCO;//I did not check but I assume old maps (07) would not have a mode.
-	else MapMode = *CO - '0';
-
-	const char* DiffStart = CO;
-	FindNext(DiffStart, End, "\n[Difficulty]");
-	const char* TimingStart = DiffStart;
-	FindNext(TimingStart, End, "\n[TimingPoints]");
-	const char* HitObjectStart = TimingStart;
-	FindNext(HitObjectStart, End, "\n[HitObjects]");
-
-	if (!DiffStart || !TimingStart || !HitObjectStart)
-		return PPFAIL_HEADERFAIL;
-
-	{
-		const char* DiffRead = DiffStart;
-
-		//#define DIFFREAD(name) FindNext(DiffRead, TimingStart, "\n"#name":"); name = _READ_BFLOAT(DiffRead); DiffRead = DiffStart
-		#define DIFFREAD(name) FindNext(DiffRead, TimingStart, "\n"#name":"); name = _READDOUBLE(DiffRead); DiffRead = DiffStart	
-
-		DIFFREAD(CircleSize);
-		DIFFREAD(OverallDifficulty);
-		DIFFREAD(ApproachRate);
-		DIFFREAD(SliderMultiplier);
-		DIFFREAD(SliderTickRate);
-		
-		if (ApproachRate == 0.f)//I know this could cause issues if the ar is just truly set to 0. But who cares.
-			ApproachRate = OverallDifficulty;
-	}
-
-	TimingStart += 2;//This assumes the file has the windows return carriage. It slightly malforming the first timing point does not matter as it will be set to the lowest possible value anyway.
-
-	std::vector<_TimingBPM> &TimingPoints = Output.TimingPoints;
-	TimingPoints.reserve(128);
-	
-	double LastRealBPM = 10.;
-	double LastMultiplier = 0.;
-
-	while (1) {
-		const char* TimingEnd = TimingStart;
-
-		FindNext(TimingEnd, HitObjectStart, "\n");
-
-		if (!TimingEnd || TimingStart == TimingEnd)break;
-
-		bool SecondData = 0;
-
-		const int tOffset = _READINT32(TimingStart);
-		double tBPM = 0.f;
-
-		for (const char* i = TimingStart; i < TimingEnd; i++) {
-			if (*i == ',') {
-				i++;
-				tBPM = _READDOUBLE(i);
-				SecondData = 1;
-				break;
-			}
+		while (CO != End && *CO >= '0' && *CO <= '9') {
+			MapVersion *= 10;
+			MapVersion += *CO - '0';
+			CO++;
 		}
 
-		if (SecondData) {
-			if (tBPM != LastMultiplier) {//Ignore timing points not related to bpm.
-				LastMultiplier = tBPM;
-				TimingPoints.emplace_back(
-					tOffset,tBPM,
-					[&]()->double {
-						if (tBPM > 0) {
-							LastRealBPM = CLAMP(tBPM,10.,1000.);
-							return tBPM;
-						}
-						return CLAMP(double(LastRealBPM * (-tBPM * 0.01)), 10., 1000.);
-					}()
-				);
-			}
+		const char* RevertCO = CO;
+
+		FindNext(CO, End, "\nMode: ");
+
+		if (!CO)CO = RevertCO;//I did not check but I assume old maps (07) would not have a mode.
+		else MapMode = *CO - '0';
+
+		const char* DiffStart = CO;
+		FindNext(DiffStart, End, "\n[Difficulty]");
+		const char* TimingStart = DiffStart;
+		FindNext(TimingStart, End, "\n[TimingPoints]");
+		const char* HitObjectStart = TimingStart;
+		FindNext(HitObjectStart, End, "\n[HitObjects]");
+
+		if (!DiffStart || !TimingStart || !HitObjectStart)
+			return PPFAIL_HEADERFAIL;
+
+		{
+			const char* DiffRead = DiffStart;
+
+			//#define DIFFREAD(name) FindNext(DiffRead, TimingStart, "\n"#name":"); name = _READ_BFLOAT(DiffRead); DiffRead = DiffStart
+#define DIFFREAD(name) FindNext(DiffRead, TimingStart, "\n"#name":"); name = _READDOUBLE(DiffRead); DiffRead = DiffStart	
+
+			DIFFREAD(CircleSize);
+			DIFFREAD(OverallDifficulty);
+			DIFFREAD(ApproachRate);
+			DIFFREAD(SliderMultiplier);
+			DIFFREAD(SliderTickRate);
+
+			if (ApproachRate == 0.f)//I know this could cause issues if the ar is just truly set to 0. But who cares.
+				ApproachRate = OverallDifficulty;
 		}
-		else break;
 
-		TimingStart = TimingEnd;
+		TimingStart += 2;//This assumes the file has the windows return carriage. It slightly malforming the first timing point does not matter as it will be set to the lowest possible value anyway.
 
-	}
+		std::vector<_TimingBPM>& TimingPoints = Output.TimingPoints;
+		TimingPoints.reserve(128);
 
-	if (!TimingPoints.size())
-		return PPFAIL_TIMINGFAIL;
+		double LastRealBPM = 10.;
+		double LastMultiplier = 0.;
 
-	TimingPoints[0].Offset = INT_MIN;
+		while (1) {
+			const char* TimingEnd = TimingStart;
 
-	HitObjectStart += 2;
+			FindNext(TimingEnd, HitObjectStart, "\n");
 
-	std::vector<_RawBeatmapObject> &RawBeatData = Output.Notes;
-	RawBeatData.reserve(1024);
+			if (!TimingEnd || TimingStart == TimingEnd)break;
 
-	while (1){
-		const char* HitObjectEnd = HitObjectStart;
+			bool SecondData = 0;
 
-		FindNext(HitObjectEnd, End, "\n");
+			const int tOffset = _READINT32(TimingStart);
+			double tBPM = 0.f;
 
-		if (!HitObjectEnd || HitObjectStart == HitObjectEnd)break;
-
-
-		_RawBeatmapObject raw;
-
-		raw.x = _READINT32(HitObjectStart);
-
-		byte Count = 0;
-
-		for (const char* i = HitObjectStart; i < HitObjectEnd; i++) {
-			if (*i == ',') {
-				i++;
-
-				if (Count == 0)
-					raw.y = _READINT32(i);
-				else if (Count == 1) {
-					raw.startTime = _READINT32(i);
-					raw.endTime = raw.startTime;
-				}else if (Count == 2)
-					raw.Type = byte(_READINT32(i));
-				else if (Count == 3) {
-					raw.Sound = byte(_READINT32(i));
+			for (const char* i = TimingStart; i < TimingEnd; i++) {
+				if (*i == ',') {
+					i++;
+					tBPM = _READDOUBLE(i);
+					SecondData = 1;
+					break;
 				}
-				else if (Count == 4) {
-					if (MapMode != 3 && raw.Type & Hit_Slider) {
-						raw.MultiData.reserve(16);
-						raw.MultiType = *i;
-						i++;
-						for (; i < HitObjectEnd; i++) {
+			}
 
-							if (*i == ',') { i--; break; }
-
-							if (*i == '|') {
-								i++;
-
-								const int x = _READINT32(i);
-								int y = INT_MIN;
-
-								const char* sr = i;
-
-								while (HitObjectEnd - 1 > sr) {
-									if (*sr == ':') {
-										sr++;
-										y = _READINT32(sr);
-										break;
-									}sr++;
-								}
-
-								if (y != INT_MIN)
-									raw.MultiData.push_back({ x, y });
+			if (SecondData) {
+				if (tBPM != LastMultiplier) {//Ignore timing points not related to bpm.
+					LastMultiplier = tBPM;
+					TimingPoints.emplace_back(
+						tOffset, tBPM,
+						[&]()->double {
+							if (tBPM > 0) {
+								LastRealBPM = CLAMP(tBPM, 10., 1000.);
+								return tBPM;
 							}
-						}
-						Count++;
-						break;
-					}
-					else if (MapMode == 3 || raw.Type & Hit_Spinner)
-						raw.endTime = _READINT32(i);
-
+							return CLAMP(double(LastRealBPM * (-tBPM * 0.01)), 10., 1000.);
+						}()
+							);
 				}
-				else if (Count == 5)
-					raw.repeatCount = byte(CLAMP(_READINT32(i), 0, 255));
-				else if (Count == 6 && raw.Type & Hit_Slider)
-					raw.Length = _READDOUBLE(i);
-				else break;
-
-				Count++;
 			}
+			else break;
+
+			TimingStart = TimingEnd;
+
 		}
 
-		if (Count > 3)
-			RawBeatData.push_back(raw);
+		if (!TimingPoints.size())
+			return PPFAIL_TIMINGFAIL;
 
-		HitObjectStart = HitObjectEnd;
+		TimingPoints[0].Offset = INT_MIN;
+
+		HitObjectStart += 2;
+
+		std::vector<_RawBeatmapObject>& RawBeatData = Output.Notes;
+		RawBeatData.reserve(1024);
+
+		while (1) {
+			const char* HitObjectEnd = HitObjectStart;
+
+			FindNext(HitObjectEnd, End, "\n");
+
+			if (!HitObjectEnd || HitObjectStart == HitObjectEnd)
+				break;
+
+			_RawBeatmapObject raw;
+
+			raw.x = _READINT32(HitObjectStart);
+
+			byte Count = 0;
+
+			for (const char* i = HitObjectStart; i < HitObjectEnd; i++) {
+				if (*i == ',') {
+					i++;
+
+					if (Count == 0)
+						raw.y = _READINT32(i);
+					else if (Count == 1) {
+						raw.startTime = _READINT32(i);
+						raw.endTime = raw.startTime;
+					}
+					else if (Count == 2)
+						raw.Type = byte(_READINT32(i));
+					else if (Count == 3) {
+						raw.Sound = byte(_READINT32(i));
+					}
+					else if (Count == 4) {
+						if (MapMode != 3 && raw.Type & Hit_Slider) {
+							raw.MultiData.reserve(16);
+							raw.MultiType = *i;
+							i++;
+							for (; i < HitObjectEnd; i++) {
+
+								if (*i == ',') { i--; break; }
+
+								if (*i == '|') {
+									i++;
+
+									const int x = _READINT32(i);
+									int y = INT_MIN;
+
+									const char* sr = i;
+
+									while (HitObjectEnd - 1 > sr) {
+										if (*sr == ':') {
+											sr++;
+											y = _READINT32(sr);
+											break;
+										}sr++;
+									}
+
+									if (y != INT_MIN)
+										raw.MultiData.push_back({ x, y });
+								}
+							}
+							Count++;
+							break;
+						}
+						else if (MapMode == 3 || raw.Type & Hit_Spinner)
+							raw.endTime = _READINT32(i);
+
+					}
+					else if (Count == 5)
+						raw.repeatCount = byte(CLAMP(_READINT32(i), 0, 255));
+					else if (Count == 6 && raw.Type & Hit_Slider)
+						raw.Length = _READDOUBLE(i);
+					else break;
+
+					Count++;
+				}
+			}
+
+			if (Count > 3)
+				RawBeatData.push_back(raw);
+
+			HitObjectStart = HitObjectEnd;
+		}
+		if (!RawBeatData.size())
+			return PPFAIL_NONOTES;
+
+		return 0;
 	}
-	if (!RawBeatData.size())
-		return PPFAIL_NONOTES;
-	//printf("Time: %f\nnNoteCount: %llu\n", double(double(TTime) * .000001), RawBeatData.size());
-	return 0;
-}
 
-_RawBeatmap* pp_GetRawMapData(const DWORD ID){
+	_RawBeatmap* pp_GetRawMapData(const DWORD ID){
 
-	auto Ret = RawMapCache.get(ID);
-	if (Ret)
+		auto Ret = Cache_RawMap.get(ID);
+
+		if (!Ret){
+
+			_RawBeatmap NewMap;NewMap.BID = ID;
+
+			if (const int res = ReadRawMapData(BEATMAP_PATH + std::to_string(ID) + ".osu", NewMap); !res)
+				Ret = Cache_RawMap.push_back(_M(NewMap));
+			else
+				printf(KRED"PPBase> Failed to parse map:%i\n", res);
+		}
+
 		return Ret;
-
-	_RawBeatmap NewMap;
+	}
 	
-	const int res = pp_ReadRawMapData(BEATMAP_PATH + std::to_string(ID) + ".osu", NewMap);
-
-	if (!res)
-		Ret = RawMapCache.push_back(_M(NewMap));
-	else printf(KRED"PPBase> ERROR:%i\n", res);
-
-	return Ret;
 }

@@ -48,7 +48,6 @@ std::string CFGExploit(const std::string &Target, std::string NewCFGLine){
 
 	ReplaceAll(NewCFGLine, "\\n", "\n\n");
 	u.User->qLock.lock();
-	u.User->HyperMode = 1;
 	u.User->addQueNonLocking(_BanchoPacket(OPac::server_getAttention));
 	for(DWORD i=0;i<10;i++)
 		u.User->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "# \r\n" + NewCFGLine + "\r\nChatChannels = #osu" + std::to_string(i)));
@@ -492,7 +491,7 @@ void FixLoved() {
 	while (res && res->next())
 		LovedMaps.emplace_back(res->getUInt(1), res->getString(2));
 
-	chan_Akatsuki.Bot_SendMessage(std::to_string(LovedMaps.size()) + " Loved map leaderboards being updated");
+	chan_General.Bot_SendMessage(std::to_string(LovedMaps.size()) + " Loved map leaderboards being updated");
 
 	for (auto& [ID,MD5] : LovedMaps){
 
@@ -531,7 +530,7 @@ void FixLoved() {
 	}
 	DeleteAndNull(res);
 
-	chan_Akatsuki.Bot_SendMessage("Loved map leaderboards updated");
+	chan_General.Bot_SendMessage("Loved map leaderboards updated");
 
 
 }
@@ -587,10 +586,10 @@ void FullRecalcPP(const std::string GM){
 	if (!SQL.Connect())
 		return;
 	SQL.ExecuteQuery("UPDATE scores SET pp = 0 WHERE completed = 3 AND pp > 0 AND play_mode = " + GM,1);
-	chan_Akatsuki.Bot_SendMessage("Set scores to 0");
+	chan_General.Bot_SendMessage("Set scores to 0");
 #ifndef NO_RELAX
 	SQL.ExecuteQuery("UPDATE scores_relax SET pp = 0 WHERE completed = 3 AND pp > 0 AND play_mode = " + GM,1);
-	chan_Akatsuki.Bot_SendMessage("Set scores_relax to 0");
+	chan_General.Bot_SendMessage("Set scores_relax to 0");
 #endif
 
 	struct SD { const std::string Hash; const DWORD BID; };
@@ -606,7 +605,7 @@ void FullRecalcPP(const std::string GM){
 		DeleteAndNull(res);
 	}
 
-	chan_Akatsuki.Bot_SendMessage("Going through " + std::to_string(Maps.size()) + "@"+GM+" beatmaps.");
+	chan_General.Bot_SendMessage("Going through " + std::to_string(Maps.size()) + "@"+GM+" beatmaps.");
 
 	DWORD Count = 1;
 
@@ -616,7 +615,7 @@ void FullRecalcPP(const std::string GM){
 
 		Count++;
 		if (Count % 1000 == 0)
-			chan_Akatsuki.Bot_SendMessage("Score recalculation is " + RoundTo2((float(Count) / float(Maps.size())) * 100) + "% complete.");
+			chan_General.Bot_SendMessage("Score recalculation is " + RoundTo2((float(Count) / float(Maps.size())) * 100) + "% complete.");
 
 		const auto UpdateTable = [](const std::string&& TableName, _SQLCon &SQL,const SD& MAP, const std::string& MODE){
 			auto Score = SQL.ExecuteQuery("SELECT max_combo,mods,misses_count,accuracy,id FROM "+ TableName +" WHERE beatmap_md5 = '" + MAP.Hash + "' AND completed = 3 AND pp = 0 AND play_mode = " + MODE, 1);
@@ -647,7 +646,7 @@ void FullRecalcPP(const std::string GM){
 		UpdateTable("scores_relax", SQL, Map,GM);
 	#endif
 	}
-	chan_Akatsuki.Bot_SendMessage("Finished recalculating PP. Removing PP from banned users.");
+	chan_General.Bot_SendMessage("Finished recalculating PP. Removing PP from banned users.");
 
 	{
 
@@ -667,10 +666,10 @@ void FullRecalcPP(const std::string GM){
 	}
 	SQL.Disconnect();
 
-	chan_Akatsuki.Bot_SendMessage("Updating ranks");
+	chan_General.Bot_SendMessage("Updating ranks");
 	UpdateAllUserStatsinGM(0, StringToUInt32(GM));
 
-	chan_Akatsuki.Bot_SendMessage("Fully Completed :)");
+	chan_General.Bot_SendMessage("Fully Completed :)");
 }
 
 const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD &PrivateRes){
@@ -877,7 +876,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 		}
 		case _WeakStringToInt_("!fullrecalcpp"): {
 
-			chan_Akatsuki.Bot_SendMessage("A full pp recalc has been started by " + u->Username);
+			chan_General.Bot_SendMessage("A full pp recalc has been started by " + u->Username);
 			{
 				std::thread t(FullRecalcPP,"0");
 				t.detach();
@@ -887,7 +886,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 		}
 		case _WeakStringToInt_("!fixloved"): {
 
-			chan_Akatsuki.Bot_SendMessage(u->Username + " is fixing loved xd");
+			chan_General.Bot_SendMessage(u->Username + " is fixing loved xd");
 			{
 				std::thread t(FixLoved);
 				t.detach();

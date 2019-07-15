@@ -442,7 +442,6 @@ struct _LTable {
 	DWORD TableCount[BUCKET_COUNT];
 	VEC(T) Table[BUCKET_COUNT];
 
-
 	_inline T* push_back(const T&& A, const bool Locking = 1) {
 
 		const auto Key = A.Key();
@@ -1355,8 +1354,8 @@ struct _User{
 	int LoginTime;
 	bool SendToken;
 	bool inLobby;
-	bool HyperMode;
 	bool FriendsOnlyChat;
+	byte SpamLevel;
 	std::mutex SpecLock;
 	std::vector<_User*> Spectators;
 	//std::mutex MultiLock;
@@ -1494,7 +1493,7 @@ void reset() {
 		Spectators.clear();
 		Que.clear();
 		dQue.clear();
-		HyperMode = 0;
+		SpamLevel = 0;
 		LastSentBeatmap = 0;
 		FriendsOnlyChat = 0;
 		ZeroMemory(&Friends[0], 256 * sizeof(Friends[0]));
@@ -2331,7 +2330,20 @@ _inline DWORD GetFileSize(const std::string& filename) {
 
 #endif
 
-_inline bool WriteAllBytes(const std::string &filename, const void* data, const DWORD Size);
+_inline bool WriteAllBytes(const std::string& filename, const void* data, const DWORD Size){
+
+	std::ofstream ifs;
+	ifs.open(filename, std::ofstream::binary);
+
+	if (!ifs.is_open())
+		return 0;
+
+	ifs.write((char*)data, Size);
+	ifs.close();
+
+	return 1;
+}
+
 bool DownloadMapFromOsu(const int ID) {
 
 	if (ID < 0 || ID > 6000000)
@@ -2349,9 +2361,8 @@ bool DownloadMapFromOsu(const int ID) {
 }
 
 #include "oppai.h"
-//#include "pp/pp_base.h"
-static const std::string String_Space = " ";
 
+static const std::string String_Space = " ";
 
 bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 
@@ -2393,36 +2404,6 @@ bool OppaiCheckMapDownload_New(ezpp_t ez, const DWORD BID, const std::string &Fi
 }
 
 #include "Match.h"
-
-/*
-inline bool WriteAllBytes(const std::string &filename, const std::string &res) {
-
-	if (!res.size())
-		return 0;
-	std::ofstream ifs;
-	ifs.open(filename);
-
-	if (!ifs.is_open())return 0;
-
-	ifs.write((char*)&res[0], res.size());
-	ifs.close();
-
-	return 1;
-}*/
-
-_inline bool WriteAllBytes(const std::string &filename, const void* data, const DWORD Size){
-
-	std::ofstream ifs;
-	ifs.open(filename,std::ofstream::binary);
-
-	if (!ifs.is_open())return 0;
-	
-	ifs.write((char*)data, Size);
-	ifs.close();
-
-	return 1;
-}
-
 
 int getSetID_fHash(const std::string &H, _SQLCon* c){//Could combine getbeatmapid and getsetid into one
 
@@ -3053,18 +3034,14 @@ void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD S
 		});
 }
 
-_inline void SendMatchList(_User *tP, const bool New) {
+_inline void SendMatchList(_User *tP){
 
-	if(!tP->inLobby)return;
-	
 	for (DWORD i = 0; i < MAX_MULTI_COUNT; i++){
 		if (Match[i].PlayerCount && !Match[i].Tournament){
 
 			auto& [Lock, UpdateTime, Cache] = LobbyCache[i];
 
-			const bool OutOfDate = Match[i].LastUpdate != UpdateTime;
-			
-			if (OutOfDate){
+			if (Match[i].LastUpdate != UpdateTime){
 				S_MUTEX_LOCKGUARD(Lock);
 				Match[i].Lock.lock();
 				UpdateTime = Match[i].LastUpdate;
@@ -3094,8 +3071,6 @@ void Event_client_matchChangeSlot(_User *const tP, const byte* const Packet, con
 
 	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m && Size == 4){
 
-		const DWORD NewSlot = al_min(*(DWORD*)&Packet[0], MULTI_MAXSIZE - 1);
-
 		_Slot* OldSlot = 0;
 
 		m->Lock.lock();
@@ -3105,7 +3080,7 @@ void Event_client_matchChangeSlot(_User *const tP, const byte* const Packet, con
 				break;
 			}
 
-		_Slot& New = m->Slots[NewSlot];
+		_Slot& New = m->Slots[al_min(*(DWORD*)& Packet[0], MULTI_MAXSIZE - 1)];
 
 		if (OldSlot && OldSlot != &New &&
 			!New.User && New.SlotStatus != SlotStatus::Locked && OldSlot->SlotStatus != SlotStatus::Ready){
@@ -3955,7 +3930,8 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 		
 	}
 
-	SendMatchList(tP.User, 0);//Sends multiplayer data if they are in the lobby.
+	if (tP->inLobby)
+		SendMatchList(tP.User);//Sends multiplayer data if they are in the lobby.
 	//IngameMenu(tP,s);//Handles all the cool new clickable menus
 
 	tP->LastPacketTime = clock_ms();
@@ -4074,6 +4050,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 		}else u.User = 0;
 
 		if(!u){
+
 			NewLogin = 1;
 			_SQLCon *const con = &SQL_BanchoThread[s.ID];
 
@@ -4102,6 +4079,55 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 			Username = res->getString(3);//get the database captialization for consistencies sake
 			Priv = res->getInt(4);
+
+			if (Priv & Privileges::UserPendingVerification){
+
+				DWORD NewPerms = 0;
+
+				auto HWID = Explode_View(ClientData[3],':',5);
+
+				if (HWID.size() == 5){
+
+					const std::string MAC = std::string(HWID[2]);
+					const std::string UID = std::string(HWID[3]);
+					const std::string DID = std::string(HWID[4]);
+
+					NewPerms = Privileges::UserPublic | Privileges::UserNormal;
+
+					sql::ResultSet* match = 0;
+
+					//Check if the person is using wine. If they are only use the UID.
+					if (unlikely(HWID[2] == "b4ec3c4334a0249dae95c284ec5983df" || HWID[4] == "ffae06fb022871fe9beb58b005c5e21d"))
+						match = con->ExecuteQuery("SELECT userid from hw_user WHERE unique_id='" + UID +
+												  "'&&userid!=" + std::to_string(UserID) + " LIMIT 1;");
+					else
+						match = con->ExecuteQuery("SELECT userid from hw_user WHERE mac='"+ MAC +
+												  "'&&unique_id='" + UID +
+												  "'&&disk_id='"+ DID + "'&&userid!=" + std::to_string(UserID) + " LIMIT 1;");
+
+					if (!match || !match->next())
+						con->ExecuteUPDATE(SQL_INSERT("hw_user",
+							{
+								_SQLKey("mac",_M(MAC)),
+								_SQLKey("unique_id",_M(UID)),
+								_SQLKey("disk_id",_M(DID)),
+								_SQLKey("userid",UserID),
+								_SQLKey("activated",1)
+							}
+						));
+					else NewPerms = 0;
+				}
+
+				con->ExecuteUPDATE("UPDATE users SET privileges = " + std::to_string(NewPerms) + " WHERE id=" + std::to_string(UserID));
+				Priv = NewPerms;
+
+			}
+
+
+			if (!Priv)
+				return (void)s.SendData(ConstructResponse(200, { {"cho-token", "0"} }, bPacket4Byte(OPac::server_userID, -3).GetBytes()));
+			
+
 			SilenceEnd = res->getInt(5);
 
 			DeleteAndNull(res);
@@ -4211,6 +4237,9 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 			u->addQueNonLocking(bPacket::Notification("Welcome to ruri.\nBuild: " __DATE__ " " __TIME__));
 
+			if (!(Priv & Privileges::UserPublic))
+				u->addQueNonLocking(bPacket::Notification("Your account is currently restricted."));
+
 			const int SilenceDelta = (SilenceEnd && SilenceEnd > time(0)) ? SilenceEnd - time(0) : 0;
 
 			if (!SilenceDelta)u->silence_end = 0;
@@ -4254,7 +4283,6 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 			}
 
 			u->addQueNonLocking(bPacket::GenericDWORDList(OPac::server_friendsList, FriendsList, 0));
-
 			u->addQueNonLocking(bPacket::UserPanel(999, 0));
 			u->addQueNonLocking(USER_STATS(999, 0));
 			
@@ -4406,40 +4434,44 @@ void LazyThread(){
 
 		if (SQLExecQue.Commands.size()){
 
-			SQLExecQue.CommandLock.lock();
+			VEC(std::string) Que;
+
 			{
-				for (std::string& Command : SQLExecQue.Commands)
-					lThreadSQL.ExecuteUPDATE(_M(Command), 1);
+				MUTEX_LOCKGUARD(SQLExecQue.CommandLock);
+
+				Que.reserve(SQLExecQue.Commands.size());
+
+				for(auto& Command : SQLExecQue.Commands)
+					Que.emplace_back(_M(Command));
 
 				SQLExecQue.Commands.clear();
 			}
-			SQLExecQue.CommandLock.unlock();
 
+			for(auto& Command : Que)
+				lThreadSQL.ExecuteUPDATE(_M(Command), 1);
 		}
-
-
 	}
 }
 
-
-const std::string PPColNames[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
-const std::string UserTableNames[] = { "users_stats","rx_stats" };
-
 void DoFillRank(DWORD I, bool TableName){
+
+	static const std::string PPColNames[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
+	static const std::string UserTableNames[] = { "users_stats","rx_stats" };
 
 	RankList[I].reserve(USHORT(-1));
 
-	sql::ResultSet *res = SQL_BanchoThread[I].ExecuteQuery("SELECT id, " + PPColNames[I] + " FROM " + UserTableNames[TableName] + " WHERE " + PPColNames[I] + " > 0 ORDER BY " + PPColNames[I] + " DESC");
+	if (sql::ResultSet * res = SQL_BanchoThread[I].ExecuteQuery(
+		"SELECT id, " + PPColNames[I] + " FROM " + UserTableNames[TableName] + " WHERE " + PPColNames[I] + " > 0 ORDER BY " + PPColNames[I] + " DESC");
+		res){
 
-	DWORD cOffset = 0;
+		if(TableName)
+			I += 4;
 
-	if (TableName)
-		I += 4;
-	while (res && res->next()) {
-		RankList[I].emplace_back(res->getUInt(1), res->getUInt(2));
-		cOffset++;
+		while (res->next())
+			RankList[I].emplace_back(res->getUInt(1), res->getUInt(2));
+
+		delete res;
 	}
-	if (res)delete res;
 }
 
 void PushUsers() {
@@ -4524,7 +4556,6 @@ void PushUsers() {
 
 }
 
-
 void FillRankCache(){
 
 		printf("Filling rank cache (std)\n");
@@ -4534,7 +4565,7 @@ void FillRankCache(){
 				t.join();
 		}
 
-		#ifndef NO_RELAX
+	#ifndef NO_RELAX
 
 		printf("Filling rank cache (relax)\n");
 		{
@@ -4542,7 +4573,9 @@ void FillRankCache(){
 			for (auto& t : threads)
 				t.join();
 		}
-		#endif
+
+	#endif
+
 		printf("Completed.\n");
 }
 
@@ -4607,6 +4640,7 @@ void receiveConnections(){
 		std::thread a(Aria_Main);
 		a.detach();
 	}
+
 #if defined(LINUX) && defined(API)
 	{
 		std::thread a(ruri_API);
@@ -4720,7 +4754,6 @@ std::string ExtractConfigValue(const std::vector<byte> &Input){
 
 int main(){
 
-
 	const std::vector<byte> ConfigBytes = LOAD_FILE("config.ini");
 
 	if (!ConfigBytes.size()){
@@ -4744,6 +4777,10 @@ int main(){
 			BEATMAP_PATH = V;
 		else if (MEM_CMP_START(Config, "ReplayPath"))
 			REPLAY_PATH = V;
+		else if (MEM_CMP_START(Config, "GeneralName")){
+			chan_General.ChannelName = V;
+			chan_General.NameSum = WeakStringToInt(chan_General.ChannelName);
+		}
 
 	}
 
