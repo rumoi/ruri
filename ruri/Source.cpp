@@ -313,8 +313,6 @@ WSADATA wsData;
 
 #endif
 
-
-
 const static std::string GameModeNames[] = {
 	"osu!","osu!taiko","osu!catch","osu!mania"
 	"osu!relax","osu!taiko(relax)","osu!catch(relax)","osu!mania(relax)"
@@ -323,31 +321,58 @@ const static std::string GameModeNames[] = {
 constexpr size_t _strlen_(const char* s)noexcept{
 	return *s ? 1 + _strlen_(s + 1) : 0;
 }
+template<typename T, size_t size>
+constexpr size_t aSize(const T(&)[size]) noexcept{ return size; }
+
+#define ZeroArray(s) memset(s,0,aSize(s))
 
 #define FastVByteAlloc(x)[&]{const char*const a = x; const std::vector<byte> b(a,a + _strlen_(a) + 1); return b;}()
 
-#define MemToData(TYPE, LOC,LEN)\
-	[](const size_t mem, const DWORD size)->TYPE{\
-		if(!mem || !size)return 0;\
-		TYPE ret = 0;\
-		const char*const c = (char*)mem;\
-		for(DWORD i=0;i<size;i++){\
-			if(c[i] < '0' || c[i] > '9')\
-				continue;\
-			ret = (ret * 10) + (c[i] - '0');\
-		}\
-		return (c[0] != '-') ? ret : -ret;\
-	}((size_t)LOC,LEN)
+template<typename T>
+_inline T MemToNum(const void* P, const size_t Size) {
+	if (auto C = (const char*)P; P && Size) {
+		T Return = T();
+		if constexpr (std::is_same<T, float>::value || std::is_same<T, double>::value) {
 
-#define MemToInt32(LOC,LEN)MemToData(int, LOC, LEN)
-#define MemToUInt32(LOC,LEN)MemToData(DWORD, LOC, LEN)
+			int i = 0;
 
-#define MemToUInt64(LOC,LEN)MemToData(uint64_t, LOC, LEN)
-#define MemToInt64(LOC,LEN)MemToData(int64_t, LOC, LEN)
+			for (; i < Size; i++) {
+				const byte c = C[i] - '0';
+				if (c == 254) {//.
+					i++;
+					break;
+				}
+				if (c <= 9)
+					Return = (Return * T(10)) + (c);
+			}
+			if (i < Size) {
 
-#define StringToInt32(s) MemToInt32(&s[0],s.size())
-#define StringToUInt32(s) MemToUInt32(&s[0],s.size())
-#define StringToUInt64(s) MemToUInt64(&s[0],s.size())
+				T e = T();
+				int count = 0;
+
+				for (; i < Size; i++) {
+					const byte c = C[i] - '0';
+					if (c <= 9) {
+						count++;
+						e = (e * T(10)) + (c);
+					}
+				}
+				Return += e / std::pow(T(10), count);
+			}
+			return (Size && *(char*)P == '-') ? -Return : Return;
+		}
+
+		for (size_t i = 0; i < Size; i++) {
+			const byte c = C[i] - '0';
+			if (c <= 9)
+				Return = (Return * 10) + c;
+		}
+		return (Size && *(char*)P == '-') ? -Return : Return;
+	}
+	return T();
+}
+#define StringToNum(TYPE, STRING) [](const std::string_view S){return MemToNum<TYPE>(&S[0], S.size());}(STRING)
+
 
 #define DeleteAndNull(s)if(s)delete s;s=0
 
@@ -388,22 +413,6 @@ constexpr size_t _strlen_(const char* s)noexcept{
 		file.read((char*)&rVec[0], pos);									\
 		file.close();														\
 		rVec[rVec.size()-1] = 0;											\
-																			\
-		return rVec;														\
-	}()
-#define LOAD_FILE_RAW(FILENAME)													\
-	[&](){																	\
-		std::ifstream file(std::string(FILENAME), std::ios::binary | std::ios::ate);		\
-		if (!file.is_open())												\
-			return std::vector<byte>();										\
-																			\
-		const size_t pos = file.tellg();									\
-		if(!pos)return std::vector<byte>();									\
-		std::vector<byte> rVec(pos);										\
-																			\
-		file.seekg(0, std::ios::beg);										\
-		file.read((char*)&rVec[0], pos);									\
-		file.close();														\
 																			\
 		return rVec;														\
 	}()
@@ -716,8 +725,8 @@ void UsernameCacheUpdateName(const DWORD UID, const std::string &s, _SQLCon *SQL
 	UsernameCacheLock.unlock_shared();
 }
 
-std::string BEATMAP_PATH;
-std::string REPLAY_PATH;
+std::string BeatmapPath;
+std::string ReplayPath;
 std::string osu_API_KEY;
 std::string osu_API_BEATMAP;
 
@@ -1280,27 +1289,25 @@ struct _MD5 {
 
 	char MD5[16];
 
-	void Zero(){ ZeroMemory(MD5, sizeof(MD5)); }
+	void Zero(){ ZeroArray(MD5); }
 
 	_MD5() { Zero(); }
 	_MD5(std::string&& Input) {
-		if (unlikely(Input.size() != 32)) {
-			ZeroMemory(MD5, sizeof(MD5));
-		}
+		if (unlikely(Input.size() != 32))
+			ZeroArray(MD5);
 		else for (size_t i = 0; i < 16; i++)
 			MD5[i] = CharHexToDecimal(Input[i]) + (CharHexToDecimal(Input[16 + i]) << 4);//It does not really matter if the data is rearranged.
 	}
 	_MD5(const std::string_view Input) {
-		if (unlikely(Input.size() != 32)) {
-			ZeroMemory(MD5, sizeof(MD5));
-		}
+		if (unlikely(Input.size() != 32))
+			ZeroArray(MD5);
 		else for (size_t i = 0; i < 16; i++)
 			MD5[i] = CharHexToDecimal(Input[i]) + (CharHexToDecimal(Input[16 + i]) << 4);//It does not really matter if the data is rearranged.
 	}
 
 	const bool operator==(const _MD5& x) const {
-		if (*(uint64_t*)& x.MD5[0] != *(uint64_t*)& this->MD5[0]
-			|| *(uint64_t*)& x.MD5[8] != *(uint64_t*)& this->MD5[8])
+		if (*(uint64_t*)&x.MD5[0] != *(uint64_t*)& this->MD5[0]
+			|| *(uint64_t*)&x.MD5[8] != *(uint64_t*)& this->MD5[8])
 			return 0;
 		return 1;
 	}
@@ -1309,7 +1316,7 @@ struct _MD5 {
 
 		std::string ret;
 
-		if (*(uint64_t*)& this->MD5[0] || *(uint64_t*)& this->MD5[8]) {
+		if (*(uint64_t*)&this->MD5[0] || *(uint64_t*)&this->MD5[8]) {
 			ret.resize(32);
 
 			for (size_t i = 0; i < 16; i++) {
@@ -1448,7 +1455,7 @@ struct _User{
 		if (UserID == ID)
 			return 1;//Always friends with your self :)
 
-		for (DWORD i = 0; i < 256; i++)
+		for (DWORD i = 0; i < aSize(Friends); i++)
 			if (Friends[i] == ID)
 				return 1;
 
@@ -1477,7 +1484,7 @@ void reset() {
 		Username.clear();
 		Username_Safe.clear();
 		Password.Zero();
-		ZeroMemory(ActionMD5, 32);
+		ZeroArray(ActionMD5);
 		actionMods = 0;
 		BeatmapID = 0;
 		timeOffset = 0;
@@ -1496,8 +1503,8 @@ void reset() {
 		SpamLevel = 0;
 		LastSentBeatmap = 0;
 		FriendsOnlyChat = 0;
-		ZeroMemory(&Friends[0], 256 * sizeof(Friends[0]));
-		ZeroMemory(&Blocked[0], 32 * sizeof(Blocked[0]));
+		ZeroArray(Friends);
+		ZeroArray(Blocked);
 		c1Check.clear();
 		silence_end = 0;
 	}
@@ -1595,7 +1602,7 @@ void reset() {
 
 			const int cTime = clock_ms();
 			bool NotEnd = 0;
-			for (size_t i = dQue.size() - 1; i < dQue.size(); i--){
+			for (size_t i = dQue.size(); i-- > 0;){
 				if (dQue[i].Time == 1){//means do the next bancho frame.
 					dQue[i].Time = 0;
 					NotEnd = 1;
@@ -1634,7 +1641,7 @@ void reset() {
 void DisconnectUser(_User *u);
 
 void DisconnectUser(size_t Pointer){
-	return (Pointer) ? DisconnectUser((_User*)Pointer) : void();
+	return Pointer ? DisconnectUser((_User*)Pointer) : void();
 }
 
 void debug_LogOutUser(_User *p);
@@ -1676,8 +1683,7 @@ struct _UserRef {
 
 };
 
-#define UserDoubleCheck(s) if(!(s))continue;MUTEX_LOCKGUARD(User.RefLock);if(!(s))continue;User.ref++;
-
+#define UserDoubleCheck(s) if(!(s))continue;MUTEX_LOCKGUARD(User.RefLock);if(unlikely(!(s)))continue;User.ref++;
 
 _User* GetPlayerSlot_Safe(const std::string &UserName){
 
@@ -1685,16 +1691,14 @@ _User* GetPlayerSlot_Safe(const std::string &UserName){
 
 
 	for (auto& User : Users){
-
 		UserDoubleCheck(User.Username_Safe == UserName)
 		return &User;
 	}
 
-	//User has not logged in before. Opt for a free slot instead
-
-	for (auto& User : Users){
+	for (auto& User : Users){//User has not logged in before. Opt for a free slot instead
 
 		UserDoubleCheck(User.ref == 0 && User.LastPacketTime == INT_MIN)
+
 		User.reset();
 
 		User.LastPacketTime = 0;
@@ -1705,27 +1709,24 @@ _User* GetPlayerSlot_Safe(const std::string &UserName){
 	return 0;
 }
 
+_User* GetUserFromID(DWORD ID){
 
+	if (ID >= 1000)
+		for (auto& User : Users) {
+			UserDoubleCheck(User.UserID == ID)
+			return &User;
+		}
 
-_User* GetUserFromID(DWORD ID) {
-
-	if (int(ID) < 1000)return 0;
-	
-	for (auto& User : Users) {
-		UserDoubleCheck(User.UserID == ID)
-		return &User;
-	}
 	return 0;
 }
 
-_User* GetUserFromToken(const uint64_t Token) {
+_User* GetUserFromToken(const uint64_t Token){
 
-	if (!Token)return 0;
-	
-	for (auto& User : Users) {
-		UserDoubleCheck(User.choToken == Token)
-		return &User;
-	}
+	if(Token)
+		for (auto& User : Users) {
+			UserDoubleCheck(User.choToken == Token)
+			return &User;
+		}
 
 	return 0;
 }
@@ -1743,7 +1744,7 @@ template<typename T>
 		return 0;
 	}
 
-_User* GetUserFromNameSafe(const std::string &Name, const bool Force = 0) {
+_User* GetUserFromNameSafe(const std::string &Name, const bool Force = 0){
 
 	if (Name.size() == 0)return 0;
 
@@ -1757,7 +1758,7 @@ _User* GetUserFromNameSafe(const std::string &Name, const bool Force = 0) {
 	return 0;
 }
 
-DWORD GetIDFromName(const std::string &Name) {
+DWORD GetIDFromName(const std::string &Name){
 
 	if (Name.size() == 0)return 0;
 
@@ -1772,15 +1773,20 @@ DWORD GetIDFromName(const std::string &Name) {
 	return 0;
 }
 
+#undef UserDoubleCheck
 
-#define GetUserType(a)[](byte x)->byte{ \
-			if (x & Privileges::AdminDev)return UserType::Peppy; \
-			if (x & Privileges::AdminBanUsers)return UserType::Friend; \
-			if (x & (Privileges::AdminChatMod | Privileges::AdminManageBeatmaps | Privileges::AdminQAT))return UserType::BAT; \
-			if (x & (Privileges::Premium | Privileges::UserDonor))return UserType::Supporter; \
-			return UserType::Normal; \
-		}(a)
 
+_inline byte GetUserType(const DWORD p){
+	return  p & Privileges::AdminDev
+			?		UserType::Peppy
+		:	p & Privileges::AdminBanUsers
+			?		UserType::Friend
+		:	p & (Privileges::AdminChatMod | Privileges::AdminManageBeatmaps | Privileges::AdminQAT)
+			?		UserType::BAT
+		:	p & (Privileges::Premium | Privileges::UserDonor)
+			?		UserType::Supporter
+		:	UserType::Normal;
+}
 
 namespace bPacket {
 
@@ -2033,7 +2039,7 @@ namespace bPacket {
 	_BanchoPacket UserStats(_User *tP) {
 
 		if (!tP || !tP->choToken || !(tP->privileges & UserPublic))
-			return bPacket4Byte(OPac::server_userLogout, tP->UserID);
+			return bPacket4Byte(OPac::server_userLogout, tP ? tP->UserID : 0);
 
 		const DWORD Off = tP->GetStatsOffset();
 
@@ -2307,6 +2313,32 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 
 #include <fstream>
 
+std::string& RemoveDots(std::string& Input) {
+	for (auto& c : Input)
+		if (c == '.')
+			c = '/';
+	return Input;
+}
+
+std::vector<byte> LOAD_FILE_RAW(const std::string&& FILENAME) {
+
+	std::ifstream f(std::string(FILENAME), std::ios::binary | std::ios::ate);
+
+	VEC(byte) Ret;
+
+	const bool Open = f.is_open();
+
+	if (const size_t pos = !Open ? 0 : f.tellg(); pos) {
+		Ret.resize(pos);
+		f.seekg(0, std::ios::beg);
+		f.read((char*)&Ret[0], pos);
+	}
+
+	if (Open)
+		f.close();
+
+	return Ret;
+}
 
 #ifndef LINUX
 #include <filesystem>
@@ -2355,7 +2387,7 @@ bool DownloadMapFromOsu(const int ID) {
 
 	//ReplaceAll(bFile, "\r\n", "\n");//Could save diskspace
 
-	WriteAllBytes(BEATMAP_PATH + std::to_string(ID) + ".osu", (void*)&bFile[0], bFile.size());
+	WriteAllBytes(BeatmapPath + std::to_string(ID) + ".osu", (void*)&bFile[0], bFile.size());
 
 	return 1;
 }
@@ -2366,7 +2398,7 @@ static const std::string String_Space = " ";
 
 bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 
-	const std::string MapPath = BEATMAP_PATH + std::to_string(BID) + ".osu";	
+	const std::string MapPath = BeatmapPath + std::to_string(BID) + ".osu";
 
 	const DWORD Size = GetFileSize(MapPath);
 
@@ -2441,7 +2473,7 @@ int getSetID_fHash(const std::string &H, _SQLCon* c){//Could combine getbeatmapi
 	}
 
 	//TODO add to database
-	return StringToInt32(t);
+	return StringToNum(int,t);
 }
 
 
@@ -2482,7 +2514,7 @@ int getBeatmapID_fHash(const std::string &H, _SQLCon* c) {
 
 	//TODO add to database
 
-	return StringToInt32(t);
+	return StringToNum(int,t);
 }
 
 #define AddDeci(s,o) if (*(byte*)(s + o) == 0) { *(USHORT*)(s + o - 1) = *(USHORT*)(s + o - 2); *(byte*)(s + o - 2) = '.'; return s;}
@@ -2575,7 +2607,7 @@ void BotMessaged(_User *tP, const std::string_view Message){
 
 			Temp[(mSize > 0) ? mSize - 1 : 0] = 0;//Just incase there is some mallice.
 
-			mapID = MemToInt32(Temp,strlen(Temp));
+			mapID = MemToNum<int>(Temp,strlen(Temp));
 			delete[] Temp;
 		}
 
@@ -3487,9 +3519,9 @@ void Event_client_matchScoreUpdate(_User *tP, const byte* const Packet, const DW
 	}
 }
 
-void Event_client_matchComplete(_User *tP) {
+void Event_client_matchComplete(_User *tP){
 
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m){
 
 		m->Lock.lock();
 
@@ -3500,7 +3532,7 @@ void Event_client_matchComplete(_User *tP) {
 		bool AllFinished = 1;
 
 		for (auto& Slot : m->Slots)
-			if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Completed) {
+			if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Completed){
 				AllFinished = 0;
 				break;
 			}
@@ -3519,7 +3551,7 @@ void Event_client_matchComplete(_User *tP) {
 	}
 }
 
-void Event_client_matchFailed(_User *tP) {
+void Event_client_matchFailed(_User *tP){
 
 	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
 
@@ -3535,13 +3567,14 @@ void Event_client_matchFailed(_User *tP) {
 	}
 }
 
-void Event_client_matchSkipRequest(_User* tP) {
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
+void Event_client_matchSkipRequest(_User* tP){
+
+	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m){
 
 		m->Lock.lock();
 
 		for (auto& Slot : m->Slots)
-			if (Slot.User == tP) {
+			if (Slot.User == tP){
 				Slot.Skipped = 1;
 				m->sendUpdate(bPacket4Byte(OPac::server_matchPlayerSkipped, GetIndex(m->Slots, Slot)));
 				break;
@@ -3550,7 +3583,7 @@ void Event_client_matchSkipRequest(_User* tP) {
 		bool AllPlayersSkipped = 1;
 
 		for (auto& Slot : m->Slots)
-			if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Skipped) {
+			if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Skipped){
 				AllPlayersSkipped = 0;
 				break;
 			}
@@ -3579,16 +3612,15 @@ void Event_client_invite(_User *tP, const byte* const Packet, const DWORD Size){
 	_UserRef Target(GetUserFromID(TID),1);
 
 	if (!Target)
-		return tP->addQue(bPacket::BotMessage("#multiplayer", "Could not find player."));
-	
+		return tP->addQue(bPacket::BotMessage("#multiplayer", "Could not find player."));	
 
 	tP->addQue(bPacket::BotMessage("#multiplayer", "Invited " + Target->Username + " to your match."));
-
 
 	if (Target->isBlocked(tP->UserID))
 		return;
 
 	_BanchoPacket b = bPacket::Message(tP->Username, Target->Username,"I have invited you to the multiplayer lobby \"[osump://" + std::to_string(m->MatchId) + "/" + m->Settings.Password +" " + m->Settings.Name + "]\".",tP->UserID);
+
 	//Users could fuck with the client [] url construction but its not dangerous in anyway so who cares.
 
 	b.Type = OPac::server_invite;
@@ -3606,7 +3638,7 @@ void Event_client_friendAdd(_User *tP, const byte* const Packet, const DWORD Siz
 
 	char Status = ListFull;
 
-	for (USHORT i = 0; i < 256; i++){
+	for (USHORT i = 0; i < aSize(tP->Friends); i++){
 		if (tP->Friends[i] == ID){
 			Status = AlreadyIn;
 			break;
@@ -3617,6 +3649,7 @@ void Event_client_friendAdd(_User *tP, const byte* const Packet, const DWORD Siz
 			break;
 		}
 	}
+
 	if (Status == ListFull)
 		tP->addQue(bPacket::Notification("You may only have a maximum of 256 friends."));
 	else if (Status == Added)
@@ -3636,20 +3669,18 @@ void Event_client_friendRemove(_User *tP, const byte* const Packet, const DWORD 
 
 	char Status = NotRemoved;
 
-	for (USHORT i = 0; i < 256; i++) {
+	for (USHORT i = 0; i < aSize(tP->Friends); i++) {
 		if (tP->Friends[i] == ID){
 			tP->Friends[i] = 0;
 			Status = Removed;
 			break;
 		}
 	}
-	
+
 	if (Status == Removed)
 		SQLExecQue.AddQue("DELETE FROM users_relationships WHERE user1 = " + std::to_string(tP->UserID) + " AND user2 = " + std::to_string(ID));
 	
 }
-
-
 
 _inline void debug_LogOutUser(_User *tP){
 
@@ -3666,73 +3697,6 @@ _inline void debug_LogOutUser(_User *tP){
 			User.addQue(b);
 }
 
-/*
-void IngameMenu(_User* u, _Con s){
-
-	if (!u->Menu.State || !u->choToken)return;
-
-	std::string Res;
-
-	if (u->Menu.State == MenuStates::Menu_ChooseScore) {
-
-
-		if (u->Menu.aux1) {
-			const int ID = u->Menu.aux1;
-			std::string bMD5 = u->Menu.saux1;
-			u->Menu.aux1 = 0;
-			u->Menu.saux1.clear();
-
-			PrepareSQLString(bMD5);
-
-			SQL_BanchoThread[s.ID].ExecuteUPDATE("UPDATE scores SET completed = 2 WHERE userid = " + std::to_string(u->UserID) + " AND beatmap_md5 = '" + bMD5 + "' AND completed = 3 LIMIT 1");//TODO see if i can just slap a ; and do two in one
-			SQL_BanchoThread[s.ID].ExecuteUPDATE("UPDATE scores SET completed = 3 WHERE id = " + std::to_string(ID) + " AND userid = " + std::to_string(u->UserID) + " LIMIT 1");
-
-		}
-
-		DWORD BID = u->BeatmapID;
-
-		if (BID && (u->Menu.ForceReDraw || BID != u->Menu.PreviousMap)) {
-			//TODO add relax
-			const std::string bMD5 = std::string(u->ActionMD5, 32);
-
-			sql::ResultSet *res = SQL_BanchoThread[s.ID].ExecuteQuery("SELECT id,score,max_combo,mods,accuracy,pp,completed FROM scores WHERE userid = "
-				+ std::to_string(u->UserID) + " AND beatmap_md5 = '" + bMD5 + "' AND completed = 2 ORDER BY pp DESC");
-
-			DWORD Count = 0;
-			Res += "This will also affect your total pp.\n";
-
-			while (res && res->next()) {
-				if (Count > 8)break;
-				
-				Res += MenuClickButton("iaux1=" + res->getString(1) + "|saux1=" + bMD5, "[Set as Top]");
-
-				Res += "   Score: " + res->getString(2) + " | Acc: " + RoundTo2(res->getDouble(5)) + " | pp: " + RoundTo2(res->getDouble(6)) + "\n";
-
-				Count++;
-			}
-			delete res;
-			u->Menu.PreviousMap = BID;
-
-			if (Count == 0)
-				Res += "You do not appear to have any scores on this map\n";
-
-			Res += MenuClickButton("exit", "Exit Menu");
-		}
-	}
-	if (u->Menu.ForceReDraw)Res += " ";
-	u->Menu.ForceReDraw = 0;
-	if (Res.size()){
-		if (!u->Menu.BanchoLoaded) {
-			u->Menu.BanchoLoaded = 1;
-			u->addQueNonLocking(bPacket::UserPanel(998, 0));
-			u->addQueNonLocking(bPacket::UserStats(998, 0));
-		}else u->addQue(bPacket::GenericInt32(94, 998));
-
-		u->addQueDelay(_DelayedBanchoPacket(1, bPacket::BotMessage(u->Username, Res,FAKEUSER_NAME, 998)));
-	}
-
-}*/
-
 void Event_client_requestStatusUpdate(_User *const tP){
 	tP->addQue(bPacket::UserStats(tP));
 }
@@ -3741,18 +3705,14 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 
 	_UserRef tP(GetUserFromToken(choToken),1);
 
-	if (!tP){//No user online with that token
-
-		s.SendData(ConstructResponse(200, Empty_Headers, bPacket4Byte(OPac::server_restart,1).GetBytes()));
-		//printf("Request relogin\n");
-		return;
-	}
+	if (!tP)//No user online with that token
+		return (void)s.SendData(ConstructResponse(200, Empty_Headers, bPacket4Byte(OPac::server_restart,1).GetBytes()));	
 
 	tP->LastPacketTime = clock_ms();
 
 	DWORD In = 0;
 
-	while (In <= PacketBundle.size() - 7){
+	while (In <= PacketBundle.size() - 7) {
 
 		const USHORT PacketID = *(USHORT*)&PacketBundle[In];
 		const DWORD PacketSize = *(DWORD*)&PacketBundle[In + 3];
@@ -3917,22 +3877,15 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 			Event_client_friendRemove(tP.User, Packet, PacketSize);
 			break;
 
-
 		default:
 			printf("PacketID:%i | Length:%i\n", PacketID, PacketSize);
 			break;
 		}
 
-		//const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
-
-		//if(PacketID == 0 || PacketID == 4 || PacketID == 85)
-			//printf("P%i: %fms\n", PacketID, double(double(TTime) / 1000000.0));
-		
 	}
 
 	if (tP->inLobby)
 		SendMatchList(tP.User);//Sends multiplayer data if they are in the lobby.
-	//IngameMenu(tP,s);//Handles all the cool new clickable menus
 
 	tP->LastPacketTime = clock_ms();
 
@@ -3942,33 +3895,37 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 
 const std::vector<byte> PingPacket = _BanchoPacket(OPac::server_ping).GetBytes();
 
-const char* countryCodes[] = {
-	"--","AP","EU","AD","AE","AF","AG","AI","AL","AM","AN","AO","AQ","AR",
-	"AS","AT","AU","AW","AZ","BA","BB","BD","BE","BF","BG","BH","BI","BJ",
-	"BM","BN","BO","BR","BS","BT","BV","BW","BY","BZ","CA","CC","CD","CF",
-	"CG","CH","CI","CK","CL","CM","CN","CO","CR","CU","CV","CX","CY","CZ",
-	"DE","DJ","DK","DM","DO","DZ","EC","EE","EG","EH","ER","ES","ET","FI",
-	"FJ","FK","FM","FO","FR","FX","GA","GB","GD","GE","GF","GH","GI","GL",
-	"GM","GN","GP","GQ","GR","GS","GT","GU","GW","GY","HK","HM","HN","HR",
-	"HT","HU","ID","IE","IL","IN","IO","IQ","IR","IS","IT","JM","JO","JP",
-	"KE","KG","KH","KI","KM","KN","KP","KR","KW","KY","KZ","LA","LB","LC",
-	"LI","LK","LR","LS","LT","LU","LV","LY","MA","MC","MD","MG","MH","MK",
-	"ML","MM","MN","MO","MP","MQ","MR","MS","MT","MU","MV","MW","MX","MY",
-	"MZ","NA","NC","NE","NF","NG","NI","NL","NO","NP","NR","NU","NZ","OM",
-	"PA","PE","PF","PG","PH","PK","PL","PM","PN","PR","PS","PT","PW","PY",
-	"QA","RE","RO","RU","RW","SA","SB","SC","SD","SE","SG","SH","SI","SJ",
-	"SK","SL","SM","SN","SO","SR","ST","SV","SY","SZ","TC","TD","TF","TG",
-	"TH","TJ","TK","TM","TN","TO","TL","TR","TT","TV","TW","TZ","UA","UG",
-	"UM","US","UY","UZ","VA","VC","VE","VG","VI","VN","VU","WF","WS","YE",
-	"YT","RS","ZA","ZM","ME","ZW","A1","A2","O1","AX","GG","IM","JE","BL",
-	"MF" };
+constexpr USHORT operator "" _cc(const char* Code, size_t size) {
+	return size == 2 ? *(USHORT*)&Code[0] : 0;
+}
 
 _inline byte getCountryNum(const USHORT isoCode){
 
-	for (byte i = 0; i < 253; i++){
-		if (isoCode == *(USHORT*)countryCodes[i])
+	static USHORT const countryCodes[] = {
+	"--"_cc,"AP"_cc,"EU"_cc,"AD"_cc,"AE"_cc,"AF"_cc,"AG"_cc,"AI"_cc,"AL"_cc,"AM"_cc,"AN"_cc,"AO"_cc,"AQ"_cc,"AR"_cc,
+	"AS"_cc,"AT"_cc,"AU"_cc,"AW"_cc,"AZ"_cc,"BA"_cc,"BB"_cc,"BD"_cc,"BE"_cc,"BF"_cc,"BG"_cc,"BH"_cc,"BI"_cc,"BJ"_cc,
+	"BM"_cc,"BN"_cc,"BO"_cc,"BR"_cc,"BS"_cc,"BT"_cc,"BV"_cc,"BW"_cc,"BY"_cc,"BZ"_cc,"CA"_cc,"CC"_cc,"CD"_cc,"CF"_cc,
+	"CG"_cc,"CH"_cc,"CI"_cc,"CK"_cc,"CL"_cc,"CM"_cc,"CN"_cc,"CO"_cc,"CR"_cc,"CU"_cc,"CV"_cc,"CX"_cc,"CY"_cc,"CZ"_cc,
+	"DE"_cc,"DJ"_cc,"DK"_cc,"DM"_cc,"DO"_cc,"DZ"_cc,"EC"_cc,"EE"_cc,"EG"_cc,"EH"_cc,"ER"_cc,"ES"_cc,"ET"_cc,"FI"_cc,
+	"FJ"_cc,"FK"_cc,"FM"_cc,"FO"_cc,"FR"_cc,"FX"_cc,"GA"_cc,"GB"_cc,"GD"_cc,"GE"_cc,"GF"_cc,"GH"_cc,"GI"_cc,"GL"_cc,
+	"GM"_cc,"GN"_cc,"GP"_cc,"GQ"_cc,"GR"_cc,"GS"_cc,"GT"_cc,"GU"_cc,"GW"_cc,"GY"_cc,"HK"_cc,"HM"_cc,"HN"_cc,"HR"_cc,
+	"HT"_cc,"HU"_cc,"ID"_cc,"IE"_cc,"IL"_cc,"IN"_cc,"IO"_cc,"IQ"_cc,"IR"_cc,"IS"_cc,"IT"_cc,"JM"_cc,"JO"_cc,"JP"_cc,
+	"KE"_cc,"KG"_cc,"KH"_cc,"KI"_cc,"KM"_cc,"KN"_cc,"KP"_cc,"KR"_cc,"KW"_cc,"KY"_cc,"KZ"_cc,"LA"_cc,"LB"_cc,"LC"_cc,
+	"LI"_cc,"LK"_cc,"LR"_cc,"LS"_cc,"LT"_cc,"LU"_cc,"LV"_cc,"LY"_cc,"MA"_cc,"MC"_cc,"MD"_cc,"MG"_cc,"MH"_cc,"MK"_cc,
+	"ML"_cc,"MM"_cc,"MN"_cc,"MO"_cc,"MP"_cc,"MQ"_cc,"MR"_cc,"MS"_cc,"MT"_cc,"MU"_cc,"MV"_cc,"MW"_cc,"MX"_cc,"MY"_cc,
+	"MZ"_cc,"NA"_cc,"NC"_cc,"NE"_cc,"NF"_cc,"NG"_cc,"NI"_cc,"NL"_cc,"NO"_cc,"NP"_cc,"NR"_cc,"NU"_cc,"NZ"_cc,"OM"_cc,
+	"PA"_cc,"PE"_cc,"PF"_cc,"PG"_cc,"PH"_cc,"PK"_cc,"PL"_cc,"PM"_cc,"PN"_cc,"PR"_cc,"PS"_cc,"PT"_cc,"PW"_cc,"PY"_cc,
+	"QA"_cc,"RE"_cc,"RO"_cc,"RU"_cc,"RW"_cc,"SA"_cc,"SB"_cc,"SC"_cc,"SD"_cc,"SE"_cc,"SG"_cc,"SH"_cc,"SI"_cc,"SJ"_cc,
+	"SK"_cc,"SL"_cc,"SM"_cc,"SN"_cc,"SO"_cc,"SR"_cc,"ST"_cc,"SV"_cc,"SY"_cc,"SZ"_cc,"TC"_cc,"TD"_cc,"TF"_cc,"TG"_cc,
+	"TH"_cc,"TJ"_cc,"TK"_cc,"TM"_cc,"TN"_cc,"TO"_cc,"TL"_cc,"TR"_cc,"TT"_cc,"TV"_cc,"TW"_cc,"TZ"_cc,"UA"_cc,"UG"_cc,
+	"UM"_cc,"US"_cc,"UY"_cc,"UZ"_cc,"VA"_cc,"VC"_cc,"VE"_cc,"VG"_cc,"VI"_cc,"VN"_cc,"VU"_cc,"WF"_cc,"WS"_cc,"YE"_cc,
+	"YT"_cc,"RS"_cc,"ZA"_cc,"ZM"_cc,"ME"_cc,"ZW"_cc,"A1"_cc,"A2"_cc,"O1"_cc,"AX"_cc,"GG"_cc,"IM"_cc,"JE"_cc,"BL"_cc,
+	"MF"_cc };
+
+	for (size_t i = 0; i < aSize(countryCodes); i++)
+		if (isoCode == countryCodes[i])
 			return i;
-	}	
+
 	return 0;
 }
 
@@ -4215,7 +4172,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 			u->FriendsOnlyChat = (ClientData[4] == "1");
 
-			u->timeOffset = MemToInt32(&ClientData[1][0], ClientData[1].size());			
+			u->timeOffset = StringToNum(byte, ClientData[1]);
 
 			u->country = CountryCode;// getCountryNum(res.GetHeaderValue("CF-IPCountry")); the nature of private servers disallow this.. i guess bancho could use this :(
 						   // Best course of action would to resolve it from cloudflare on registration, not verification.
@@ -4272,11 +4229,11 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 			u->addQueNonLocking(bPacket::GenericString(OPac::server_channelKicked, "#osu"));
 
 			std::vector<DWORD> FriendsList;
-			FriendsList.reserve(256);
+			FriendsList.reserve(aSize(u->Friends));
 			FriendsList.push_back(999);//Bot is always their friend.
 			FriendsList.push_back(UserID);//Shows self in the friend ranking.
 
-			for (DWORD i = 0; i < 256; i++) {
+			for (DWORD i = 0; i < aSize(u->Friends); i++) {
 				if (u->Friends[i])
 					FriendsList.push_back(u->Friends[i]);
 				else break;
@@ -4364,7 +4321,7 @@ void HandlePacket(_Con s){
 	
 	const std::string& UserAgent = res.GetHeaderValue("User-Agent");
 
-	const uint64_t choToken = StringToUInt64(res.GetHeaderValue("osu-token"));
+	const uint64_t choToken = StringToNum(uint64_t, res.GetHeaderValue("osu-token"));
 
 	if (UserAgent.size() == 0){
 
@@ -4391,6 +4348,7 @@ void HandlePacket(_Con s){
 
 //Used to logout dropped users and other house keeping
 void LazyThread(){
+
 	printf("LazyThread running.\n");
 
 	_SQLCon lThreadSQL;
@@ -4460,8 +4418,8 @@ void DoFillRank(DWORD I, bool TableName){
 
 	RankList[I].reserve(USHORT(-1));
 
-	if (sql::ResultSet * res = SQL_BanchoThread[I].ExecuteQuery(
-		"SELECT id, " + PPColNames[I] + " FROM " + UserTableNames[TableName] + " WHERE " + PPColNames[I] + " > 0 ORDER BY " + PPColNames[I] + " DESC");
+	if (sql::ResultSet * res = SQL_BanchoThread[I].ExecuteQuery("SELECT id, " + PPColNames[I] + " FROM " + UserTableNames[TableName] +
+																" WHERE " + PPColNames[I] + " > 0 ORDER BY " + PPColNames[I] + " DESC");
 		res){
 
 		if(TableName)
@@ -4519,11 +4477,11 @@ void PushUsers() {
 				AddStream(Data, u.CurrentMatchID);
 				AddStream(Data, u.LastSentBeatmap);
 
-				AddMem(Data, &u.Friends[0], sizeof(u.Friends));
-				AddMem(Data, &u.Blocked[0], sizeof(u.Blocked));
+				AddMem(Data, &u.Friends[0], aSize(u.Friends));
+				AddMem(Data, &u.Blocked[0], aSize(u.Blocked));
 				Data.push_back(u.FriendsOnlyChat);
 
-				for (DWORD i = 0; i < sizeof(u.ActiveChannels) / sizeof(u.ActiveChannels[0]); i++)
+				for (DWORD i = 0; i < aSize(u.ActiveChannels); i++)
 					u.ActiveChannels[i] ? AddStream(Data, ((_Channel*)u.ActiveChannels[i])->NameSum) : AddStream(Data, 0);
 
 				AddString(Data, u.c1Check);
@@ -4558,25 +4516,31 @@ void PushUsers() {
 
 void FillRankCache(){
 
+		#define MODE 0
+		#define THREAD(s) std::thread([]{DoFillRank(s,MODE);})
+
 		printf("Filling rank cache (std)\n");
-		{			
-			std::array<std::thread, 4> threads = { std::thread(DoFillRank,0,0),std::thread(DoFillRank,1,0),std::thread(DoFillRank,2,0),std::thread(DoFillRank,3,0) };
-			for (auto& t : threads)
+		{
+			std::array<std::thread, 4> ts = {THREAD(0),THREAD(1),THREAD(2),THREAD(3)};
+			for (auto& t : ts)
 				t.join();
 		}
 
 	#ifndef NO_RELAX
+	#undef MODE
+	#define MODE 1
 
 		printf("Filling rank cache (relax)\n");
 		{
-			std::array<std::thread, 4> threads = { std::thread(DoFillRank,0,1),std::thread(DoFillRank,1,1),std::thread(DoFillRank,2,1),std::thread(DoFillRank,3,1) };
-			for (auto& t : threads)
+			std::array<std::thread, 4> ts = { THREAD(0),THREAD(1),THREAD(2),THREAD(3) };
+			for (auto& t : ts)
 				t.join();
 		}
 
 	#endif
-
-		printf("Completed.\n");
+	#undef MODE
+	#undef THREAD
+	printf("Completed.\n");
 }
 
 
@@ -4762,28 +4726,23 @@ int main(){
 	}
 
 	#define V ExtractConfigValue(std::vector<byte>(Config.cbegin(),Config.cend()))
+	#define Check(s) if(MEM_CMP_START(Config, #s))s = V;
 
-	for (const auto& Config : Explode_View(ConfigBytes, '\n',1)){
+	for (const auto& Config : Explode_View(ConfigBytes, '\n',16)){
 
-		if (MEM_CMP_START(Config, "osu_API_Key"))
-			osu_API_KEY = V;
-		else if (MEM_CMP_START(Config, "SQL_Password"))
-			SQL_Password = V;
-		else if (MEM_CMP_START(Config, "SQL_Username"))
-			SQL_Username = V;
-		else if (MEM_CMP_START(Config, "SQL_Schema"))
-			SQL_Schema = V;
-		else if (MEM_CMP_START(Config, "BeatmapPath"))
-			BEATMAP_PATH = V;
-		else if (MEM_CMP_START(Config, "ReplayPath"))
-			REPLAY_PATH = V;
+		Check(osu_API_KEY)
+		else Check(SQL_Password)
+		else Check(SQL_Username)
+		else Check(SQL_Schema)
+		else Check(BeatmapPath)
+		else Check(ReplayPath)
 		else if (MEM_CMP_START(Config, "GeneralName")){
 			chan_General.ChannelName = V;
 			chan_General.NameSum = WeakStringToInt(chan_General.ChannelName);
 		}
 
 	}
-
+	#undef Check
 	#undef V
 
 	static_assert((BANCHO_THREAD_COUNT >= 4 && ARIA_THREAD_COUNT >= 4),

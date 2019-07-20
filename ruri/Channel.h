@@ -191,9 +191,8 @@ struct _Channel{
 
 			if (!User)
 				continue;
-
 			if (!User->choToken){
-				PartChannel(User, (size_t(&User) - size_t(&IRCUsers[0])) / sizeof(_User*));
+				PartChannel(User, GetIndex(IRCUsers, User));
 				continue;
 			}
 

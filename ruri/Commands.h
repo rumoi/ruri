@@ -611,7 +611,7 @@ void FullRecalcPP(const std::string GM){
 
 	for (const auto& Map : Maps) {
 
-		const std::string MapPath = BEATMAP_PATH + std::to_string(Map.BID) + ".osu";
+		const std::string MapPath = BeatmapPath + std::to_string(Map.BID) + ".osu";
 
 		Count++;
 		if (Count % 1000 == 0)
@@ -667,7 +667,7 @@ void FullRecalcPP(const std::string GM){
 	SQL.Disconnect();
 
 	chan_General.Bot_SendMessage("Updating ranks");
-	UpdateAllUserStatsinGM(0, StringToUInt32(GM));
+	UpdateAllUserStatsinGM(0, StringToNum(DWORD, GM));
 
 	chan_General.Bot_SendMessage("Fully Completed :)");
 }
@@ -690,7 +690,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 		case _WeakStringToInt_("!roll"):
 			PrivateRes = 0;
-			return Roll(u, (Split.size() > 1) ? StringToUInt64(Split[1]) : 100);
+			return Roll(u, (Split.size() > 1) ? StringToNum(uint64_t, Split[1]) : 100);
 
 		case _WeakStringToInt_("!priv"):
 			return std::to_string(Priv);
@@ -709,7 +709,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 	if (u->privileges & Privileges::AdminManageBeatmaps) {
 		//BAT Commands
 		if (CommandHash == _WeakStringToInt_("!map"))
-			return Split.size() > 2 ? MapStatusUpdate(u, WeakStringToInt(Split[1]), StringToUInt32(Split[2]), (Split.size() > 3) ? StringToUInt32(Split[3]) : 0)
+			return Split.size() > 2 ? MapStatusUpdate(u, WeakStringToInt(Split[1]), StringToNum(DWORD, Split[2]), (Split.size() > 3) ? StringToNum(DWORD, Split[3]) : 0)
 			: "!map <rank/love/unrank> <setid> optional<beatmapid>";
 
 	}
@@ -727,7 +727,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 			const bool RestrictWithName = (Split[0].size() == _strlen_("!restrict"));
 			const std::string RestrictName = (RestrictWithName) ? USERNAMESQL(Split[1]) : "";
-			const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
+			const DWORD RestrictID = (!RestrictWithName) ? StringToNum(DWORD,Split[1]) : 0;
 
 			{
 				std::thread t(RestrictUser, u, RestrictName, RestrictID,std::string(CombineAllNextSplit(2,Split)));
@@ -744,7 +744,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 			const bool RestrictWithName = (Split[0].size() == _strlen_("!unrestrict"));
 			const std::string RestrictName = (RestrictWithName) ? USERNAMESQL(Split[1]) : "";
-			const DWORD RestrictID = (!RestrictWithName) ? StringToUInt32(Split[1]) : 0;
+			const DWORD RestrictID = (!RestrictWithName) ? StringToNum(DWORD, Split[1]) : 0;
 
 			{
 				std::thread t(unRestrictUser, u, RestrictName, RestrictID);
@@ -764,7 +764,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			if (!t.User)
 				return "User not found.";
 
-			const int Length = StringToUInt32(Split[2]);
+			const int Length = StringToNum(int, Split[2]);
 
 			t.User->silence_end = time(0) + Length;
 			t.User->addQue(bPacket4Byte(OPac::server_silenceEnd, Length));
@@ -839,7 +839,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			_UserRef t(GetUserFromNameSafe(USERNAMESQL(Split[1])),1);
 
 			if (t.User) {
-				const USHORT Count = USHORT(StringToInt32(Split[2]));
+				const USHORT Count = StringToNum(USHORT, Split[2]);
 
 				t.User->qLock.lock();
 
@@ -852,15 +852,6 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			return "okay";
 		}
 
-		case _WeakStringToInt_("!setpp"): {
-			if (Split.size() != 2)
-				return "!cbomb <pp>";
-
-			u->Stats[0].pp = StringToUInt32(Split[1]);
-			UpdateRank(u->UserID, 0, u->Stats[0].pp);
-
-			return "Set";
-		}
 		case _WeakStringToInt_("!sql"):{			
 			SQL_BanchoThread[0].ExecuteUPDATE(CombineAllNextSplit(1,Split));
 			return "Executed";
@@ -868,7 +859,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 		case _WeakStringToInt_("!recalcusers"): {
 			
 			if(Split.size() == 2){
-				std::thread t(UpdateAllUserStatsinGM, u, StringToInt32(Split[1]));
+				std::thread t(UpdateAllUserStatsinGM, u, StringToNum(DWORD, Split[1]));
 				t.detach();
 			}
 

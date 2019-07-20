@@ -71,6 +71,7 @@ void API_MapLeaderboard_Get(int &Count, const char* p, VEC(byte) &Res, _SQLCon *
 				AddStream(Res, Score->countKatu);
 				AddStream(Res, Score->countMiss);
 				Res.push_back(Score->FullCombo);
+
 			}
 			LeaderBoard->ScoreLock.unlock_shared();
 
@@ -142,13 +143,16 @@ void WorkAPI(_Con s, _SQLCon *SQL){
 				AddStream(Res, COUNT_CURRENTONLINE);
 				AddStream(Res, COUNT_MULTIPLAYER);
 				AddStream(Res, COUNT_REQUESTS);
+
 				break;
 			case API_ID::GlobalLeaderBoard_Range:
 				API_GlobalLeaderBoard_Range(Count, (const char*)& p[0], Res, SQL);
 				break;
+
 			case API_ID::MapLeaderboard_Get:
 				API_MapLeaderboard_Get(Count, (const char*)&p[0], Res, SQL);
 				break;
+
 			case API_ID::User_GetStatus:
 
 				Ref.Reset(GetUserFromID(*(DWORD*)&p[Count]),1);
@@ -169,12 +173,13 @@ void WorkAPI(_Con s, _SQLCon *SQL){
 				else AddStream(Res, 0);
 				AddStream(Res, Ref->Spectators.size());//TODO: Could send who is spectating them instead of just a number
 				AddStream(Res, Ref->CurrentMatchID);
-
 				break;
+
 			case API_ID::User_GetRank:
 				AddStream(Res, GetRank(*(int*)&p[Count], p[Count + 4]));
 				Count += 5;
 				break;
+
 			case API_ID::User_GetAllOnline:
 				if (VEC(DWORD) UserIDs;1){
 					UserIDs.reserve(MAX_USER_COUNT);
@@ -188,7 +193,6 @@ void WorkAPI(_Con s, _SQLCon *SQL){
 
 				}
 				break;
-
 			default:
 				break;
 			}		

@@ -116,7 +116,7 @@ struct _Match{
 	DWORD PlayerCount;
 	std::array<_Slot, MULTI_MAXSIZE> Slots;
 	int Seed;
-	int LastUpdate;
+	int LastUpdate = 0;
 
 	_inline void sendUpdate(const _BanchoPacket &b, const _User*const Sender = 0){
 		for (auto& S : Slots)

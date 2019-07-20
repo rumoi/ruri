@@ -25,7 +25,9 @@ struct _HttpRes {
 	_HttpRes(){}
 };
 
-const std::string ConstructResponse(const DWORD Code, const SS_PAIR_VEC&Headers,const std::vector<byte> &Body){
+
+template<typename T>
+const std::string ConstructResponse(const DWORD Code, const SS_PAIR_VEC&Headers,const T& Body){
 
 	std::string Return = [=]{
 
