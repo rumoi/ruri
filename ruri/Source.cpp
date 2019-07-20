@@ -328,6 +328,8 @@ constexpr size_t aSize(const T(&)[size]) noexcept{ return size; }
 
 #define FastVByteAlloc(x)[&]{const char*const a = x; const std::vector<byte> b(a,a + _strlen_(a) + 1); return b;}()
 
+#include <cmath>
+
 template<typename T>
 _inline T MemToNum(const void* P, const size_t Size) {
 	if (auto C = (const char*)P; P && Size) {
@@ -371,6 +373,7 @@ _inline T MemToNum(const void* P, const size_t Size) {
 	}
 	return T();
 }
+
 #define StringToNum(TYPE, STRING) [](const std::string_view S){return MemToNum<TYPE>(&S[0], S.size());}(STRING)
 
 
@@ -399,22 +402,22 @@ _inline T MemToNum(const void* P, const size_t Size) {
 		return 1;\
 	}()
 
-#define LOAD_FILE(FILENAME)													\
-	[&](){																	\
-		std::ifstream file(std::string(FILENAME), std::ios::binary | std::ios::ate);		\
-		if (!file.is_open())												\
-			return std::vector<byte>();										\
-																			\
-		const size_t pos = file.tellg();									\
-		if(!pos)return std::vector<byte>();									\
-		std::vector<byte> rVec(pos + 1);									\
-																			\
-		file.seekg(0, std::ios::beg);										\
-		file.read((char*)&rVec[0], pos);									\
-		file.close();														\
-		rVec[rVec.size()-1] = 0;											\
-																			\
-		return rVec;														\
+#define LOAD_FILE(FILENAME)\
+	[&](){\
+		std::ifstream file(std::string(FILENAME), std::ios::binary | std::ios::ate);\
+		if (!file.is_open())\
+			return std::vector<byte>();\
+\
+		const size_t pos = file.tellg();\
+		if(!pos)return std::vector<byte>();\
+		std::vector<byte> rVec(pos + 1);\
+\
+		file.seekg(0, std::ios::beg);\
+		file.read((char*)&rVec[0], pos);\
+		file.close();\
+		rVec[rVec.size()-1] = 0;\
+\
+		return rVec;\
 	}()
 
 
@@ -570,21 +573,17 @@ std::string GET_WEB(const std::string &&HostName, const std::string &&Page) {
 	return Return_WEB;
 }
 
-int CharHexToDecimal(const char c) {
-
-	if (c >= '0' && c <= '9')return c - '0';
-
-	if (c >= 'A' && c <= 'F')return 10 + (c - 'A');
-
-	if (c >= 'a' && c <= 'f')return 10 + (c - 'a');
-
-	return 0;
+int CharHexToDecimal(const char c){
+	return c >= '0' && c <= '9'
+		? c - '0'
+		: c >= 'A' && c <= 'F'
+		? c - ('A' - 10)
+		: c >= 'a' && c <= 'f'
+		? c - ('a' - 10)
+		: 0;
 }
-_inline int DecimalToHex(const char c) {
-	if (c <= 0x9)return '0' + c;
-	if (c <= 0xF)return 'a' + (c - 10);
-
-	return ' ';
+_inline int DecimalToHex(const char c){
+	return c <= 0x9 ? '0' + c : c <= 0xF ? ('a' - 10) + c : ' ';
 }
 
 std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &&Page){
@@ -1687,8 +1686,7 @@ struct _UserRef {
 
 _User* GetPlayerSlot_Safe(const std::string &UserName){
 
-	if (!UserName.size())return 0;
-
+	if (unlikely(!UserName.size()))return 0;
 
 	for (auto& User : Users){
 		UserDoubleCheck(User.Username_Safe == UserName)
@@ -1723,7 +1721,7 @@ _User* GetUserFromID(DWORD ID){
 _User* GetUserFromToken(const uint64_t Token){
 
 	if(Token)
-		for (auto& User : Users) {
+		for (auto& User : Users){
 			UserDoubleCheck(User.choToken == Token)
 			return &User;
 		}
@@ -1734,44 +1732,40 @@ _User* GetUserFromToken(const uint64_t Token){
 template<typename T>
 	_User* GetUserFromName(const T& Name, const bool Force = 0){
 
-		if (Name.size() == 0)return 0;
-
-		for (auto& User : Users){
-			UserDoubleCheck((User.choToken || Force) && Name == User.Username)
-			return &User;
-		}
+		if (Name.size() == 0)
+			for (auto& User : Users){
+				UserDoubleCheck((User.choToken || Force) && Name == User.Username)
+				return &User;
+			}
 
 		return 0;
 	}
 
 _User* GetUserFromNameSafe(const std::string &Name, const bool Force = 0){
 
-	if (Name.size() == 0)return 0;
-
-	for (auto& User : Users){
-
-		UserDoubleCheck((User.choToken || Force) && Name == User.Username_Safe)
-
-		return &User;
-	}
+	if (Name.size())
+		for (auto& User : Users){
+			UserDoubleCheck((User.choToken || Force) && Name == User.Username_Safe)
+			return &User;
+		}
 
 	return 0;
 }
 
+/*
 DWORD GetIDFromName(const std::string &Name){
 
-	if (Name.size() == 0)return 0;
+	if (Name.size())
+		for (auto& User : Users){
 
-	for (auto& User : Users) {
+			if (User.Username != Name)
+				continue;
 
-		if (User.Username != Name)
-			continue;
-
-		return User.UserID;
-	}
+			return User.UserID;
+		}
 
 	return 0;
-}
+}*/
 
 #undef UserDoubleCheck
 
@@ -1940,21 +1934,9 @@ namespace bPacket {
 	_BanchoPacket UserPanel(const DWORD UserID, const DWORD AskerID) {
 
 		if (UserID < 1000){
-			_BanchoPacket b(OPac::server_userPanel);
+			_BanchoPacket b(OPac::server_userPanel);b.Data.reserve(32);
 			AddStream(b.Data, UserID);
-
-			switch (UserID){
-			case 999:
-				AddString(b.Data, BOT_NAME);
-				break;
-			case 998:
-				AddString(b.Data, FAKEUSER_NAME);
-				break;
-			default:
-				AddString(b.Data, "Not Set");
-				break;
-			}
-
+			AddString(b.Data, UserID == 999 ? BOT_NAME : UserID == 98 ? FAKEUSER_NAME : "Not Set");
 			b.Data.push_back(0);//timezone
 			b.Data.push_back(BOT_LOCATION);//country
 			b.Data.push_back(UserType::Peppy);//userank
@@ -1963,18 +1945,18 @@ namespace bPacket {
 			AddStream(b.Data, 0);//gamerank
 			return b;
 		}
-
 		_UserRef tP(GetUserFromID(UserID),1);
 
-		if (!tP || !tP->UserID || (UserID != AskerID && !(tP->privileges & UserPublic)))return erPacket;
+		if (!tP || !tP->UserID || (UserID != AskerID && !(tP->privileges & UserPublic)))
+			return bPacket4Byte(OPac::server_userLogout, UserID);
 
-		_BanchoPacket b(OPac::server_userPanel);
+		_BanchoPacket b(OPac::server_userPanel);b.Data.reserve(48);
 
 		AddStream(b.Data, UserID);
 		AddString(b.Data, tP->Username);
 		b.Data.push_back(24 + tP->timeOffset);
 		b.Data.push_back(tP->country);
-		b.Data.push_back((UserID != AskerID) ? GetUserType(tP->privileges) : UserType::Supporter);
+		b.Data.push_back(UserID != AskerID ? GetUserType(tP->privileges) : UserType::Supporter);
 		AddStream(b.Data, tP->lon);
 		AddStream(b.Data, tP->lat);
 		const DWORD sOff = tP->GetStatsOffset();
@@ -1982,6 +1964,7 @@ namespace bPacket {
 
 		return b;
 	}
+
 	_BanchoPacket UserPanel(_User *tP) {
 
 		_BanchoPacket b(OPac::server_userPanel);
@@ -2071,26 +2054,15 @@ namespace bPacket {
 }
 
 
-void debug_SendOnlineToAll(_User *p){
+void debug_SendOnlineToAll(_User *u){
 
-	if (!(p->privileges & UserPublic))
-		return;//Do not even care about restricted users for now.
+	if (u->privileges & UserPublic){
 
-	const _BanchoPacket Panel = bPacket::UserPanel(p->UserID, 0);
-	const _BanchoPacket Stats = USER_STATS(p->UserID, 0);
+		const VEC(_BanchoPacket) Stats = { bPacket::UserPanel(u->UserID, 0) , USER_STATS(u->UserID, 0) };
 
-
-	for (auto& User : Users) {
-		if (!User.choToken || &User == p)
-			continue;
-
-		User.qLock.lock();
-
-		User.addQueNonLocking(Panel);
-		User.addQueNonLocking(Stats);
-
-		User.qLock.unlock();
-
+		for (auto& User : Users)
+			if (User.choToken && &User != u)
+				User.addQue(Stats);
 	}
 }
 
@@ -2098,56 +2070,45 @@ void Event_client_stopSpectating(_User *u){
 	
 	u->addQue(bPacket::GenericString(OPac::server_channelKicked, "#spectator"));
 
-	_User *const SpecTarget = u->CurrentlySpectating;
-	
-	if (!SpecTarget)return;
+	if (_User* const SpecTarget = u->CurrentlySpectating; SpecTarget){
 
-	u->CurrentlySpectating = 0;
+		u->CurrentlySpectating = 0;
 
-	bool AllEmptySpecs = 1;
+		bool AllEmptySpecs = 1;
 
-	_BanchoPacket b = bPacket4Byte(OPac::server_fellowSpectatorLeft, u->UserID);
+		_BanchoPacket b = bPacket4Byte(OPac::server_fellowSpectatorLeft, u->UserID);
 
-	{
-		SpecTarget->SpecLock.lock();
+		{
+			std::scoped_lock<std::mutex> l(SpecTarget->SpecLock);
 
-		for (_User*& Spec : SpecTarget->Spectators){
-
-			if (Spec == u){
-				Spec = 0;
-				break;
+			for (auto& Spec : SpecTarget->Spectators){
+				if (Spec == u)
+					Spec = 0;
+				else if (Spec){
+					Spec->addQue(b);
+					AllEmptySpecs = 0;
+				}
 			}
+
+			if (AllEmptySpecs)
+				SpecTarget->Spectators.clear();
 		}
-		for (_User*const Spec : SpecTarget->Spectators) {
-			if (!Spec)continue;
+		b.Type = OPac::server_spectatorLeft;
 
-			Spec->addQue(b);
 
-			AllEmptySpecs = 0;
-		}
-
-		if (AllEmptySpecs)
-			SpecTarget->Spectators.clear();
-
-		SpecTarget->SpecLock.unlock();
+		AllEmptySpecs?
+			SpecTarget->addQue({ b, bPacket::GenericString(OPac::server_channelKicked, "#spectator") })
+			: SpecTarget->addQue(b);
 	}
-	b.Type = OPac::server_spectatorLeft;
-	SpecTarget->addQue(b);
-
-	if (AllEmptySpecs)
-		SpecTarget->addQue(bPacket::GenericString(OPac::server_channelKicked,"#spectator"));
 }
 
-void Event_client_cantSpectate(_User *tP) {
+void Event_client_cantSpectate(_User *tP){
 
-	_User *SpecHost = tP->CurrentlySpectating;
-
-	if (!SpecHost)
-		return;
-
-	const _BanchoPacket b = bPacket4Byte(OPac::server_spectatorCantSpectate, tP->UserID);
-	SpecHost->SendToSpecs(b);
-	SpecHost->addQue(_M(b));
+	if (_User* const SpecHost = tP->CurrentlySpectating; SpecHost){
+		const _BanchoPacket b = bPacket4Byte(OPac::server_spectatorCantSpectate, tP->UserID);
+		SpecHost->SendToSpecs(b);
+		SpecHost->addQue(_M(b));
+	}
 }
 
 DWORD COUNT_CURRENTONLINE = 0;
@@ -2313,22 +2274,15 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 
 #include <fstream>
 
-std::string& RemoveDots(std::string& Input) {
-	for (auto& c : Input)
-		if (c == '.')
-			c = '/';
-	return Input;
-}
+std::vector<byte> LOAD_FILE_RAW(const std::string& FILENAME) {
 
-std::vector<byte> LOAD_FILE_RAW(const std::string&& FILENAME) {
-
-	std::ifstream f(std::string(FILENAME), std::ios::binary | std::ios::ate);
+	std::ifstream f(FILENAME, std::ios::binary | std::ios::ate);
 
 	VEC(byte) Ret;
 
 	const bool Open = f.is_open();
 
-	if (const size_t pos = !Open ? 0 : f.tellg(); pos) {
+	if (const size_t pos = !Open ? 0 : (size_t)f.tellg(); pos) {
 		Ret.resize(pos);
 		f.seekg(0, std::ios::beg);
 		f.read((char*)&Ret[0], pos);
@@ -2888,16 +2842,13 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 
 	const DWORD ID = *(DWORD*)&Packet[0];
 
-	if (ID < 1000)	
-		return tP->addQue(bPacket::Notification("What are you doing spectating bots?"));
-	
+	if (ID < 1000 || ID == tP->UserID)
+		return tP->addQue(bPacket::Notification("You can not spectate that user."));
 
 	_UserRef SpecTarget(GetUserFromID(ID),1);
 
-	if (!SpecTarget || tP == SpecTarget.User){
-		tP->addQue(bPacket::Notification("Failed to find user."));
-		return;
-	}
+	if (!SpecTarget)
+		return tP->addQue(bPacket::Notification("Failed to find user."));
 
 	if (tP->CurrentlySpectating)
 		Event_client_stopSpectating(tP);
@@ -2907,31 +2858,33 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 	tP->CurrentlySpectating = SpecTarget.User;
 
 	tP->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess,"#spectator"));
-
-	const _BanchoPacket b = bPacket4Byte(OPac::server_fellowSpectatorJoined, tP->UserID);
 	
-	SpecTarget->SpecLock.lock();
+	{
 
-	if(SpecTarget->Spectators.size() == 0)
-		SpecTarget->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess, "#spectator"));
+		const _BanchoPacket b = bPacket4Byte(OPac::server_fellowSpectatorJoined, tP->UserID);
 
-	for (auto& fSpec : SpecTarget->Spectators){
+		std::scoped_lock<std::mutex> L(SpecTarget->SpecLock);
 
-		if (!fSpec) {
-			if(Add)fSpec = tP;
-			Add = 0;
-		}else if (fSpec != tP){
-			fSpec->addQue(b);
-			tP->addQue(bPacket4Byte(OPac::server_fellowSpectatorJoined, fSpec->UserID));
-		}else Add = 0;
+		if (SpecTarget->Spectators.size() == 0)
+			SpecTarget->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess, "#spectator"));
+
+		for (auto& fSpec : SpecTarget->Spectators){
+			if (!fSpec){
+				if (Add)
+					fSpec = tP;
+				Add = 0;
+			}
+			else if (fSpec != tP) {
+				fSpec->addQue(b);
+				tP->addQue(bPacket4Byte(OPac::server_fellowSpectatorJoined, fSpec->UserID));
+			}
+			else Add = 0;
+		}
+
+		if (Add)
+			SpecTarget->Spectators.push_back(tP);
 
 	}
-
-	if (Add)
-		SpecTarget->Spectators.push_back(tP);
-	
-	SpecTarget->SpecLock.unlock();
-
 	SpecTarget->addQue({
 		bPacket::UserPanel(tP),
 		bPacket4Byte(OPac::server_spectatorJoined, tP->UserID)
@@ -2939,34 +2892,20 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 
 }
 
-
-struct _ReplayFrame {
-	int time;
-	float x, y;
-	byte ButtonState;
-	byte bt;
-};
-
 void Event_client_spectateFrames(_User *tP, const byte* const Packet, const DWORD Size){
 
-	if (tP->Spectators.size() == 0)return;
+	if (tP->Spectators.size() == 0)
+		return;
 
-	const _BanchoPacket b = bPacket::RawData(OPac::server_spectateFrames, Packet, Size);
-	const _BanchoPacket u = bPacket::UserStats(tP);
+	const VEC(_BanchoPacket) Frame = { bPacket::UserStats(tP), bPacket::RawData(OPac::server_spectateFrames, Packet, Size) };
 
-	tP->SpecLock.lock();
-	for (_User *s :  tP->Spectators){
+	MUTEX_LOCKGUARD(tP->SpecLock);
 
+	for (_User* s : tP->Spectators){
 		if (!s)continue;
-
-		s->qLock.lock();
-
-		s->addQueNonLocking(u);
-		s->addQueNonLocking(b);
-
-		s->qLock.unlock();
+		s->addQue(Frame);
 	}
-	tP->SpecLock.unlock();
+
 }
 
 void ReadMatchData(_Match *m, const byte* const Packet,const DWORD Size, bool Safe = 0){//todo make better

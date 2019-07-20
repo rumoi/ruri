@@ -1694,7 +1694,12 @@ const std::string directToApiStatus(const std::string &directStatus) {//thank yo
 
 void GetReplay(const std::string &URL, _Con s){
 
-	if (const std::vector<byte> Data = LOAD_FILE_RAW(ReplayPath + RemoveDots(GetParam(URL, "&c=")) + ".osr"); Data.size())
+	std::string ID = GetParam(URL, "&c=");
+	for (auto& c : ID)
+		if (c == '.')
+			c = '/';
+
+	if (const std::vector<byte> Data = LOAD_FILE_RAW(ReplayPath + ID + ".osr"); Data.size())
 		s.SendData(ConstructResponse(200, Empty_Headers, Data));
 
 	return s.Dis();
@@ -1805,7 +1810,7 @@ void UploadScreenshot(const _HttpRes &res, _Con s){
 	const auto end = res.Body.end() - _strlen_(SCREENSHOT_END);
 
 	if (end > it){
-		std::string& Filename = RandomString(8) + ".png";
+		const std::string& Filename = RandomString(8) + ".png";
 		WriteAllBytes("/home/ss/" + Filename, &*it, end - it);
 		s.SendData(ConstructResponse(200, {}, Filename));
 	}
