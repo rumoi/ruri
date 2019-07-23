@@ -139,7 +139,6 @@ enum RankStatus {
 
 const int PING_TIMEOUT_OSU = 80000;//yes thanks peppy
 const int FREE_SLOT_TIME = 1800000;
-const bool USER_TEST = 0;
 
 enum OPac {
 	NULL_PACKET = 1000,
@@ -301,16 +300,12 @@ WSADATA wsData;
 #include <string>
 #include <array>
 
-
-
 #ifndef NO_RELAX
-
+const bool RELAX_MODE = 1;
 #define GM_MAX 7
-
 #else
-
+const bool RELAX_MODE = 0;
 #define GM_MAX 3
-
 #endif
 
 const static std::string GameModeNames[] = {
@@ -440,7 +435,6 @@ _inline size_t GetIndex(const T& Start, const T2& End) {
 	return (size_t(&End) - size_t(&Start[0])) / sizeof(Start[0]);
 }
 
-
 template<typename T, typename KeyType = DWORD>
 struct _LTable {
 
@@ -513,7 +507,6 @@ struct _LTable {
 #undef BUCKET_SIZE
 #undef GETOFF
 };
-
 
 #include "SQL.h"
 #define BANCHO_THREAD_COUNT 4
@@ -623,8 +616,6 @@ std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &&Pa
 	return p;
 }
 
-
-
 #define WeakStringToInt(s)\
 	[&](){\
 		int Return = 0;\
@@ -636,7 +627,6 @@ std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &&Pa
 constexpr int _WeakStringToInt_(const char* c,DWORD O = 0, int CurrentValue = 0) noexcept{	
 	return (c[O]) ? _WeakStringToInt_(c,O+1, CurrentValue + ((c[O] ^ O) << (((O << 4) % 32)))) : CurrentValue;
 }
-
 
 struct _Timer{
 
@@ -650,8 +640,6 @@ struct _Timer{
 		sTime = std::chrono::steady_clock::now();
 	}
 	void Stop(const DWORD Num = 0){
-
-
 		const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
 		printf(KYEL "%s%i> " KRESET "%fms\n",Name, (!Num) ? Count : Num, double(double(TTime) / 1000000.0));
 		if(!Num)Count++;
@@ -666,36 +654,39 @@ std::shared_mutex UsernameCacheLock;
 
 void UpdateUsernameCache(_SQLCon *SQL){
 
-	UsernameCacheLock.lock();
-
-	sql::ResultSet* res(SQL->ExecuteQuery("SELECT id,username FROM users WHERE id >= " + std::to_string(UsernameCache.size() + 1000) + " ORDER BY id DESC"));
 	DWORD Count = 0;
-	if (res && res->next()){
-		Count = 1;
+	{
+		std::scoped_lock<std::shared_mutex> l(UsernameCacheLock);
 
-		const DWORD HighestID = res->getUInt(1);
-		if (HighestID >= 1000) {
+		sql::ResultSet* res = SQL->ExecuteQuery("SELECT id,username FROM users WHERE id >= " + std::to_string(UsernameCache.size() + 1000) + " ORDER BY id DESC");
 
-			UsernameCache.resize(HighestID - 999);
-			UsernameCache[HighestID-1000] = res->getString(2);
+		if (res && res->next()) {
+			Count = 1;
 
-			while (res->next()) {
-				const DWORD ID = res->getUInt(1);
-				if (ID < 1000)break;
-				Count++;
-				UsernameCache[ID - 1000] = res->getString(2);
+			const DWORD HighestID = res->getUInt(1);
+			if (HighestID >= 1000) {
+
+				UsernameCache.resize(HighestID - 999);
+				UsernameCache[HighestID - 1000] = res->getString(2);
+
+				while (res->next()) {
+					const DWORD ID = res->getUInt(1);
+
+					if (ID < 1000)
+						break;
+
+					Count++;
+					UsernameCache[ID - 1000] = res->getString(2);
+				}
 			}
 		}
+		DeleteAndNull(res);
 	}
-	DeleteAndNull(res);
-	
-	UsernameCacheLock.unlock();
 
 	printf("Updated %i usernames in the cache\n", Count);
 }
 //This will return [clan]username if clans are enabled.
 std::string GetUsernameFromCache(const DWORD UID){
-
 	
 	std::string Res = "";
 
@@ -710,18 +701,18 @@ std::string GetUsernameFromCache(const DWORD UID){
 }
 void UsernameCacheUpdateName(const DWORD UID, const std::string &s, _SQLCon *SQL){
 
-	if (UID < 1000)
-		return;
+	if (UID >= 1000){
 
-	UsernameCacheLock.lock_shared();
+		UsernameCacheLock.lock_shared();
 
-	if (UID - 1000 >= UsernameCache.size()){
+		if (UID - 1000 >= UsernameCache.size()) {
+			UsernameCacheLock.unlock_shared();
+			return UpdateUsernameCache(SQL);
+		}
+		UsernameCache[UID - 1000] = s;
+
 		UsernameCacheLock.unlock_shared();
-		return UpdateUsernameCache(SQL);
 	}
-	UsernameCache[UID - 1000] = s;
-
-	UsernameCacheLock.unlock_shared();
 }
 
 std::string BeatmapPath;
@@ -740,41 +731,50 @@ struct _RankList {
 		ID = I;
 		PP = P;
 	}
-}; std::vector<_RankList> RankList[GM_MAX + 1];
-DWORD RankListVersion[] = { 1,1,1,1,1,1,1,1 };
-std::shared_mutex RankUpdate[GM_MAX + 1];
+	bool operator ==(const _RankList& A){
+		return ID == A.ID;
+	}
 
-void ReSortAllRank() {
+};
+struct _rList{
+	DWORD Version = 1;
+	VEC(_RankList) List;
+	std::shared_mutex UpdateLock;
+	_inline void lock() { UpdateLock.lock(); }
+	_inline void unlock() { UpdateLock.unlock(); }
+	_inline void lock_shared() { UpdateLock.lock_shared(); }
+	_inline void unlock_shared() { UpdateLock.unlock_shared(); }
 
-	for (DWORD i = 0; i <= GM_MAX; i++){
 
-		RankUpdate[i].lock();
-		RankListVersion[i]++;
+}; _rList RankList[GM_MAX + 1];
 
-		std::sort(RankList[i].begin(), RankList[i].end(),
-			[](const _RankList& A, const _RankList &B){
+void ReSortAllRank(){
+	for (auto& rList : RankList){
+		rList.lock();
+
+		rList.Version++;
+		std::sort(rList.List.begin(), rList.List.end(),
+			[](const _RankList& A, const _RankList& B){
 				return A.PP > B.PP;
 			});
 
-		RankUpdate[i].unlock();
-
+		rList.unlock();
 	}
-
 }
 void ReSortRank(const DWORD i) {
 
-	if (i >= 8)
+	if (i > GM_MAX)
 		return;
 
-	RankUpdate[i].lock();
-	RankListVersion[i]++;
+	RankList[i].lock();
 
-	std::sort(RankList[i].begin(), RankList[i].end(),
-		[](const _RankList& A, const _RankList &B) {
+	RankList[i].Version++;
+	std::sort(RankList[i].List.begin(), RankList[i].List.end(),
+		[](const _RankList& A, const _RankList &B){
 		return A.PP > B.PP;
 	});
 
-	RankUpdate[i].unlock();
+	RankList[i].unlock();
 
 }
 struct _SQLQue{
@@ -783,14 +783,12 @@ struct _SQLQue{
 
 
 	void AddQue(const std::string &s){
-		CommandLock.lock();		
+		std::scoped_lock<std::mutex> L(CommandLock);
 		Commands.push_back(s);
-		CommandLock.unlock();
 	}
 	void AddQue(const std::string&& s) {
-		CommandLock.lock();
+		std::scoped_lock<std::mutex> L(CommandLock);
 		Commands.push_back(_M(s));
-		CommandLock.unlock();
 	}
 
 }; _SQLQue SQLExecQue;
@@ -798,21 +796,23 @@ struct _SQLQue{
 
 DWORD GetRank(const DWORD UserID, const DWORD GameMode){//Could use the cached pp to tell around where its supposed to be?
 
-	if (UserID < 1000 || GameMode > GM_MAX || RankList[GameMode].size() == 0)
+	if (UserID < 1000 || GameMode > GM_MAX || RankList[GameMode].List.size() == 0)
 		return 0;
 
 	DWORD Rank = 0;
 	
-	RankUpdate[GameMode].lock_shared();
+	RankList[GameMode].lock_shared();
 
-	for (DWORD i = 0; i < RankList[GameMode].size(); i++){
-		if (RankList[GameMode][i].ID == UserID){
+	const auto& List = RankList[GameMode].List;
+
+	for (DWORD i = 0; i < List.size(); i++){
+		if (List[i].ID == UserID){
 			Rank = i + 1;
 			break;
 		}
 	}
 
-	RankUpdate[GameMode].unlock_shared();
+	RankList[GameMode].unlock_shared();
 
 	return Rank;
 }
@@ -822,76 +822,66 @@ void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
 	if (!PP || UserID < 1000 || GameMode > GM_MAX)
 		return;
 
-	RankUpdate[GameMode].lock();
-	
-	std::vector<_RankList> &cRankList = RankList[GameMode];
+	RankList[GameMode].lock();
 
+	const _RankList N = { UserID,PP };
 
-	enum { Nothing, Forward, Backward, NoUpdate };
+	auto& List = RankList[GameMode].List;
 
-	byte Direction = 0;
-	DWORD OrigPos = 0;
+	auto PreviousRank = std::find(begin(List),end(List),N);
 
-	const _RankList n = { UserID,PP };
+	if (PreviousRank != end(List)){
 
-	for (DWORD i = 0; i < cRankList.size(); i++) {
-		if (cRankList[i].ID == UserID) {
-			Direction = (cRankList[i].PP > PP) ? Backward : Forward;
-			if (cRankList[i].PP == PP)
-				Direction = NoUpdate;
-			OrigPos = i;
-			break;
-		}
-	}
+		const DWORD OldPP = PreviousRank->PP;
+		PreviousRank->PP = N.PP;
+		const size_t Origin = PreviousRank - List.begin();
 
-	if (Direction == Forward || Direction == Backward){
+		if (size_t NewPosition = Origin;OldPP < N.PP) {
 
-		DWORD NewPos = 0;
-		if (Direction == Forward){
-			if (OrigPos){
-				for (DWORD i = OrigPos - 1; i > 0; i--)
-					if (cRankList[i].PP > PP){
-						NewPos = i + 1;
-						break;
-					}
-				if (NewPos != OrigPos){
-					memcpy(&cRankList[NewPos + 1], &cRankList[NewPos],(OrigPos - NewPos) * sizeof(_RankList));
-					cRankList[NewPos] = n;
-					RankListVersion[GameMode]++;
-				}else cRankList[OrigPos] = n;
+			for (size_t i = Origin; i-- > 0;)
+				if (List[i].PP > N.PP) {
+					NewPosition = i + 1;
+					break;
+				}
 
-			}else cRankList[0] = n;//Rank one improving themself requires no extra calculations.
-
-		}else if(Direction == Backward){
-			if (PP){
-				for (DWORD i = OrigPos; i < cRankList.size(); i++)
-					if (cRankList[i].PP < PP) {
-						NewPos = i - 1;
-						break;
-					}
-			}else NewPos = cRankList.size() - 1;
-
-			if (!NewPos)
-				NewPos = cRankList.size() - 1;
-
-			if (NewPos != OrigPos){
-				memcpy(&cRankList[OrigPos], &cRankList[OrigPos + 1], (NewPos - OrigPos) * sizeof(_RankList));
-				cRankList[NewPos] = n;
-				RankListVersion[GameMode]++;
-			}else cRankList[OrigPos] = n;
-
-			for (DWORD i = cRankList.size(); i > 0; i--){//Pop off 0 pp players
-				if (cRankList[i - 1].PP)break;
-				cRankList.pop_back();
+			if (NewPosition != Origin){
+				memcpy(&List[NewPosition + 1], &List[NewPosition], (Origin - NewPosition) * sizeof(_RankList));
+				List[NewPosition] = N;
+				RankList[GameMode].Version++;
 			}
 
+		}else if (OldPP > N.PP){
+
+			if (PP) {
+				for (size_t i = Origin + 1; i < List.size(); i++)
+					if (List[i].PP < N.PP) {
+						NewPosition = i - 1;
+						break;
+					}
+			}else NewPosition = List.size() - 1;
+
+			if (NewPosition != Origin) {
+				memcpy(&List[Origin], &List[Origin + 1], (NewPosition - Origin) * sizeof(_RankList));
+				List[NewPosition] = N;
+				RankList[GameMode].Version++;
+			}
+
+			for (size_t i = List.size(); i-- > 0;) {
+				if (List[i].PP)break;
+				List.pop_back();
+			}
 		}
-	}else if (Direction == Nothing && PP){//User is not currently in the rank cache.
-		cRankList.push_back(n);
-		std::sort(cRankList.begin(), cRankList.end(), [](const _RankList &i, const _RankList &j) {return (i.PP > j.PP); });//I am lazy.
-		RankListVersion[GameMode]++;
+	}else {
+		List.push_back(N);
+		std::sort(begin(List), end(List),
+			[](const _RankList& i, const _RankList& j) {
+				return (i.PP > j.PP);
+			});
+		RankList[GameMode].Version++;
 	}
-	RankUpdate[GameMode].unlock();
+
+	RankList[GameMode].unlock();
+
 	printf("Updated ranks gm:%i\n",GameMode);
 }
 
@@ -957,10 +947,11 @@ _inline void AddMem(std::vector<byte> &v, const void* Value, const DWORD Size) {
 
 void AddUleb(VEC(byte) &v, DWORD s) {
 
-	if (s) {
+	if (s){
+
 		uint64_t ret = 2 + (0x0b << 8) + ((s & 0x7f) << 16);
 
-		while (unlikely(*&s >>= 7)) {
+		while(unlikely(*&s >>= 7)){
 			ret += (uint64_t(0x80) << ((ret & 0xff) << 3)) + 1;
 			ret += (uint64_t(s & 0x7f) << ((ret & 0xff) << 3));
 		}
@@ -968,7 +959,6 @@ void AddUleb(VEC(byte) &v, DWORD s) {
 		v.resize(v.size() + 8);
 		*(uint64_t*)(&v[v.size() - 8]) = ret >> 8;
 		v.resize(v.size() - (8 - (ret & 0xff)));
-
 	}
 	else v.push_back(0);
 
@@ -1088,10 +1078,10 @@ public:
 	int PlayCount;
 
 	DWORD getRank(const DWORD GameMode, const DWORD UID){
-		if (GameMode >= 8)
+		if (GameMode > GM_MAX)
 			return 0;
 
-		const DWORD cVersion = RankListVersion[GameMode];
+		const DWORD cVersion = RankList[GameMode].Version;
 
 		if (cVersion != RankVersion){
 			RankVersion = cVersion;
@@ -1115,27 +1105,6 @@ public:
 	}
 };
 
-#define EXPLODE_MULTI(TYPE,DATA,LEN,DELMNT)[](const char*const d,const size_t Size)->VEC(TYPE){\
-	VEC(TYPE) Output;\
-	if(!d || !Size)\
-		return Output;\
-	const char* Deli = DELMNT;\
-	const size_t DeliSize = _strlen_(Deli);\
-	const char* Start = d;\
-	for(size_t i = 0; i< Size - (DeliSize - 1);i++){\
-		for(size_t z = 0; z < DeliSize; z++){\
-			if(d[i + z] != Deli[z])break;\
-			if(z != DeliSize - 1)continue;\
-			Output.push_back(TYPE(Start,d + i));\
-			i += DeliSize - 1;\
-			Start = d + i + 1;\
-		}\
-	}\
-	if(Start != d + Size)\
-		Output.push_back(TYPE(Start,d + Size));\
-	return Output;\
-	}((const char*const)DATA,LEN)
-
 template<typename T>
 const VEC(std::string_view) Explode_View(const T& Input, const char Delim, const DWORD ExpectedSize) {
 
@@ -1154,17 +1123,57 @@ const VEC(std::string_view) Explode_View(const T& Input, const char Delim, const
 		for (const auto& c : Input) {//This needs to be auto. Setting it to anything else could cause an implicit cast - making the reference a local.
 
 			if (c == Delim) {
-				Views.push_back(std::string_view((const char*)Start, size_t(&c) - size_t(Start)));
+				Views.emplace_back((const char*)Start, size_t(&c) - size_t(Start));
 				Start = size_t(&c) + 1;
 			}
 
 		}
 
 		if (size_t End = size_t(&Input[0]) + Input.size(); Start != End)
-			Views.push_back(std::string_view((const char*)Start, End - Start));
+			Views.emplace_back((const char*)Start, End - Start);
 	}
 	return Views;
 }
+
+template<typename T>
+const VEC(std::string_view) Explode_View_Multi(const T& Input, const char* const Delim, const DWORD ExpectedSize) {
+
+	VEC(std::string_view) Views;
+
+	if (const size_t DelimSize = _strlen_(Delim); Input.size() && DelimSize) {
+		Views.reserve(ExpectedSize);
+
+		if (Input.size() > DelimSize) {
+
+			size_t Start = 0;
+
+			for (size_t i = 0; i < Input.size() - DelimSize; i++) {
+
+				for (size_t z = 0; z < DelimSize; z++) {
+
+					if (Input[i + z] != Delim[z])
+						break;
+
+					if (z != DelimSize - 1)
+						continue;
+
+					Views.emplace_back((const char*)& Input[Start], i - Start);
+					i += z;
+					Start = i + 1;
+				}
+
+			}
+
+			if (Start != Input.size())
+				Views.emplace_back((const char*)& Input[Start], Input.size() - Start);
+
+		}
+		else Views.emplace_back((const char*)& Input[0], Input.size());
+
+	}
+	return Views;
+}
+
 
 #define _READINT32(s) [](const char* sP){					\
 				if(!sP)return 0;							\
@@ -1280,7 +1289,6 @@ struct _Menu {
 
 #define MAX_CHAN_COUNT 32
 
-
 void DisconnectUser(size_t Pointer);
 
 
@@ -1377,7 +1385,6 @@ struct _User{
 	
 	std::vector<_DelayedBanchoPacket> dQue;
 	size_t ActiveChannels[MAX_CHAN_COUNT];//There is no way to resolve the actual size without restructuring xdxdxd
-
 	
 	std::string c1Check;
 
@@ -1385,15 +1392,13 @@ struct _User{
 	DWORD ref;
 
 	bool AddBlock(const DWORD UID){
-		if (UID < 1000)return 0;
-
-		for (byte i = 0; i < 32; i++) {
-			if (!Blocked[i] || Blocked[i] == UID) {
-				Blocked[i] = UID;
-				return 1;
+		if (UID >= 1000)
+			for (byte i = 0; i < aSize(Blocked); i++) {
+				if (!Blocked[i] || Blocked[i] == UID) {
+					Blocked[i] = UID;
+					return 1;
+				}
 			}
-		}
-
 		return 0;
 	}
 
@@ -1405,6 +1410,7 @@ struct _User{
 			}
 		}
 	}
+
 	void RemoveChannel(const size_t C) {
 		for (DWORD i = 0; i < MAX_CHAN_COUNT; i++) {
 			if (ActiveChannels[i] == C) {
@@ -1419,6 +1425,7 @@ struct _User{
 		ref++;
 		RefLock.unlock();
 	}
+
 	void removeRef() {
 		RefLock.lock();
 		ref--;
@@ -1426,28 +1433,22 @@ struct _User{
 	}
 
 	DWORD GetStatsOffset()const{
-
-		if (GameMode > 3)return 3;
-
-		return
-		#ifndef NO_RELAX
-		(actionMods & Mods::Relax) ? GameMode + 4 :
-		#endif
-		GameMode;		
+		if constexpr(RELAX_MODE)
+			return al_min(actionMods & Mods::Relax ? GameMode + 4 : GameMode, GM_MAX);
+		else 
+			return GameMode;
 	}
 
-	void SendToSpecs(const _BanchoPacket &b) {
+	void SendToSpecs(const _BanchoPacket &b){
+		if (Spectators.size()){
+			SpecLock.lock();
 
-		if (!Spectators.size())
-			return;
+			for (_User* const Spec : Spectators)
+				if (Spec)
+					Spec->addQue(b);
 
-		SpecLock.lock();
-
-		for (_User*const Spec : Spectators)
-			if (Spec)
-				Spec->addQue(b);
-
-		SpecLock.unlock();
+			SpecLock.unlock();
+		}
 	}
 	bool isFriend(const DWORD ID) const{
 
@@ -1464,7 +1465,7 @@ struct _User{
 		if (UserID < 1000 || ID == UserID)
 			return 0;
 
-		for (DWORD i = 0; i < 32; i++)
+		for (DWORD i = 0; i < aSize(Blocked); i++)
 			if (Blocked[i] == ID)
 				return !isFriend(ID);
 
@@ -1517,42 +1518,37 @@ void reset() {
 	
 	template<typename... T>
 	void addQue(T&& ... b) {
-		if (!choToken)
-			return;
-		qLock.lock();
-		Que.emplace_back(std::forward<T>(b)...);
-		qLock.unlock();
+		if (choToken){
+			std::scoped_lock<std::mutex> L(qLock);
+			Que.emplace_back(std::forward<T>(b)...);
+		}
 	}
 
 	template<typename T>
 	void addQueDelay(T&& b) {
 		if (b.b.Type == NULL_PACKET || b.Time == 0 || !choToken)
 			return;
-		qLock.lock();
+		std::scoped_lock<std::mutex> L(qLock);
 		dQue.push_back(std::forward<T>(b));
-		qLock.unlock();
 	}
 
 	void addQue(const VEC(_BanchoPacket) &b){
 		if (choToken && b.size()){
-			qLock.lock();
+			std::scoped_lock<std::mutex> L(qLock);
 			for (auto& p : b){
 				if (p.Type != NULL_PACKET)
 					Que.push_back(p);
 			}
-			qLock.unlock();
 		}
 	}
 
 	void addQue(std::initializer_list<_BanchoPacket>&& bundle) {
 		if (choToken && bundle.size()){
 
-			qLock.lock();
+			std::scoped_lock<std::mutex> L(qLock);
 
 			for (auto& b : bundle)
 				Que.emplace_back(_M(b));
-			
-			qLock.unlock();
 		}
 	}
 
@@ -1575,57 +1571,53 @@ void reset() {
 
 		if (Que.size() == 0 && dQue.size() == 0)
 			goto FEEDALIVE;
+		{
+			std::scoped_lock<std::mutex> L(qLock);
 
-		qLock.lock();
+			if (Que.size()) {
 
-		if (Que.size()){
-					
-			SendBytes.resize([&](){
-				size_t S = 0;
+				SendBytes.resize([&]() {
+					size_t S = 0;
+					for (const auto& q : Que)
+						S += q.GetSize();
+					return S;
+					}());
+
+				byte* cPos = (byte*)& SendBytes[0];
+
 				for (const auto& q : Que)
-					S += q.GetSize();
-				return S;
-			}());
+					q.GetBytesRaw(cPos);
 
-			byte* cPos = (byte*)&SendBytes[0];
+				Que.clear();
+			}
 
-			for (const auto& q : Que)
-				q.GetBytesRaw(cPos);
+			if (dQue.size()){
 
-			Que.clear();
-		}
+				std::sort(begin(dQue), end(dQue), [](const _DelayedBanchoPacket &i, const _DelayedBanchoPacket &j) { return (i.Time < j.Time); });
 
-		if (dQue.size() != 0){
+				const int cTime = clock_ms();
+				bool Ticked = 0;
 
-			std::sort(dQue.begin(), dQue.end(), [](const _DelayedBanchoPacket i, const _DelayedBanchoPacket j) { return (i.Time < j.Time); });
-
-			const int cTime = clock_ms();
-			bool NotEnd = 0;
-			for (size_t i = dQue.size(); i-- > 0;){
-				if (dQue[i].Time == 1){//means do the next bancho frame.
-					dQue[i].Time = 0;
-					NotEnd = 1;
-					continue;
-				}
-				if (dQue[i].Time == 2) {
-					dQue[i].Time = 1;
-					NotEnd = 1;
-					continue;
-				}
-				if(dQue[i].Time <= cTime){
-					dQue[i].b.GetBytes(SendBytes);
-
-					if(!NotEnd)dQue.pop_back();
-					else{
-						dQue[i] = dQue[dQue.size() - 1];
-						dQue.pop_back();//Dont really care about it being slightly off. The next sort will correct this.
+				for (size_t i = dQue.size(); i-- > 0;){
+					if (dQue[i].Time == 1) {//means do the next bancho frame.
+						dQue[i].Time = 0;
+						Ticked = 1;
+						continue;
 					}
+					if (dQue[i].Time == 2) {
+						dQue[i].Time = 1;
+						Ticked = 1;
+						continue;
+					}
+					if (Ticked)break;
 
-				}else break;
+					if (dQue[i].Time <= cTime) {
+						dQue[i].b.GetBytes(SendBytes);
+						dQue.pop_back();
+					}else break;
+				}
 			}
 		}
-		qLock.unlock();
-
 		if (SendBytes.size())
 			s.SendData(ConstructResponse(200, (!SendToken) ? Empty_Headers : SS_PAIR_VEC{{"cho-token", std::to_string(choToken)}}, SendBytes));
 		else{
@@ -1982,44 +1974,48 @@ namespace bPacket {
 		return b;
 	}
 
-#define USER_STATS(UID, AID)\
-	[](const DWORD UserID, const DWORD AskerID)->const _BanchoPacket{\
-		if (UserID == 999)return BOT_STATS;\
-		if(UserID < 999){\
-			_BanchoPacket b = BOT_STATS;\
-			*(DWORD*)&b.Data[0] = UserID;\
-			return b;\
-		}\
-		_UserRef tP(GetUserFromID(UserID),1);\
-		if (!tP || !tP->choToken || (!(tP->privileges & UserPublic) && UserID != AskerID))\
-			return bPacket4Byte(OPac::server_userLogout, UserID);\
-		const DWORD Off = tP->GetStatsOffset();\
-\
-		_BanchoPacket b(OPac::server_userStats);\
-		b.Data.reserve(128);\
-		AddStream(b.Data, UserID);\
-		b.Data.push_back(tP->actionID);\
-\
-		AddString(b.Data, tP->ActionText);\
-		if (tP->ActionMD5[0] == 0)AddString(b.Data, "");\
-		else{\
-			AddUleb(b.Data,32);\
-			AddMem(b.Data, tP->ActionMD5, 32);\
-		}\
-		AddStream(b.Data, tP->actionMods);\
-		b.Data.push_back(tP->GameMode);\
-		AddStream(b.Data, tP->BeatmapID);\
-		AddStream(b.Data, tP->Stats[Off].rScore);\
-		AddStream(b.Data, tP->Stats[Off].Acc);\
-		AddStream(b.Data, (tP->Stats[Off].pp > USHORT(-1)) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount);\
-		AddStream(b.Data, tP->Stats[Off].tScore);\
-		AddStream(b.Data, tP->Stats[Off].getRank(Off, tP->UserID));\
-		AddStream(b.Data, USHORT(tP->Stats[Off].pp));\
-\
-		return b;\
-	}(UID,AID)
+	_BanchoPacket UserStats(const DWORD UserID, const DWORD AskerID) {
 
-	_BanchoPacket UserStats(_User *tP) {
+		if (UserID == 999)
+			return BOT_STATS; 
+		if (UserID < 999){
+				_BanchoPacket b = BOT_STATS; 
+				* (DWORD*)& b.Data[0] = UserID; 
+				return b; 
+		}
+
+		_UserRef tP(GetUserFromID(UserID), 1);
+
+		if (!tP || !tP->choToken || (!(tP->privileges & UserPublic) && UserID != AskerID))
+			return bPacket4Byte(OPac::server_userLogout, UserID);
+
+		const DWORD Off = tP->GetStatsOffset(); 
+						
+		_BanchoPacket b(OPac::server_userStats); 
+		b.Data.reserve(128); 
+		AddStream(b.Data, UserID); 
+		b.Data.push_back(tP->actionID); 
+						
+		AddString(b.Data, tP->ActionText); 
+		if (tP->ActionMD5[0] == 0)AddString(b.Data, ""); 
+		else{			
+			AddUleb(b.Data, 32); 
+			AddMem(b.Data, tP->ActionMD5, 32); 
+		}
+		AddStream(b.Data, tP->actionMods); 
+		b.Data.push_back(tP->GameMode); 
+		AddStream(b.Data, tP->BeatmapID); 
+		AddStream(b.Data, tP->Stats[Off].rScore); 
+		AddStream(b.Data, tP->Stats[Off].Acc); 
+		AddStream(b.Data, (tP->Stats[Off].pp > USHORT(-1)) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount); \
+		AddStream(b.Data, tP->Stats[Off].tScore); 
+		AddStream(b.Data, tP->Stats[Off].getRank(Off, tP->UserID)); 
+		AddStream(b.Data, USHORT(tP->Stats[Off].pp)); 
+								
+		return b;
+	}
+
+	_BanchoPacket UserStats(_User *tP){
 
 		if (!tP || !tP->choToken || !(tP->privileges & UserPublic))
 			return bPacket4Byte(OPac::server_userLogout, tP ? tP->UserID : 0);
@@ -2032,7 +2028,8 @@ namespace bPacket {
 		AddStream(b.Data, tP->UserID);
 		b.Data.push_back(tP->actionID);
 		AddString(b.Data, tP->ActionText);
-		if (tP->ActionMD5[0] == 0)AddString(b.Data, "");
+		if (tP->ActionMD5[0] == 0)
+			AddString(b.Data, "");
 		else{
 			AddUleb(b.Data, 32);
 			AddMem(b.Data, tP->ActionMD5, 32);
@@ -2049,8 +2046,6 @@ namespace bPacket {
 
 		return b;
 	}
-
-
 }
 
 
@@ -2058,7 +2053,7 @@ void debug_SendOnlineToAll(_User *u){
 
 	if (u->privileges & UserPublic){
 
-		const VEC(_BanchoPacket) Stats = { bPacket::UserPanel(u->UserID, 0) , USER_STATS(u->UserID, 0) };
+		const VEC(_BanchoPacket) Stats = { bPacket::UserPanel(u->UserID, 0) , bPacket::UserStats(u->UserID, 0) };
 
 		for (auto& User : Users)
 			if (User.choToken && &User != u)
@@ -2078,8 +2073,7 @@ void Event_client_stopSpectating(_User *u){
 
 		_BanchoPacket b = bPacket4Byte(OPac::server_fellowSpectatorLeft, u->UserID);
 
-		{
-			std::scoped_lock<std::mutex> l(SpecTarget->SpecLock);
+		if(std::scoped_lock<std::mutex> l(SpecTarget->SpecLock); 1){
 
 			for (auto& Spec : SpecTarget->Spectators){
 				if (Spec == u)
@@ -2094,7 +2088,6 @@ void Event_client_stopSpectating(_User *u){
 				SpecTarget->Spectators.clear();
 		}
 		b.Type = OPac::server_spectatorLeft;
-
 
 		AllEmptySpecs?
 			SpecTarget->addQue({ b, bPacket::GenericString(OPac::server_channelKicked, "#spectator") })
@@ -2116,21 +2109,13 @@ DWORD COUNT_REQUESTS = 0;
 DWORD COUNT_MULTIPLAYER = 0;
 
 void RenderHTMLPage(_Con s, const _HttpRes &&res){
-
-	std::vector<byte> Body;
-
-	AddStringToVector(Body, "<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/567292020104888320/unknown.png\">"
-		"<br> Online users: "+std::to_string(COUNT_CURRENTONLINE) + " | " + std::to_string(COUNT_REQUESTS) + " total connections handled."
-		"<br>"+ std::to_string(COUNT_MULTIPLAYER) + " currently active multiplayer games.</HTML>");
-
-	s.SendData(ConstructResponse(405, { {"Content-Type", "text/html; charset=utf-8"} }, Body));
+	s.SendData(ConstructResponse(405, { {"Content-Type", "text/html; charset=utf-8"} },
+		"<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/567292020104888320/unknown.png\">"
+		"<br> Online users: " + std::to_string(COUNT_CURRENTONLINE) + " | " + std::to_string(COUNT_REQUESTS) + " total connections handled."
+		"<br>" + std::to_string(COUNT_MULTIPLAYER) + " currently active multiplayer games.</HTML>"));
 }
 
 uint64_t GenerateChoToken(){
-	/*
-	for (DWORD i = 0; i < MAX_USER_COUNT; i++)
-		if (Token == User[i].choToken)goto RETRY;*///One in 18 quintillion lol... I think I will take my bets that this will never collide.
-
 	return BR::GetRand64();
 }
 
@@ -2168,7 +2153,6 @@ _inline std::string ReadUleb(size_t &O, const size_t Max) {
 	return std::string(S, Size);
 }
 _inline std::string_view ReadUleb_View(size_t& O, const size_t Max){
-
 	const DWORD Size = ReadUlebSize(O, Max);
 	const char*const S = (char*)O;
 	O += Size;
@@ -2182,63 +2166,42 @@ _inline void SkipUleb(size_t &O, const size_t Max){
 
 void Event_client_channelJoin(_User *tP,const byte* const Packet, const DWORD Size){
 
-	if (Size <= 2)
-		return;
+	if (Size > 2) {
 
-	size_t O = (size_t)&Packet[0];
+		size_t O = (size_t)&Packet[0];
 
-	const std::string ChannelName = ReadUleb(O,O + Size);
+		const std::string_view ChannelName = ReadUleb_View(O, O + Size);
 
-	_Channel *c = GetChannelByName(ChannelName);
+		_Channel* c = GetChannelByName(ChannelName);
 
-	/*if(!c && tP->CurrentlySpectating && ChannelName != "#spectator") {
-		tP->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess, ChannelName.c_str()));
-		return;
-	}*/
-	
-	if (!c) {
-		tP->addQue(bPacket::GenericString(OPac::server_channelKicked, ChannelName));
-		return;
+		if (c) {
+			c->JoinChannel(tP);
+			tP->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess, ChannelName));
+		}
+		else tP->addQue(bPacket::GenericString(OPac::server_channelKicked, ChannelName));
 	}
-
-	c->JoinChannel(tP);
-
-	tP->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess, ChannelName));
-
 }
 void Event_client_channelPart(_User *tP, const byte* const Packet, const DWORD Size){
+	if (Size > 2){
 
-	if (Size <= 2)return;
+		size_t O = (size_t)&Packet[0];
 
-	size_t O = (size_t)&Packet[0];
-
-	const std::string ChannelName = ReadUleb(O,O + Size);
-
-	_Channel *c = GetChannelByName(ChannelName);
-
-	if (!c)return;
-
-	c->PartChannel(tP);
+		if (_Channel * c = GetChannelByName(ReadUleb_View(O, O + Size)); c)
+			c->PartChannel(tP);
+	}
 }
 
-void Event_client_userStatsRequest(_User *tP, const byte* const Packet, const DWORD Size){
+void Event_client_userStatsRequest(_User *u, const byte* const Packet, const DWORD Size){
+	if (Size > 2){
 
-	if (Size <= 2)return;
+		const USHORT Count = al_min(*(USHORT*)&Packet[0], 64);
 
-	const USHORT Count = al_min(*(USHORT*)&Packet[0],64);
-
-	if ((Count << 2) + 2 > Size)return;
-
-	tP->qLock.lock();
-
-	for (DWORD i = 0; i < Count; i++) {
-
-		const DWORD UID = *(DWORD*)&Packet[2 + (i << 2)];
-
-		tP->addQueNonLocking(USER_STATS(UID, tP->UserID));
+		if ((Count << 2) + 2 <= Size) {
+			if (std::scoped_lock<std::mutex> L(u->qLock); 1)
+				for (DWORD i = 0; i < Count; i++)
+					u->addQueNonLocking(bPacket::UserStats(*(DWORD*)& Packet[2 + (i << 2)], u->UserID));
+		}
 	}
-	tP->qLock.unlock();
-
 }
 void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD Size){
 
@@ -3834,12 +3797,14 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 
 const std::vector<byte> PingPacket = _BanchoPacket(OPac::server_ping).GetBytes();
 
-constexpr USHORT operator "" _cc(const char* Code, size_t size) {
-	return size == 2 ? *(USHORT*)&Code[0] : 0;
-}
+
+constexpr USHORT operator ""_cc(const char* Code, size_t size) {
+		return size == 2 ? *(USHORT*)& Code[0] : 0;
+	}
 
 _inline byte getCountryNum(const USHORT isoCode){
 
+	
 	static USHORT const countryCodes[] = {
 	"--"_cc,"AP"_cc,"EU"_cc,"AD"_cc,"AE"_cc,"AF"_cc,"AG"_cc,"AI"_cc,"AL"_cc,"AM"_cc,"AN"_cc,"AO"_cc,"AQ"_cc,"AR"_cc,
 	"AS"_cc,"AT"_cc,"AU"_cc,"AW"_cc,"AZ"_cc,"BA"_cc,"BB"_cc,"BD"_cc,"BE"_cc,"BF"_cc,"BG"_cc,"BH"_cc,"BI"_cc,"BJ"_cc,
@@ -4180,13 +4145,13 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 			u->addQueNonLocking(bPacket::GenericDWORDList(OPac::server_friendsList, FriendsList, 0));
 			u->addQueNonLocking(bPacket::UserPanel(999, 0));
-			u->addQueNonLocking(USER_STATS(999, 0));
+			u->addQueNonLocking(bPacket::UserStats(999, 0));
 			
 			for (auto& gUser : Users) {
 				if (!gUser.choToken || &gUser == u.User || u->isBlocked(gUser.UserID))
 					continue;
 				u->addQueNonLocking(bPacket::UserPanel(gUser.UserID, UserID));
-				u->addQueNonLocking(USER_STATS(gUser.UserID, UserID));
+				u->addQueNonLocking(bPacket::UserStats(gUser.UserID, UserID));
 			}
 
 			u->SendToken = 1;
@@ -4266,12 +4231,10 @@ void HandlePacket(_Con s){
 
 		const std::string& UserAgent2 = res.GetHeaderValue("user-agent");
 
-
-		if (!UserAgent2.size()) {
+		if (!UserAgent2.size()){
 			LogMessage("No user agent set.");
-			s.SendData(ConstructResponse(200, Empty_Headers, bPacket::Notification("If there is anything that seems wrong make sure to contact rumoi.").GetBytes()));
-			s.Dis();
-			return;
+			s.SendData(ConstructResponse(200, Empty_Headers, bPacket::Notification("If there is anything that seems wrong make sure to contact rumoi.").GetBytes()));		
+			return s.Dis();
 		}
 		if (UserAgent2 != "osu!" && !choToken) {//If it is not found
 			RenderHTMLPage(s, _M(res));
@@ -4355,7 +4318,7 @@ void DoFillRank(DWORD I, bool TableName){
 	static const std::string PPColNames[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
 	static const std::string UserTableNames[] = { "users_stats","rx_stats" };
 
-	RankList[I].reserve(USHORT(-1));
+	RankList[I].List.reserve(USHORT(-1));
 
 	if (sql::ResultSet * res = SQL_BanchoThread[I].ExecuteQuery("SELECT id, " + PPColNames[I] + " FROM " + UserTableNames[TableName] +
 																" WHERE " + PPColNames[I] + " > 0 ORDER BY " + PPColNames[I] + " DESC");
@@ -4365,7 +4328,7 @@ void DoFillRank(DWORD I, bool TableName){
 			I += 4;
 
 		while (res->next())
-			RankList[I].emplace_back(res->getUInt(1), res->getUInt(2));
+			RankList[I].List.emplace_back(res->getUInt(1), res->getUInt(2));
 
 		delete res;
 	}
@@ -4482,34 +4445,28 @@ void FillRankCache(){
 	printf("Completed.\n");
 }
 
-
 std::mutex BanchoWorkLock[BANCHO_THREAD_COUNT];
 std::vector<_Con> BanchoConnectionQue[BANCHO_THREAD_COUNT];
 void BanchoWork(const DWORD ID){
+
+	VEC(_Con) Req;
+	Req.reserve(64);
+
 	while(1){
 
-		size_t Count = 0;
-		_Con* Req = 0;
+		if(BanchoConnectionQue[ID].size()){
+			{
+				std::scoped_lock<std::mutex> l(BanchoWorkLock[ID]);
 
-		Count = BanchoConnectionQue[ID].size();
+				Req.resize(BanchoConnectionQue[ID].size());
+				memcpy(&Req[0], BanchoConnectionQue[ID].data(), Req.size() * sizeof(_Con));
 
-		if (Count){
-			BanchoWorkLock[ID].lock();
-
-			Count = BanchoConnectionQue[ID].size();
-
-			Req = new _Con[Count];
-
-			if(Req)memcpy(&Req[0], &BanchoConnectionQue[ID][0], Count * sizeof(_Con));
-
-			BanchoConnectionQue[ID].clear();
-
-			BanchoWorkLock[ID].unlock();
+				BanchoConnectionQue[ID].clear();
+			}
+			for (auto& r : Req)
+				HandlePacket(r);
+			Req.clear();
 		}
-		for (DWORD i = 0; i < Count; i++)
-			HandlePacket(Req[i]);
-
-		if(Req)delete[] Req;
 
 		Sleep(1);//It being 0 literally hogs an entire core so.. No?
 	}

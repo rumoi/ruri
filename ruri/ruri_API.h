@@ -85,18 +85,18 @@ void API_GlobalLeaderBoard_Range(int& Count, const char* p, VEC(byte)& Res, _SQL
 	const int Start = *(int*)&p[Count]; Count += 4;
 	const int EndRange = *(int*)&p[Count]; Count += 4;
 
-	RankUpdate[GM].lock_shared();
+	RankList[GM].lock_shared();
 
-	const int End = al_min(RankList[GM].size(), EndRange);
+	const int End = al_min(RankList[GM].List.size(), EndRange);
 
 	Start > End ? AddStream(Res, 0) : AddStream(Res, End - Start);
 
 	for (DWORD i = Start; i < End; i++){
-		AddStream(Res, RankList[GM][i].ID);
-		AddStream(Res, RankList[GM][i].PP);
+		AddStream(Res, RankList[GM].List[i].ID);
+		AddStream(Res, RankList[GM].List[i].PP);
 	}
 
-	RankUpdate[GM].unlock_shared();
+	RankList[GM].unlock_shared();
 
 }
 

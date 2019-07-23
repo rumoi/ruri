@@ -900,8 +900,8 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 				std::string Return;
 
-				for (DWORD i = 0; i < al_min(100, RankList[0].size()); i++)
-					Return += std::to_string(i + 1) + " - " + GetUsernameFromCache(RankList[0][i].ID) + ": " + std::to_string(RankList[0][i].PP) + "\n";
+				for (DWORD i = 0; i < al_min(100, RankList[0].List.size()); i++)
+					Return += std::to_string(i + 1) + " - " + GetUsernameFromCache(RankList[0].List[i].ID) + ": " + std::to_string(RankList[0].List[i].PP) + "\n";
 
 				return Return;
 			}();

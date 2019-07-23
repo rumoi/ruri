@@ -232,7 +232,6 @@ struct _LeaderBoardCache{
 		#define TableName std::string("scores")
 	#endif
 
-
 		if (MD5.size() != 32){
 			printf("AddScore Incorrect md5 length\n");//should never happen
 			return 0;
@@ -364,7 +363,6 @@ struct _BeatmapData{
 	int RankStatus;
 
 	~_BeatmapData(){
-
 		for (DWORD i = 0; i <= GM_MAX; i++)
 				{DeleteAndNull(lBoard[i]);}
 	}
@@ -512,7 +510,6 @@ int64_t GetJsonValueInt64(const std::string &Input, const std::string &Param) {
 
 	return MemToNum<int64_t>(&Input[Start],End - Start);
 }
-
 
 std::vector<std::string> JsonListSplit(const std::string& Input){
 	
@@ -1044,8 +1041,7 @@ struct _GetParams {
 					Start = i + 1;
 					Name = 0;
 				}
-				else {
-
+				else{
 					const bool Last = i == (URL.size() - 1) && ++i;//Special case for the last
 
 					if (!Last && URL[i] != '&')
@@ -1127,16 +1123,16 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 	int Quit = -1;
 
 	std::string score,
-				bmk,//Beatmap hash - used to detect changing the map as it is loading.
-				c1,
-				osuver,
-				clienthash,
-				Image,//Used if osu thinks the person is flashlight cheating.
-				iv,ReplayFile;
+				score_bmk,//Beatmap hash - used to detect changing the map as it is loading.
+				score_c1,
+				score_osuver,
+				score_s,//client hash
+				score_i,//Used if osu thinks the person is flashlight cheating.
+				score_iv,ReplayFile;
 
 	_MD5 pass;
 
-	const auto RawScoreData = EXPLODE_MULTI(std::string, &res.Body[0], res.Body.size(), "-------------------------------28947758029299\r\n");
+	const auto RawScoreData = Explode_View_Multi(res.Body,"-------------------------------28947758029299\r\n",16);
 
 	if (RawScoreData.size() < 10){
 
@@ -1174,14 +1170,15 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			End = &RawScoreData[i][RawScoreData[i].size() - 2];
 			if (Start >= End)continue;
 
+
+			#define EXTRACT(s) if(Name == #s)score_##s = std::string(Start, End)
+
 			if (Name == "ft")
 				FailTime = MemToNum<int>(Start, DWORD(End - Start));
 			else if (Name == "x")
 				Quit = MemToNum<int>(Start, DWORD(End - Start));
-			else if (Name == "iv")
-				iv = std::string(Start, End);
-			else if (Name == "score"){
-				if(FirstScoreParam)
+			else if (Name == "score") {
+				if (FirstScoreParam)
 					score = std::string(Start, End);
 				else {
 					Start += 58;
@@ -1190,24 +1187,19 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 					ReplayFile = std::string(Start, End);
 				}
 				FirstScoreParam = 0;
-			}else if (Name == "bmk")
-				bmk = std::string(Start, End);
-			else if (Name == "c1")
-				c1 = std::string(Start, End);
-			else if (Name == "bmk")
-				bmk = std::string(Start, End);
+			}
+			else EXTRACT(iv);
+			else EXTRACT(bmk);
+			else EXTRACT(c1);
 			else if (Name == "pass")
 				pass = _MD5(std::string(Start, End));
-			else if (Name == "osuver")
-				osuver = std::string(Start, End);
-			else if (Name == "s")
-				clienthash = std::string(Start, End);
-			else if (Name == "i")
-				Image = std::string(Start, End);
-
+			else EXTRACT(osuver);
+			else EXTRACT(s);
+			else EXTRACT(i);
+#undef EXTRACT
 		}
 
-		if (!iv.size() || !clienthash.size() || !osuver.size() || !score.size()){//something very important is missing.
+		if (!score_iv.size() || !score_s.size() || !score_osuver.size() || !score.size()){//something very important is missing.
 				LogError("Failed score.","Aria");
 				return TryScoreAgain(s);
 		}
@@ -1220,13 +1212,13 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 
 
-		iv = base64_decode(iv);
+		score_iv = base64_decode(score_iv);
 		
-		const std::string Key = "osu!-scoreburgr---------" + osuver;
+		const std::string Key = "osu!-scoreburgr---------" + score_osuver;
 
 		_Score sData;
 		{
-			const std::string AES = unAesString(base64_decode(score), Key, iv);
+			const std::string AES = unAesString(base64_decode(score), Key, score_iv);
 
 			const auto ScoreData = Explode_View(AES, ':', 18);
 
@@ -1351,16 +1343,19 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				
 					PP = ezpp_pp(ez);
 
-#ifndef NO_RELAX
 					if (!Loved && PP < 30000.f){
 						if (((sData.Mods & Relax) && PP > 1400.f) || (!(sData.Mods & Relax) && PP > 700.f)) {
 							std::thread t(RestrictUser, (_User*)0, "", UserID, "Restricted due too high pp gain in a single play: " + std::to_string(PP));
 							t.detach();
 						}
 					}
-#endif
-				 MapStars = (sData.Mods & (NoFail | Relax | Relax2)) ? 0.f : ezpp_stars(ez);
-				}else u->addQue(bPacket::Notification("That gamemode is currently not supported for pp.\nYour score will still be saved for future calculations."));
+
+					 MapStars = (sData.Mods & (NoFail | Relax | Relax2)) ? 0.f : ezpp_stars(ez);
+
+				}else{
+					u->addQue(bPacket::Notification("That gamemode is currently not supported for pp.\nYour score will still be saved for future calculations."));
+					goto SENDSCORE;
+				}
 			}
 			_ScoreCache sc(sData,u.User->UserID,PP);
 			
@@ -1405,7 +1400,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 			return;
 		}
-
+		SENDSCORE:
 		s.SendData(ConstructResponse(200, Empty_Headers, FastVByteAlloc("error: no")));
 		s.Dis();
 
@@ -1448,19 +1443,17 @@ enum RankingType
 	Country
 };
 
-std::string urlDecode(const std::string_view SRC) {
+std::string urlDecode(const std::string_view SRC){
 
 	const size_t Size = SRC.size();
-
-	std::string ret;
-	ret.reserve(Size);
-
+	std::string ret(Size, '\0');
+	size_t Off = 0;
 	for (size_t i = 0; i < Size; i++)
-		ret.push_back(
-			SRC[i] == '%' && i + 2 < Size
-			? (CharHexToDecimal(SRC[i++ + 1]) << 4) + CharHexToDecimal(SRC[i++ + 1])
-			: SRC[i] == '+' ? ' ' : SRC[i]
-		);
+		ret[Off++] =
+		SRC[i] == '%' && i + 2 < Size
+		? (CharHexToDecimal(SRC[i+++1]) << 4) + CharHexToDecimal(SRC[i+++1])
+		: SRC[i] == '+' ? ' ' : SRC[i];
+	ret.resize(Off);
 
 	return ret;
 }
@@ -1628,9 +1621,9 @@ void osu_getScores(const _HttpRes &http, _Con s){
 
 std::vector<std::tuple<const int,DWORD,std::string>> UpdateCache;std::shared_mutex UpdateCache_Lock;
 
-void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
+void osu_checkUpdates(const std::string &Req,_Con s){
 
-	#define CheckURL(Text) MEM_CMP_OFF(Req, Text,_strlen_("/web/check-updates.php?action="))
+	#define CheckURL(Text) MEM_CMP_OFF(Req,Text,_strlen_("web/check-updates.php?action="))
 
 	if (!CheckURL("check")
 	 && !CheckURL("path"))
@@ -1640,7 +1633,7 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 
 	bool AlreadyIn = 0;
 
-	const int reqStream = WeakStringToInt(GetParam(std::string(Req.begin() + 1, Req.end()), "stream="));
+	const int reqStream = WeakStringToInt(GetParam(Req, "stream="));
 
 	{
 		S_MUTEX_SHARED_LOCKGUARD(UpdateCache_Lock);
@@ -1658,7 +1651,7 @@ void osu_checkUpdates(const std::vector<byte> &Req,_Con s){
 
 	S_MUTEX_LOCKGUARD(UpdateCache_Lock);
 
-	const std::string res = GET_WEB("old.ppy.sh", std::string(Req.begin() + 1, Req.end()));
+	const std::string res = GET_WEB("old.ppy.sh", _M(Req));
 
 	s.SendData(ConstructResponse(200, Empty_Headers, res));
 	s.Dis();
@@ -1907,7 +1900,7 @@ void LastFM(_GetParams&& Params, _Con s){
 
 void HandleAria(_Con s){
 
-	const char* mName = "Aria";
+	static char const*const mName = "Aria";
 
 	_HttpRes res;
 
@@ -1927,7 +1920,7 @@ void HandleAria(_Con s){
 
 	}
 	else if (MEM_CMP_START(res.Host, "/web/check-updates.php")) {
-		osu_checkUpdates(res.Host, s);
+		osu_checkUpdates(std::string(res.Host.begin()+1,res.Host.end()), s);
 	}
 	else if (MEM_CMP_START(res.Host, "/web/osu-osz2-getscores.php"))
 		osu_getScores(res, s);
@@ -2021,33 +2014,26 @@ void HandleAria(_Con s){
 
 void AriaWork(const DWORD ID){
 
+	VEC(_Con) Req;
+	Req.reserve(64);
+
 	while (1){
 
-		DWORD Count = 0;
-		_Con* Req = 0;
+		if (AriaConnectionQue[ID].size()){
 
-		Count = AriaConnectionQue[ID].size();
+			{
+				std::scoped_lock<std::mutex> l(AriaThreadLock[ID]);
 
-		if (Count) {
+				Req.resize(AriaConnectionQue[ID].size());
+				memcpy(&Req[0], AriaConnectionQue[ID].data(), Req.size() * sizeof(_Con));
 
-			AriaThreadLock[ID].lock();
+				AriaConnectionQue[ID].clear();
+			}
 
-			Count = AriaConnectionQue[ID].size();
-
-			Req = new _Con[Count];
-
-			if (Req)
-				memcpy(&Req[0], &AriaConnectionQue[ID][0], Count * sizeof(_Con));
-
-			AriaConnectionQue[ID].clear();
-
-			AriaThreadLock[ID].unlock();
+			for (auto r : Req)
+				HandleAria(r);
+			Req.clear();
 		}
-
-		for (DWORD i = 0; i < Count; i++)
-			HandleAria(Req[i]);
-
-		if (Req)delete[] Req;
 
 		Sleep(1);//It being 0 literally hogs an entire core so.. No?
 	}
