@@ -257,7 +257,7 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 		{
 			_UserRef Banned(GetUserFromID(ID), 1);
 			//If the user is online reconnect them to update their new status :)
-			if (Banned.User) {
+			if (!!Banned) {
 				Banned->privileges = BanPrivs;
 				Banned->choToken = 0;
 			}
@@ -893,7 +893,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			return "yes";
 		}
 		case _WeakStringToInt_("!rCount"):{
-			return std::to_string(u->ref) + "| Slot: " + std::to_string((size_t(u) - size_t(&Users[0])) / sizeof(_User));
+			return std::to_string(u->ref) + "| Slot: " + std::to_string(GetIndex(Users,u)) + "| Name: " + u->Username;
 		}
 		case _WeakStringToInt_("!top100"):{
 			return [&]()->std::string{
@@ -906,7 +906,15 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 				return Return;
 			}();
 		}
+		case _WeakStringToInt_("!setpp"): {
+			if (Split.size() != 2)
+				return "!cbomb <pp>";
 
+			u->Stats[0].pp = StringToNum(DWORD,Split[1]);
+			UpdateRank(u->UserID, 0, u->Stats[0].pp);
+
+			return "Set";
+		}
 		default:
 			break;
 		}

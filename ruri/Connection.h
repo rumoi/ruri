@@ -167,14 +167,16 @@ struct _Con{
 		return 1;
 	}
 
-	bool SendData(const std::string &&Data){
+	template<typename T>
+	bool SendData(const T &Data){
 
 		if (!s)
 			return 0;
 
 		DWORD Count = 0;
 		const DWORD Size = Data.size();
-		while (Count < Data.size()){
+
+		while (Count < Size){
 
 			int SendSize = Size - Count;
 

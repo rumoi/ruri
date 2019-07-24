@@ -145,7 +145,8 @@ struct _SQLCon {
 	}
 
 	bool Connect(){
-		Lock.lock();
+
+		std::scoped_lock<std::mutex> L(Lock);
 
 		bool Suc = 1;
 
@@ -157,17 +158,13 @@ struct _SQLCon {
 				return 0;
 			}
 			con = driver->connect("localhost", SQL_Username, SQL_Password);
-			if (!con) {
-				Lock.unlock();
+			if (!con)
 				return 0;
-			}
 			con->setSchema(SQL_Schema);
 		}catch (...) {
 			Suc = 0;
 		}
 		LastMessage = clock_ms();
-
-		Lock.unlock();
 		return Suc;
 	}
 
