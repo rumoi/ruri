@@ -469,97 +469,57 @@ struct _BeatmapSet{
 
 _LTable<_BeatmapSet> BeatmapSet_Cache;
 
-std::string GetJsonValue(const std::string &Input, const std::string &Param) {
-	
-	DWORD Start = Input.find("\"" + Param + "\":\"");
+std::vector<std::vector<std::pair<int, std::string_view>>> JsonListSplit(const std::string_view Input, const size_t ExpectedSize) {
 
-	if (Start == std::string::npos)
-		return "";
+	std::vector<std::vector<std::pair<int, std::string_view>>> Return;
+	Return.reserve(16);
 
-	Start += Param.size() + 4;
+	if (int BraceCount(0), NameHash(0); Input.size() > 2) {
 
-	DWORD End = Input.size();
-	for (DWORD i = Start; i < Input.size(); i++) {
-		if (Input[i] == '\"'){
-			End = i;
-			break;
-		}
-	}
-	return std::string(Input.begin() + Start, Input.begin() + End);
-}
+		bool Body(0);
+		const size_t iEnd = Input.size() - 1;
+		for (size_t i = 1; i < iEnd; i++) {
 
-int64_t GetJsonValueInt64(const std::string &Input, const std::string &Param) {
-
-	DWORD Start = Input.find("\"" + Param + "\":\"");
-
-	if (Start == std::string::npos)
-		return 0;
-
-	Start += Param.size() + 4;
-	DWORD End = Input.size();
-	for (DWORD i = Start; i < Input.size(); i++) {
-		if ((Input[i] < '0' || Input[i] > '9') && Input[i] != '-') {
-			End = i;
-			break;
-		}
-	}
-
-	return MemToNum<int64_t>(&Input[Start],End - Start);
-}
-
-std::vector<std::string> JsonListSplit(const std::string& Input){
-	
-	VEC(std::string) Return;
-
-	if (Input.size() > 2){
-
-		std::string Current;
-		Current.reserve(Input.size());
-
-		int Count = 0;
-		bool inQuote = 0;
-
-		for (DWORD i = 1; i < Input.size() - 1; i++) {
-			bool Add = 0;
 			if (Input[i] == '{') {
-
-				if (inQuote)
-					Add = 1;
-				else {
-					Count++;
-					Add = (Count > 1);
-				}
+				if (!BraceCount) {
+					Body = 0;
+					Return.emplace_back().reserve(48);
+				}BraceCount++;
 			}
 			else if (Input[i] == '}') {
-
-				if (inQuote)
-					Add = 1;
-				else if (Count > 0) {
-					Count--;
-					if (!Count) {
-						Return.push_back(Current);
-						Current.clear();
+				if (BraceCount > 0)
+					BraceCount--;
+			}
+			else if (BraceCount) {
+				if (int startIndex = i + 1; Input[i] == '\"') {
+					i++;
+					for (; i < iEnd; i++) {
+						if (Input[i] == '\"' && Input[i - 1] != '\\') {
+							if (!Body)
+								NameHash = WeakStringToInt(std::string_view((const char*)& Input[startIndex], i - startIndex));
+							else {
+								if (NameHash)
+									Return.back().emplace_back(NameHash, std::string_view((const char*)& Input[startIndex], i - startIndex));
+								NameHash = 0;
+							}
+							Body = !Body;
+							break;
+						}
 					}
-
 				}
 			}
-			else if (Count > 0 && Input[i] == '\"') {
-				if (Count > 0) {
-					inQuote = !inQuote;
-					Add = 1;
-				}
-			}
-			else Add = (Count > 0);
-
-			if (Add)
-				Current.push_back(Input[i]);
 		}
-
-		if (Current.size())
-			Return.push_back(Current);
-
 	}
 	return Return;
+}
+
+_inline std::string_view JsonListGet(const int Key, const std::vector<std::pair<int, std::string_view>> &List){
+
+	for (size_t i = 0; i < List.size(); i++)
+		if (List[i].first == Key)
+			return List[i].second;
+
+	return std::string_view();
 }
 
 void ExtractDiffName(std::string &SRC){
@@ -708,35 +668,38 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 
 		if (ApiRes.size()){
 			
-			const auto BeatmapData = JsonListSplit(ApiRes);
+			const auto BeatmapData = JsonListSplit(ApiRes,48);
 
-			if (BeatmapData.size() != 0){
+			if (BeatmapData.size()){
 
 				VEC(DWORD) AddedMaps;
 				AddedMaps.reserve(BeatmapData.size());
 
-				for (const auto& Maps : BeatmapData) {
+				for (auto& MapData : BeatmapData){
 
-					const std::string MD5 = REMOVEQUOTES(GetJsonValue(Maps, "file_md5"));
-					const DWORD beatmap_id = StringToNum(DWORD,GetJsonValue(Maps, "beatmap_id"));
+					std::string MD5 = std::string(JsonListGet(_WeakStringToInt_("file_md5"),MapData));
+					{
+						for (char& c : MD5)
+							if (c == '\'')
+								c = ' ';
+					}
+
+					const DWORD beatmap_id = StringToNum(DWORD, JsonListGet(_WeakStringToInt_("beatmap_id"), MapData));
 
 					if (beatmap_id && MD5.size() == 32){
 
-						float diff_size = 0.f, diff_overall = 0.f, diff_approach = 0.f;
-						int Length = 0, RankedStatus = 0, MaxCombo = 0, BPM = 0;
-						byte mode = 0;
+						float diff_size = StringToNum(float, JsonListGet(_WeakStringToInt_("diff_size"), MapData))
+							, diff_overall = StringToNum(float, JsonListGet(_WeakStringToInt_("diff_overall"), MapData))
+							, diff_approach = StringToNum(float, JsonListGet(_WeakStringToInt_("diff_approach"), MapData));
 
-						//"C++ needs exceptions!" - noone
+						int Length = StringToNum(int, JsonListGet(_WeakStringToInt_("hit_length"), MapData))
+							, RankedStatus = StringToNum(int, JsonListGet(_WeakStringToInt_("approved"), MapData))
+							, MaxCombo = StringToNum(int, JsonListGet(_WeakStringToInt_("max_combo"), MapData))
+							, BPM = StringToNum(int, JsonListGet(_WeakStringToInt_("bpm"), MapData));
 
-						try { diff_size = std::stof(GetJsonValue(Maps, "diff_size")); }catch (...) {}
-						try { diff_overall = std::stof(GetJsonValue(Maps, "diff_overall")); }catch (...) {}
-						try { diff_approach = std::stof(GetJsonValue(Maps, "diff_approach")); }catch (...) {}
-						try { Length = std::stoi(GetJsonValue(Maps, "hit_length")); }catch (...) {}
-						try { RankedStatus = std::stoi(GetJsonValue(Maps, "approved")); }catch (...) {}
-						try { MaxCombo = std::stoi(GetJsonValue(Maps, "max_combo")); }catch (...) {}
-						try { BPM = std::stoi(GetJsonValue(Maps, "bpm")); }catch (...) {}
+						byte mode = StringToNum(byte, JsonListGet(_WeakStringToInt_("mode"), MapData));
 
-						std::string Title = GetJsonValue(Maps, "artist") + " - " + GetJsonValue(Maps, "title") + " [" + GetJsonValue(Maps, "version") + "]";
+						std::string Title = std::string(JsonListGet(_WeakStringToInt_("artist"), MapData)) + " - " + std::string(JsonListGet(_WeakStringToInt_("title"), MapData)) + " [" + std::string(JsonListGet(_WeakStringToInt_("version"), MapData)) + "]";
 						FileNameClean(Title);
 						ReplaceAll(Title, "'", "''");
 

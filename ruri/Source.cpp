@@ -379,20 +379,24 @@ _inline T MemToNum(const void* P, const size_t Size) {
 
 #define StringToNum(TYPE, STRING) [](const std::string_view S){return MemToNum<TYPE>(&S[0], S.size());}(STRING)
 
-
 #define DeleteAndNull(s)if(s)delete s;s=0
 
-#define MEM_CMP_START(VECT, STR)\
-	[&]()->bool{\
-		const char*const rS = STR;\
-		const size_t rS_Size = _strlen_(STR);\
-		if(rS_Size > VECT.size())return 0;\
-\
-		for(size_t ii=0; ii < rS_Size;ii++)\
-			if(rS[ii] != VECT[ii])return 0;\
-\
-		return 1;\
-	}()
+template<typename T, const size_t Size>
+	_inline bool MEM_CMP_START(const T& VECT, const char (&STR)[Size]){
+
+		if (const size_t InputSize = VECT.size();
+			Size <= InputSize){
+
+			for (DWORD i = 0; i < InputSize; i++)
+				if (static_cast<char>(VECT[i]) != STR[i])
+					return 0;
+
+			return 1;
+		}
+
+		return 0;
+	}
+
 #define MEM_CMP_OFF(VECT, STR, OFF)\
 	[&]()->bool{\
 		const char*const rS = STR;\
@@ -625,13 +629,15 @@ std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &&Pa
 	return p;
 }
 
-#define WeakStringToInt(s)\
-	[&](){\
-		int Return = 0;\
-		for (DWORD i = 0; i < s.size(); i++)\
-			 Return += (s[i] ^ i) << (((i << 4) % 32));\
-		return Return;\
-	}()
+template<typename T>
+	_inline int WeakStringToInt(const T& s){
+		int Return = 0;
+
+		for (DWORD i = 0; i < s.size(); i++)
+			Return += (s[i] ^ i) << (((i << 4) % 32));
+
+		return Return;
+	}
 
 constexpr int _WeakStringToInt_(const char* c,DWORD O = 0, int CurrentValue = 0) noexcept{	
 	return (c[O]) ? _WeakStringToInt_(c,O+1, CurrentValue + ((c[O] ^ O) << (((O << 4) % 32)))) : CurrentValue;
@@ -1127,19 +1133,17 @@ const VEC(std::string_view) Explode_View(const T& Input, const char Delim, const
 					  This branch has to be here.
 					  If a std::string_view is passed into Explode_View and the reference operator is called (&)
 					  with a square bracket array ([i]) It will offset the reference to the reference and NOT the original reference point.
-					  This will crash on the first &Input[0] if the size is 0 as well - it will try to read unintalized memory;
+					  This will crash on the first &Input[0] if the size is 0 as well - it will try to read uninitialized memory;
 					  */
 		Views.reserve(ExpectedSize);
 
 		size_t Start = size_t(&Input[0]);
 
-		for (const auto& c : Input) {//This needs to be auto. Setting it to anything else could cause an implicit cast - making the reference a local.
-
-			if (c == Delim) {
+		for (auto& c : Input) {
+			if (static_cast<char>(c) == Delim) {
 				Views.emplace_back((const char*)Start, size_t(&c) - size_t(Start));
 				Start = size_t(&c) + 1;
 			}
-
 		}
 
 		if (size_t End = size_t(&Input[0]) + Input.size(); Start != End)
@@ -1243,8 +1247,8 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 	double TotalAcc = 0.;
 	double TotalPP = 0.;
 
-	if (auto res = SQL->ExecuteQuery("SELECT accuracy,pp FROM " + ScoreTableName + " WHERE userid=" + std::to_string(UserID) + "&&play_mode=" + std::to_string(GameMode) + "&&completed=3&&pp>0 ORDER BY pp DESC LIMIT 100");
-		1){
+	if (auto res = SQL->ExecuteQuery("SELECT accuracy,pp FROM " + ScoreTableName +
+	" WHERE userid=" + std::to_string(UserID) + "&&play_mode=" + std::to_string(GameMode) + "&&completed=3&&pp>0 ORDER BY pp DESC LIMIT 100"); res){
 		while(res->next()){
 			if(Count < 50)
 				TotalAcc += res->getDouble(1);
@@ -1253,10 +1257,14 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 		}
 		delete res;
 	}
-	const double ACC = (!Count) ? 0.f : (TotalAcc / double((Count > 50) ? 50 : Count));
-	
-	const float acc = (!Count) ? 0.f : ACC / 100.f;
+
+
+
+	float acc = 0.f;
 	const int pp = (int)round(TotalPP);
+
+	if (Count)
+		acc = double(TotalAcc / double(Count > 50 ? 50. : Count)) / 100.;
 
 	if (acc != stats.Acc || pp != stats.pp || &stats == &RecalculatingStats){
 
@@ -1266,7 +1274,7 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 		stats.pp = pp;
 		stats.Acc = acc;
 
-		SQLExecQue.AddQue("UPDATE " + StatsTableName + " SET " + AccColName[GameMode] + " = " + std::to_string(ACC) + ", "
+		SQLExecQue.AddQue("UPDATE " + StatsTableName + " SET " + AccColName[GameMode] + " = " + std::to_string(acc * 100.) + ", "
 			+ ppColName[GameMode] + " = " + std::to_string(TotalPP)
 			+ " WHERE id = " + std::to_string(UserID) + " LIMIT 1");
 	}
@@ -4620,7 +4628,6 @@ std::string ExtractConfigValue(const std::vector<byte> &Input){
 		}
 	}
 
-
 	if (!Start || !End)
 		return "";
 
@@ -4636,7 +4643,7 @@ int main() {
 		return 0;
 	}
 
-#define V ExtractConfigValue(std::vector<byte>(Config.cbegin(),Config.cend()))
+	#define V ExtractConfigValue(std::vector<byte>(Config.cbegin(),Config.cend()))
 
 	for (const auto& Config : Explode_View(ConfigBytes, '\n', 1)) {
 
@@ -4652,14 +4659,14 @@ int main() {
 			BeatmapPath = V;
 		else if (MEM_CMP_START(Config, "ReplayPath"))
 			ReplayPath = V;
-		else if (MEM_CMP_START(Config, "GeneralName")) {
+		else if (MEM_CMP_START(Config, "GeneralName")){
 			chan_General.ChannelName = V;
 			chan_General.NameSum = WeakStringToInt(chan_General.ChannelName);
 		}
 
 	}
 
-#undef V
+	#undef V
 
 	static_assert((BANCHO_THREAD_COUNT >= 4 && ARIA_THREAD_COUNT >= 4),
 		"BANCHO_THREAD_COUNT or ARIA_THREAD_COUNT can not be below 4");
