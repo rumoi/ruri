@@ -134,7 +134,7 @@ enum RankStatus {
 #define S_MUTEX_LOCKGUARD(a) std::scoped_lock<std::shared_mutex> LOCKGUARD(a)
 
 #define CHO_VERSION 19
-
+#define USERID_START 1000
 #define _M(a) std::move(a)
 
 const int PING_TIMEOUT_OSU = 80000;//yes thanks peppy
@@ -320,7 +320,7 @@ constexpr size_t _strlen_(const char* s)noexcept{
 template<typename T, size_t size>
 constexpr size_t aSize(const T(&)[size]) noexcept{ return size; }
 
-#define ZeroArray(s) memset(s,0,aSize(s) * sizeof(s[0]))
+#define ZeroArray(s) memset(s,0,sizeof(s))
 
 template<const size_t size>
 constexpr std::array<char, size - 1> STACK(const char(&String)[size]) {
@@ -667,25 +667,25 @@ void UpdateUsernameCache(_SQLCon *SQL){
 	{
 		std::scoped_lock<std::shared_mutex> l(UsernameCacheLock);
 
-		sql::ResultSet* res = SQL->ExecuteQuery("SELECT id,username FROM users WHERE id >= " + std::to_string(UsernameCache.size() + 1000) + " ORDER BY id DESC");
+		sql::ResultSet* res = SQL->ExecuteQuery("SELECT id,username FROM users WHERE id >= " + std::to_string(UsernameCache.size() + USERID_START) + " ORDER BY id DESC");
 
 		if (res && res->next()) {
 			Count = 1;
 
 			const DWORD HighestID = res->getUInt(1);
-			if (HighestID >= 1000) {
+			if (HighestID >= USERID_START) {
 
-				UsernameCache.resize(HighestID - 999);
-				UsernameCache[HighestID - 1000] = res->getString(2);
+				UsernameCache.resize(HighestID - (USERID_START - 1));
+				UsernameCache[HighestID - USERID_START] = res->getString(2);
 
 				while (res->next()) {
 					const DWORD ID = res->getUInt(1);
 
-					if (ID < 1000)
+					if (ID < USERID_START)
 						break;
 
 					Count++;
-					UsernameCache[ID - 1000] = res->getString(2);
+					UsernameCache[ID - USERID_START] = res->getString(2);
 				}
 			}
 		}
@@ -699,10 +699,10 @@ std::string GetUsernameFromCache(const DWORD UID){
 	
 	std::string Res = "";
 
-	if (UID >= 1000){
+	if (UID >= USERID_START){
 		UsernameCacheLock.lock_shared();
-		if ((UID - 1000) < UsernameCache.size()) {
-			Res = UsernameCache[UID - 1000];
+		if ((UID - USERID_START) < UsernameCache.size()) {
+			Res = UsernameCache[UID - USERID_START];
 		}
 		UsernameCacheLock.unlock_shared();
 	}
@@ -710,15 +710,15 @@ std::string GetUsernameFromCache(const DWORD UID){
 }
 void UsernameCacheUpdateName(const DWORD UID, const std::string &s, _SQLCon *SQL){
 
-	if (UID >= 1000){
+	if (UID >= USERID_START){
 
 		UsernameCacheLock.lock_shared();
 
-		if (UID - 1000 >= UsernameCache.size()) {
+		if (UID - USERID_START >= UsernameCache.size()) {
 			UsernameCacheLock.unlock_shared();
 			return UpdateUsernameCache(SQL);
 		}
-		UsernameCache[UID - 1000] = s;
+		UsernameCache[UID - USERID_START] = s;
 
 		UsernameCacheLock.unlock_shared();
 	}
@@ -805,7 +805,7 @@ struct _SQLQue{
 
 DWORD GetRank(const DWORD UserID, const DWORD GameMode){//Could use the cached pp to tell around where its supposed to be?
 
-	if (UserID < 1000 || GameMode > GM_MAX || RankList[GameMode].List.size() == 0)
+	if (UserID < USERID_START || GameMode > GM_MAX || RankList[GameMode].List.size() == 0)
 		return 0;
 
 	DWORD Rank = 0;
@@ -828,7 +828,7 @@ DWORD GetRank(const DWORD UserID, const DWORD GameMode){//Could use the cached p
 
 void UpdateRank(const DWORD UserID, const DWORD GameMode, const DWORD PP){
 
-	if (!PP || UserID < 1000 || GameMode > GM_MAX)
+	if (!PP || UserID < USERID_START || GameMode > GM_MAX)
 		return;
 	{
 
@@ -1227,7 +1227,9 @@ _UserStats RecalculatingStats;
 
 bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _UserStats &stats){
 
-	if (GameMode >= 8)return 0;
+	if (GameMode > GM_MAX)
+		return 0;
+
 	const DWORD RawGameMode = GameMode;
 	const std::string ScoreTableName = (GameMode >= 4) ? "scores_relax" : "scores";
 	const std::string StatsTableName = (GameMode >= 4) ? "rx_stats" : "users_stats";
@@ -1237,19 +1239,20 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 
 	GameMode = GameMode % 4;
 
-	auto res = SQL->ExecuteQuery("SELECT accuracy,pp FROM " + ScoreTableName + " WHERE userid = " + std::to_string(UserID) + " AND play_mode = " + std::to_string(GameMode) + " AND completed = 3 AND pp > 0 ORDER BY pp DESC LIMIT 100");
 	DWORD Count = 0;
 	double TotalAcc = 0.;
 	double TotalPP = 0.;
 
-	while (res && res->next()){
-		if(Count < 50)
-			TotalAcc += res->getDouble(1);
-		TotalPP += res->getDouble(2) * std::pow(0.95,double(Count));
-		Count++;
+	if (auto res = SQL->ExecuteQuery("SELECT accuracy,pp FROM " + ScoreTableName + " WHERE userid=" + std::to_string(UserID) + "&&play_mode=" + std::to_string(GameMode) + "&&completed=3&&pp>0 ORDER BY pp DESC LIMIT 100");
+		1){
+		while(res->next()){
+			if(Count < 50)
+				TotalAcc += res->getDouble(1);
+			TotalPP += res->getDouble(2) * std::pow(0.95, double(Count));
+			Count++;
+		}
+		delete res;
 	}
-	DeleteAndNull(res);
-
 	const double ACC = (!Count) ? 0.f : (TotalAcc / double((Count > 50) ? 50 : Count));
 	
 	const float acc = (!Count) ? 0.f : ACC / 100.f;
@@ -1405,7 +1408,7 @@ struct _User{
 	DWORD ref;
 
 	bool AddBlock(const DWORD UID){
-		if (UID >= 1000)
+		if (UID >= USERID_START)
 			for (byte i = 0; i < aSize(Blocked); i++) {
 				if (!Blocked[i] || Blocked[i] == UID) {
 					Blocked[i] = UID;
@@ -1472,7 +1475,7 @@ struct _User{
 		return 0;
 	}
 	bool isBlocked(const DWORD ID) const{
-		if (UserID < 1000 || ID == UserID)
+		if (UserID < USERID_START || ID == UserID)
 			return 0;
 
 		for (DWORD i = 0; i < aSize(Blocked); i++)
@@ -1718,7 +1721,7 @@ _User* GetPlayerSlot_Safe(const std::string &UserName){
 
 _User* GetUserFromID(DWORD ID){
 
-	if (ID >= 1000)
+	if (ID >= USERID_START)
 		for (auto& User : Users) {
 			UserDoubleCheck(User.UserID == ID)
 			return &User;
@@ -1805,7 +1808,7 @@ namespace bPacket {
 		return b;
 	}
 
-	_BanchoPacket BotMessage_NonDefault(const std::string_view Target, const std::string_view message, const std::string_view Name , const DWORD ID = 999) {
+	_BanchoPacket BotMessage_NonDefault(const std::string_view Target, const std::string_view message, const std::string_view Name , const DWORD ID = (USERID_START - 1)) {
 
 		_BanchoPacket b(OPac::server_sendMessage);
 
@@ -1828,7 +1831,7 @@ namespace bPacket {
 		AddString(b.Data, BOT_NAME);
 		AddString(b.Data, message);
 		AddString(b.Data, Target);
-		AddStream(b.Data,999);
+		AddStream(b.Data,(USERID_START-1));
 
 		return b;
 	}
@@ -1840,7 +1843,7 @@ namespace bPacket {
 
 const _BanchoPacket BOT_STATS = [] {
 	_BanchoPacket b(OPac::server_userStats);
-	AddStream(b.Data, 999);
+	AddStream(b.Data, (USERID_START-1));
 	b.Data.push_back(0);//actionID
 	AddString(b.Data, "");//actiontext
 	AddString(b.Data, "");//md5
@@ -1942,10 +1945,10 @@ namespace bPacket {
 
 	_BanchoPacket UserPanel(const DWORD UserID, const DWORD AskerID) {
 
-		if (UserID < 1000){
+		if (UserID < USERID_START){
 			_BanchoPacket b(OPac::server_userPanel);b.Data.reserve(32);
 			AddStream(b.Data, UserID);
-			AddString(b.Data, UserID == 999 ? BOT_NAME : UserID == 98 ? FAKEUSER_NAME : "Not Set");
+			AddString(b.Data, UserID == (USERID_START-1) ? BOT_NAME : "Not Set");
 			b.Data.push_back(0);//timezone
 			b.Data.push_back(BOT_LOCATION);//country
 			b.Data.push_back(UserType::Peppy);//userank
@@ -1993,9 +1996,9 @@ namespace bPacket {
 
 	_BanchoPacket UserStats(const DWORD UserID, const DWORD AskerID) {
 
-		if (UserID == 999)
+		if (UserID == USERID_START-1)
 			return BOT_STATS; 
-		if (UserID < 999){
+		if (UserID < USERID_START){
 				_BanchoPacket b = BOT_STATS; 
 				* (DWORD*)& b.Data[0] = UserID; 
 				return b; 
@@ -2822,7 +2825,7 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 
 	const DWORD ID = *(DWORD*)&Packet[0];
 
-	if (ID < 1000 || ID == tP->UserID)
+	if (ID < USERID_START || ID == tP->UserID)
 		return tP->addQue(bPacket::Notification("You can not spectate that user."));
 
 	_UserRef SpecTarget(GetUserFromID(ID),1);
@@ -3525,7 +3528,7 @@ void Event_client_invite(_User *tP, const byte* const Packet, const DWORD Size){
 
 	const DWORD TID = *(DWORD*)&Packet[0];
 
-	if (TID < 1000)
+	if (TID < USERID_START)
 		return tP->addQue(bPacket::BotMessage("#multiplayer", "Why would a bot want to join your match? You dirty shaved monkey."));;
 
 	_UserRef Target(GetUserFromID(TID),1);
@@ -4150,7 +4153,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 			std::vector<DWORD> FriendsList;
 			FriendsList.reserve(aSize(u->Friends));
-			FriendsList.push_back(999);//Bot is always their friend.
+			FriendsList.push_back(USERID_START-1);//Bot is always their friend.
 			FriendsList.push_back(UserID);//Shows self in the friend ranking.
 
 			for (DWORD i = 0; i < aSize(u->Friends); i++) {
@@ -4160,8 +4163,8 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 			}
 
 			u->addQueNonLocking(bPacket::GenericDWORDList(OPac::server_friendsList, FriendsList, 0));
-			u->addQueNonLocking(bPacket::UserPanel(999, 0));
-			u->addQueNonLocking(bPacket::UserStats(999, 0));
+			u->addQueNonLocking(bPacket::UserPanel(USERID_START-1, 0));
+			u->addQueNonLocking(bPacket::UserStats(USERID_START-1, 0));
 			
 			for (auto& gUser : Users) {
 				if (!gUser.choToken || &gUser == u.User || u->isBlocked(gUser.UserID))

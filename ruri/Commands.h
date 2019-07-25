@@ -236,7 +236,7 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 	if(BanPrivs & Privileges::AdminDev)
 		return Respond("Developers can only be demoted directly through the SQL.");
 
-	if(Caller && (BanPrivs & Privileges::AdminManageUsers) && !(Caller->privileges & Privileges::AdminDev) || ID < 1000)
+	if(Caller && (BanPrivs & Privileges::AdminManageUsers) && !(Caller->privileges & Privileges::AdminDev) || ID < USERID_START)
 		return Respond("You do not have the perms to restrict that user.");
 
 	if (BanPrivs & Privileges::UserPublic){
@@ -430,7 +430,7 @@ std::string BlockUser(_User* u, const std::string_view Target, const bool UnBloc
 
 	DeleteAndNull(res);
 
-	if (UserID < 1000)
+	if (UserID < USERID_START)
 		return "User not found.";
 
 	if (u->UserID == UserID)

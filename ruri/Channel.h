@@ -185,7 +185,7 @@ struct _Channel{
 
 		if (!ChannelCount)return;
 
-		const _BanchoPacket b = bPacket::Message(BOT_NAME, ChannelName, message, 999);
+		const _BanchoPacket b = bPacket::Message(BOT_NAME, ChannelName, message, USERID_START-1);
 
 		for (auto const User : IRCUsers){
 
