@@ -385,9 +385,9 @@ template<typename T, const size_t Size>
 	_inline bool MEM_CMP_START(const T& VECT, const char (&STR)[Size]){
 
 		if (const size_t InputSize = VECT.size();
-			Size <= InputSize){
+			InputSize >= Size - 1) {
 
-			for (DWORD i = 0; i < InputSize; i++)
+			for (DWORD i = 0; i < Size - 1; i++)
 				if (static_cast<char>(VECT[i]) != STR[i])
 					return 0;
 
