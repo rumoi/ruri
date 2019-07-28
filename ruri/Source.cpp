@@ -2271,16 +2271,13 @@ std::vector<byte> LOAD_FILE_RAW(const std::string& FILENAME) {
 
 	VEC(byte) Ret;
 
-	const bool Open = f.is_open();
-
-	if (const size_t pos = !Open ? 0 : (size_t)f.tellg(); pos) {
+	if (f.is_open()) {
+		const size_t pos = (size_t)f.tellg();
 		Ret.resize(pos);
 		f.seekg(0, std::ios::beg);
 		f.read((char*)&Ret[0], pos);
-	}
-
-	if (Open)
 		f.close();
+	}
 
 	return Ret;
 }

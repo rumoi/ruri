@@ -689,17 +689,20 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 					if (beatmap_id && MD5.size() == 32){
 
 						float diff_size = StringToNum(float, JsonListGet(_WeakStringToInt_("diff_size"), MapData))
-							, diff_overall = StringToNum(float, JsonListGet(_WeakStringToInt_("diff_overall"), MapData))
-							, diff_approach = StringToNum(float, JsonListGet(_WeakStringToInt_("diff_approach"), MapData));
+							 ,diff_overall = StringToNum(float, JsonListGet(_WeakStringToInt_("diff_overall"), MapData))
+							 ,diff_approach = StringToNum(float, JsonListGet(_WeakStringToInt_("diff_approach"), MapData));
 
 						int Length = StringToNum(int, JsonListGet(_WeakStringToInt_("hit_length"), MapData))
-							, RankedStatus = StringToNum(int, JsonListGet(_WeakStringToInt_("approved"), MapData))
-							, MaxCombo = StringToNum(int, JsonListGet(_WeakStringToInt_("max_combo"), MapData))
-							, BPM = StringToNum(int, JsonListGet(_WeakStringToInt_("bpm"), MapData));
+							,RankedStatus = StringToNum(int, JsonListGet(_WeakStringToInt_("approved"), MapData))
+							,MaxCombo = StringToNum(int, JsonListGet(_WeakStringToInt_("max_combo"), MapData))
+							,BPM = StringToNum(int, JsonListGet(_WeakStringToInt_("bpm"), MapData));
 
-						byte mode = StringToNum(byte, JsonListGet(_WeakStringToInt_("mode"), MapData));
+						const byte mode = StringToNum(byte, JsonListGet(_WeakStringToInt_("mode"), MapData));
 
-						std::string Title = std::string(JsonListGet(_WeakStringToInt_("artist"), MapData)) + " - " + std::string(JsonListGet(_WeakStringToInt_("title"), MapData)) + " [" + std::string(JsonListGet(_WeakStringToInt_("version"), MapData)) + "]";
+						std::string Title = std::string(JsonListGet(_WeakStringToInt_("artist"), MapData)) +
+							" - " + std::string(JsonListGet(_WeakStringToInt_("title"), MapData)) +
+							" [" + std::string(JsonListGet(_WeakStringToInt_("version"), MapData)) + "]";
+
 						FileNameClean(Title);
 						ReplaceAll(Title, "'", "''");
 
@@ -710,11 +713,10 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 						else if (RankedStatus == osuapi_loved)
 							RankedStatus = LOVED;
 
-
 						auto AlreadyThere = SQLCon->ExecuteQuery("SELECT id, ranked FROM beatmaps WHERE beatmap_id = " + std::to_string(beatmap_id) + " LIMIT 1");
 						
 
-						if (AlreadyThere && AlreadyThere->next()){
+						if (AlreadyThere && AlreadyThere->next()) {
 
 							const int oldStatus = AlreadyThere->getInt(2);
 
@@ -740,6 +742,7 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 								_SQLKey("song_name", _M(Title)),
 								_SQLKey("ar", std::to_string(diff_approach)),
 								_SQLKey("od", std::to_string(diff_overall)),
+								_SQLKey("mode", std::to_string(mode)),
 								_SQLKey("difficulty_std", 0),
 								_SQLKey("difficulty_taiko", 0),
 								_SQLKey("difficulty_ctb", 0),
@@ -777,11 +780,12 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 				LogMessage(CountString.c_str(), mName);
 
 				LogMessage("Got data. Attempting grab again.", mName);
-				/*Set = GetMapData(SQLCon);
+				Set = GetMapData(SQLCon);
 
 				if (Set) LogMessage("Grab success.", mName);
-				else     LogMessage("Grab fail.", mName);*/
-				return 0;
+				else     LogMessage("Grab fail.", mName);
+
+				return Set;
 				
 			}else{
 				LogMessage("SetID has been removed from the osu server\n", mName);
@@ -1359,7 +1363,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				u.User->addQue(bPacket::UserStats(u.User));
 
 			if (NewBest && sc.ScoreID && ReplayFile.size())
-				WriteAllBytes(ReplayPath +std::to_string(sc.ScoreID) + ".osr",&ReplayFile[0], ReplayFile.size());
+				WriteAllBytes(ReplayPath + std::to_string(sc.ScoreID) + ".osr",&ReplayFile[0], ReplayFile.size());
 
 			return;
 		}
@@ -1645,15 +1649,15 @@ const std::string directToApiStatus(const std::string &directStatus) {//thank yo
 	return "1";
 }
 
-void GetReplay(const std::string &URL, _Con s){
+void GetReplay(const std::string_view URL, _Con s){
 
-	std::string ID = GetParam(URL, "&c=");
+	std::string ID = std::string(_GetParams{URL}.get(_WeakStringToInt_("c")));
+
 	for (auto& c : ID)
 		if (c == '.')
 			c = '/';
 
-	if (const std::vector<byte> Data = LOAD_FILE_RAW(ReplayPath + ID + ".osr"); Data.size())
-		s.SendData(ConstructResponse(200, Empty_Headers, Data));
+	s.SendData(ConstructResponse(200, Empty_Headers, LOAD_FILE_RAW(ReplayPath + ID + ".osr")));
 
 	return s.Dis();
 }
@@ -1672,12 +1676,12 @@ static inline uint64_t UnixToDateTime(const int Unix){
 void Thread_WebReplay(const uint64_t ID, _Con s){
 
 	auto res = SQL_BanchoThread[clock() & 3].ExecuteQuery("SELECT userid,play_mode,beatmap_md5,300_count,100_count,50_count,gekis_count,katus_count,misses_count,score,max_combo,full_combo,mods,time"
-								 "FROM scores" + std::string(ID > 500000000u ? "" : "_relax")
+								 " FROM scores" + std::string(ID > 500000000u ? "" : "_relax")
 							   + " WHERE id=" + std::to_string(ID) + " LIMIT 1");
 
 	if (const std::vector<byte>& Data = LOAD_FILE_RAW(ReplayPath + std::to_string(ID) + ".osr"); Data.size() && res && res->next())
 	{
-		const std::vector<byte> Total = [&] {
+		const std::vector<byte> Total = [&]{
 
 			std::vector<byte> Ret;
 			Ret.reserve(256 + Total.size());
@@ -1919,7 +1923,7 @@ void HandleAria(_Con s){
 			}
 		}
 
-		if (Start) {
+		if (Start){
 
 			MIRROR::MirrorAPILock.lock();
 			MIRROR::MirrorAPIQue.emplace_back("api/search?" + std::string(res.Host.begin() + Start, res.Host.end()),s);
@@ -1929,7 +1933,7 @@ void HandleAria(_Con s){
 		}
 	}
 	else if (MEM_CMP_START(res.Host, "/web/osu-getreplay.php"))
-		GetReplay(std::string(res.Host.begin(), res.Host.end()), s);
+		GetReplay(std::string_view((const char*)&res.Host[0], res.Host.size()), s);
 	else if (MEM_CMP_START(res.Host, "/d/")) {
 
 		std::string v;
@@ -1960,8 +1964,8 @@ void HandleAria(_Con s){
 	}
 	else if (MEM_CMP_START(res.Host, "/web/osu-screenshot.php"))
 		UploadScreenshot(res, s);
-	//else if (MEM_CMP_START(res.Host, "/web/lastfm.php"))
-	//	LastFM(_GetParams(std::string_view((const char*)&res.Host[0],res.Host.size())),s);
+	else if (MEM_CMP_START(res.Host, "/web/lastfm.php"))
+		LastFM(_GetParams(std::string_view((const char*)&res.Host[0],res.Host.size())),s);
 	else SendAria404(s);
 
 	if (!DontCloseConnection){
