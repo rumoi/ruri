@@ -279,7 +279,6 @@ const unsigned int MAX_PACKET_LENGTH = 2816;
 
 #include "Linux.h"
 
-
 #define RURI_UNIX_SOCKET "/tmp/ruri.sock"
 #define ARIA_UNIX_SOCKET "/tmp/aria.sock"
 
@@ -288,7 +287,6 @@ const unsigned int MAX_PACKET_LENGTH = 2816;
 #define _inline __attribute__((always_inline))
 
 #endif
-
 
 #include <thread>
 
@@ -334,48 +332,48 @@ constexpr std::array<char, size - 1> STACK(const char(&String)[size]) {
 #include <cmath>
 
 template<typename T>
-_inline T MemToNum(const void* P, const size_t Size) {
-	if (auto C = (const char*)P; P && Size) {
-		T Return = T();
-		if constexpr (std::is_same<T, float>::value || std::is_same<T, double>::value) {
+	_inline T MemToNum(const void* P, const size_t Size) {
+		if (auto C = (const char*)P; P && Size) {
+			T Return = T();
+			if constexpr (std::is_same<T, float>::value || std::is_same<T, double>::value) {
 
-			int i = 0;
-
-			for (; i < Size; i++) {
-				const byte c = C[i] - '0';
-				if (c == 254) {//.
-					i++;
-					break;
-				}
-				if (c <= 9)
-					Return = (Return * T(10)) + (c);
-			}
-			if (i < Size) {
-
-				T e = T();
-				int count = 0;
+				int i = 0;
 
 				for (; i < Size; i++) {
 					const byte c = C[i] - '0';
-					if (c <= 9) {
-						count++;
-						e = (e * T(10)) + (c);
+					if (c == 254) {//.
+						i++;
+						break;
 					}
+					if (c <= 9)
+						Return = (Return * T(10)) + (c);
 				}
-				Return += e / std::pow(T(10), count);
+				if (i < Size) {
+
+					T e = T();
+					int count = 0;
+
+					for (; i < Size; i++) {
+						const byte c = C[i] - '0';
+						if (c <= 9) {
+							count++;
+							e = (e * T(10)) + (c);
+						}
+					}
+					Return += e / std::pow(T(10), count);
+				}
+				return (Size && *(char*)P == '-') ? -Return : Return;
+			}
+
+			for (size_t i = 0; i < Size; i++) {
+				const byte c = C[i] - '0';
+				if (c <= 9)
+					Return = (Return * 10) + c;
 			}
 			return (Size && *(char*)P == '-') ? -Return : Return;
 		}
-
-		for (size_t i = 0; i < Size; i++) {
-			const byte c = C[i] - '0';
-			if (c <= 9)
-				Return = (Return * 10) + c;
-		}
-		return (Size && *(char*)P == '-') ? -Return : Return;
+		return T();
 	}
-	return T();
-}
 
 #define StringToNum(TYPE, STRING) [](const std::string_view S){return MemToNum<TYPE>(&S[0], S.size());}(STRING)
 
@@ -604,11 +602,9 @@ std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &&Pa
 	if (Start == std::string::npos)
 		return "";
 
-	const USHORT rn = *(USHORT*)"\r\n";
-
 	for (DWORD i = Start + 4; i < rp.size(); i++){
 		Start = i;
-		while (*(USHORT*)&rp[i] != rn)i++;
+		while (*(USHORT*)&rp[i] != 0x0a0d)i++;//\r\n
 		DWORD ChunkSize = 0;
 		for (DWORD z = Start; z < i; z++){
 			ChunkSize = ChunkSize << 4;
@@ -943,6 +939,7 @@ void ReplaceAll(std::string &str, const std::string& from, const std::string& to
 		start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
 	}
 }
+
 template<typename T>
 	_inline void AddStream(VEC(byte)&v, const T V){
 		v.resize(v.size() + sizeof(V));
@@ -964,11 +961,11 @@ _inline void AddMem(std::vector<byte> &v, const void* Value, const DWORD Size) {
 	memcpy(&v[v.size() - Size], Value, Size);
 }
 
-void AddUleb(VEC(byte) &v, DWORD s) {
+void AddUleb(VEC(byte) &v, DWORD s){
 
 	if (s){
 
-		uint64_t ret = 2 + (0x0b << 8) + ((s & 0x7f) << 16);
+		uint64_t ret = 2ull + (0x0b << 8) + ((s & 0x7f) << 16);
 
 		while(unlikely(*&s >>= 7)){
 			ret += (uint64_t(0x80) << ((ret & 0xff) << 3)) + 1;
@@ -2343,14 +2340,19 @@ bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 	const std::string MapPath = BeatmapPath + std::to_string(BID) + ".osu";
 
 	const DWORD Size = GetFileSize(MapPath);
+	bool MapDownloaded = 0;
 
-	if (!Size && !DownloadMapFromOsu(BID)) {
-		printf(KRED "Failed to download %i.osu\n" KRESET, BID);
+	if (!Size){
 
-		WriteAllBytes(MapPath, &String_Space[0], String_Space.size());//Stop it from trying it over and over again.
-		return 0;
+		MapDownloaded = DownloadMapFromOsu(BID);
+
+		if (!MapDownloaded){
+			printf(KRED "Failed to download %i.osu\n" KRESET, BID);
+			WriteAllBytes(MapPath, &String_Space[0], String_Space.size());//Stop it from trying it over and over again.
+			return 0;
+		}
 	}
-	if (Size < 100)
+	if (Size < 100 && !MapDownloaded)
 		return 0;
 
 	const int res = ezpp(ez, (char*)MapPath.c_str());
@@ -2359,20 +2361,6 @@ bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 		printf(KMAG "oppai> " KRED "Failed with errorcode %i\n" KRESET, res);
 		return 0;
 	}
-
-	return 1;
-}
-
-bool OppaiCheckMapDownload_New(ezpp_t ez, const DWORD BID, const std::string &File) {
-
-	if (!GetFileSize(File) && !DownloadMapFromOsu(BID)) {
-		printf(KRED "Failed to download %i.osu\n" KRESET, BID);
-		WriteAllBytes(File, &String_Space[0], String_Space.size());//Stop it from trying it over and over again.
-		return 0;
-	}
-
-	free_owned_map(ez);
-	ez->map = (char*)File.c_str();
 
 	return 1;
 }
@@ -3038,10 +3026,8 @@ void Event_client_matchChangeSlot(_User *const tP, const byte* const Packet, con
 				OldSlot = &Slot;
 				break;
 			}
-
-		_Slot& New = m->Slots[al_min(*(DWORD*)& Packet[0], MULTI_MAXSIZE - 1)];
-
-		if (OldSlot && OldSlot != &New &&
+		if (_Slot& New = m->Slots[al_min(*(DWORD*)& Packet[0], MULTI_MAXSIZE - 1)];
+			OldSlot && OldSlot != &New &&
 			!New.User && New.SlotStatus != SlotStatus::Locked && OldSlot->SlotStatus != SlotStatus::Ready){
 
 			New = *OldSlot;
@@ -3633,7 +3619,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 	_UserRef tP(GetUserFromToken(choToken),1);
 
 	if (!tP)//No user online with that token
-		return (void)s.SendData(ConstructResponse(200, Empty_Headers, bPacket4Byte(OPac::server_restart,1).GetBytes()));	
+		return (void)s.SendData(ConstructResponse(200, {}, bPacket4Byte(OPac::server_restart,1).GetBytes()));	
 
 	tP->LastPacketTime = clock_ms();
 
@@ -3822,36 +3808,26 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 
 const std::vector<byte> PingPacket = _BanchoPacket(OPac::server_ping).GetBytes();
 
-
-constexpr USHORT operator ""_cc(const char* Code, size_t size) {
-		return size == 2 ? *(USHORT*)& Code[0] : 0;
-	}
+USHORT const countryCodes[] = { 0x2d2d, 0x5041, 0x5545, 0x4441, 0x4541, 0x4641, 0x4741, 0x4941, 0x4c41, 0x4d41, 0x4e41, 0x4f41, 0x5141, 0x5241, 0x5341, 0x5441,
+								0x5541, 0x5741, 0x5a41, 0x4142, 0x4242, 0x4442, 0x4542, 0x4642, 0x4742, 0x4842, 0x4942, 0x4a42, 0x4d42, 0x4e42, 0x4f42, 0x5242,
+								0x5342, 0x5442, 0x5642, 0x5742, 0x5942, 0x5a42, 0x4143, 0x4343, 0x4443, 0x4643, 0x4743, 0x4843, 0x4943, 0x4b43, 0x4c43, 0x4d43,
+								0x4e43, 0x4f43, 0x5243, 0x5543, 0x5643, 0x5843, 0x5943, 0x5a43, 0x4544, 0x4a44, 0x4b44, 0x4d44, 0x4f44, 0x5a44, 0x4345, 0x4545,
+								0x4745, 0x4845, 0x5245, 0x5345, 0x5445, 0x4946, 0x4a46, 0x4b46, 0x4d46, 0x4f46, 0x5246, 0x5846, 0x4147, 0x4247, 0x4447, 0x4547,
+								0x4647, 0x4847, 0x4947, 0x4c47, 0x4d47, 0x4e47, 0x5047, 0x5147, 0x5247, 0x5347, 0x5447, 0x5547, 0x5747, 0x5947, 0x4b48, 0x4d48,
+								0x4e48, 0x5248, 0x5448, 0x5548, 0x4449, 0x4549, 0x4c49, 0x4e49, 0x4f49, 0x5149, 0x5249, 0x5349, 0x5449, 0x4d4a, 0x4f4a, 0x504a,
+								0x454b, 0x474b, 0x484b, 0x494b, 0x4d4b, 0x4e4b, 0x504b, 0x524b, 0x574b, 0x594b, 0x5a4b, 0x414c, 0x424c, 0x434c, 0x494c, 0x4b4c,
+								0x524c, 0x534c, 0x544c, 0x554c, 0x564c, 0x594c, 0x414d, 0x434d, 0x444d, 0x474d, 0x484d, 0x4b4d, 0x4c4d, 0x4d4d, 0x4e4d, 0x4f4d,
+								0x504d, 0x514d, 0x524d, 0x534d, 0x544d, 0x554d, 0x564d, 0x574d, 0x584d, 0x594d, 0x5a4d, 0x414e, 0x434e, 0x454e, 0x464e, 0x474e,
+								0x494e, 0x4c4e, 0x4f4e, 0x504e, 0x524e, 0x554e, 0x5a4e, 0x4d4f, 0x4150, 0x4550, 0x4650, 0x4750, 0x4850, 0x4b50, 0x4c50, 0x4d50,
+								0x4e50, 0x5250, 0x5350, 0x5450, 0x5750, 0x5950, 0x4151, 0x4552, 0x4f52, 0x5552, 0x5752, 0x4153, 0x4253, 0x4353, 0x4453, 0x4553,
+								0x4753, 0x4853, 0x4953, 0x4a53, 0x4b53, 0x4c53, 0x4d53, 0x4e53, 0x4f53, 0x5253, 0x5453, 0x5653, 0x5953, 0x5a53, 0x4354, 0x4454,
+								0x4654, 0x4754, 0x4854, 0x4a54, 0x4b54, 0x4d54, 0x4e54, 0x4f54, 0x4c54, 0x5254, 0x5454, 0x5654, 0x5754, 0x5a54, 0x4155, 0x4755,
+								0x4d55, 0x5355, 0x5955, 0x5a55, 0x4156, 0x4356, 0x4556, 0x4756, 0x4956, 0x4e56, 0x5556, 0x4657, 0x5357, 0x4559, 0x5459, 0x5352,
+								0x415a, 0x4d5a, 0x454d, 0x575a, 0x3141, 0x3241, 0x314f, 0x5841, 0x4747, 0x4d49, 0x454a, 0x4c42, 0x464d
+							};
 
 _inline byte getCountryNum(const USHORT isoCode){
-
-	
-	static USHORT const countryCodes[] = {
-	"--"_cc,"AP"_cc,"EU"_cc,"AD"_cc,"AE"_cc,"AF"_cc,"AG"_cc,"AI"_cc,"AL"_cc,"AM"_cc,"AN"_cc,"AO"_cc,"AQ"_cc,"AR"_cc,
-	"AS"_cc,"AT"_cc,"AU"_cc,"AW"_cc,"AZ"_cc,"BA"_cc,"BB"_cc,"BD"_cc,"BE"_cc,"BF"_cc,"BG"_cc,"BH"_cc,"BI"_cc,"BJ"_cc,
-	"BM"_cc,"BN"_cc,"BO"_cc,"BR"_cc,"BS"_cc,"BT"_cc,"BV"_cc,"BW"_cc,"BY"_cc,"BZ"_cc,"CA"_cc,"CC"_cc,"CD"_cc,"CF"_cc,
-	"CG"_cc,"CH"_cc,"CI"_cc,"CK"_cc,"CL"_cc,"CM"_cc,"CN"_cc,"CO"_cc,"CR"_cc,"CU"_cc,"CV"_cc,"CX"_cc,"CY"_cc,"CZ"_cc,
-	"DE"_cc,"DJ"_cc,"DK"_cc,"DM"_cc,"DO"_cc,"DZ"_cc,"EC"_cc,"EE"_cc,"EG"_cc,"EH"_cc,"ER"_cc,"ES"_cc,"ET"_cc,"FI"_cc,
-	"FJ"_cc,"FK"_cc,"FM"_cc,"FO"_cc,"FR"_cc,"FX"_cc,"GA"_cc,"GB"_cc,"GD"_cc,"GE"_cc,"GF"_cc,"GH"_cc,"GI"_cc,"GL"_cc,
-	"GM"_cc,"GN"_cc,"GP"_cc,"GQ"_cc,"GR"_cc,"GS"_cc,"GT"_cc,"GU"_cc,"GW"_cc,"GY"_cc,"HK"_cc,"HM"_cc,"HN"_cc,"HR"_cc,
-	"HT"_cc,"HU"_cc,"ID"_cc,"IE"_cc,"IL"_cc,"IN"_cc,"IO"_cc,"IQ"_cc,"IR"_cc,"IS"_cc,"IT"_cc,"JM"_cc,"JO"_cc,"JP"_cc,
-	"KE"_cc,"KG"_cc,"KH"_cc,"KI"_cc,"KM"_cc,"KN"_cc,"KP"_cc,"KR"_cc,"KW"_cc,"KY"_cc,"KZ"_cc,"LA"_cc,"LB"_cc,"LC"_cc,
-	"LI"_cc,"LK"_cc,"LR"_cc,"LS"_cc,"LT"_cc,"LU"_cc,"LV"_cc,"LY"_cc,"MA"_cc,"MC"_cc,"MD"_cc,"MG"_cc,"MH"_cc,"MK"_cc,
-	"ML"_cc,"MM"_cc,"MN"_cc,"MO"_cc,"MP"_cc,"MQ"_cc,"MR"_cc,"MS"_cc,"MT"_cc,"MU"_cc,"MV"_cc,"MW"_cc,"MX"_cc,"MY"_cc,
-	"MZ"_cc,"NA"_cc,"NC"_cc,"NE"_cc,"NF"_cc,"NG"_cc,"NI"_cc,"NL"_cc,"NO"_cc,"NP"_cc,"NR"_cc,"NU"_cc,"NZ"_cc,"OM"_cc,
-	"PA"_cc,"PE"_cc,"PF"_cc,"PG"_cc,"PH"_cc,"PK"_cc,"PL"_cc,"PM"_cc,"PN"_cc,"PR"_cc,"PS"_cc,"PT"_cc,"PW"_cc,"PY"_cc,
-	"QA"_cc,"RE"_cc,"RO"_cc,"RU"_cc,"RW"_cc,"SA"_cc,"SB"_cc,"SC"_cc,"SD"_cc,"SE"_cc,"SG"_cc,"SH"_cc,"SI"_cc,"SJ"_cc,
-	"SK"_cc,"SL"_cc,"SM"_cc,"SN"_cc,"SO"_cc,"SR"_cc,"ST"_cc,"SV"_cc,"SY"_cc,"SZ"_cc,"TC"_cc,"TD"_cc,"TF"_cc,"TG"_cc,
-	"TH"_cc,"TJ"_cc,"TK"_cc,"TM"_cc,"TN"_cc,"TO"_cc,"TL"_cc,"TR"_cc,"TT"_cc,"TV"_cc,"TW"_cc,"TZ"_cc,"UA"_cc,"UG"_cc,
-	"UM"_cc,"US"_cc,"UY"_cc,"UZ"_cc,"VA"_cc,"VC"_cc,"VE"_cc,"VG"_cc,"VI"_cc,"VN"_cc,"VU"_cc,"WF"_cc,"WS"_cc,"YE"_cc,
-	"YT"_cc,"RS"_cc,"ZA"_cc,"ZM"_cc,"ME"_cc,"ZW"_cc,"A1"_cc,"A2"_cc,"O1"_cc,"AX"_cc,"GG"_cc,"IM"_cc,"JE"_cc,"BL"_cc,
-	"MF"_cc };
-
-	for (size_t i = 0; i < aSize(countryCodes); i++)
+	for (byte i = 0; i < aSize(countryCodes); i++)
 		if (isoCode == countryCodes[i])
 			return i;
 

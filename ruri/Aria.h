@@ -483,7 +483,7 @@ std::vector<std::vector<std::pair<int, std::string_view>>> JsonListSplit(const s
 			if (Input[i] == '{') {
 				if (!BraceCount) {
 					Body = 0;
-					Return.emplace_back().reserve(48);
+					Return.emplace_back().reserve(ExpectedSize);
 				}BraceCount++;
 			}
 			else if (Input[i] == '}') {
@@ -496,10 +496,10 @@ std::vector<std::vector<std::pair<int, std::string_view>>> JsonListSplit(const s
 					for (; i < iEnd; i++) {
 						if (Input[i] == '\"' && Input[i - 1] != '\\') {
 							if (!Body)
-								NameHash = WeakStringToInt(std::string_view((const char*)& Input[startIndex], i - startIndex));
+								NameHash = WeakStringToInt(std::string_view((const char*)&Input[startIndex], i - startIndex));
 							else {
 								if (NameHash)
-									Return.back().emplace_back(NameHash, std::string_view((const char*)& Input[startIndex], i - startIndex));
+									Return.back().emplace_back(NameHash, std::string_view((const char*)&Input[startIndex], i - startIndex));
 								NameHash = 0;
 							}
 							Body = !Body;
@@ -972,14 +972,12 @@ _inline std::string GetParam(const std::string& s, const std::string&& param) {
 
 struct _GetParams {
 
-	std::vector<std::pair<int, std::string_view>> Params;
+	std::vector<std::pair<int/*Key Hash*/, std::string_view/*Value*/>> Params;
 
 	std::string_view get(const int Key)const{
 
-		for (const auto [K, Value] : Params) {
-
+		for (auto [K, Value] : Params){
 			if (K != Key)continue;
-
 			return Value;
 		}
 
@@ -995,14 +993,14 @@ struct _GetParams {
 
 			bool Name = 1;
 
-			std::string_view TempName;
+			int TempNameHash = 0;
 
 			for (DWORD i = Start; i < URL.size(); i++) {
 
 				if (Name) {
 					if (URL[i] != '=')
 						continue;
-					TempName = std::string_view((const char*)&URL[Start], i - Start);
+					TempNameHash = WeakStringToInt(std::string_view((const char*)&URL[Start], i - Start));
 					Start = i + 1;
 					Name = 0;
 				}
@@ -1013,7 +1011,7 @@ struct _GetParams {
 						continue;
 
 					Params.emplace_back(
-						WeakStringToInt(TempName),
+						TempNameHash,
 						std::string_view((const char*)&URL[Start],i - Start)
 						);
 					Start = i + 1;
@@ -1731,7 +1729,7 @@ void Thread_UpdateOSU(const std::string URL, _Con s){
 
 std::string RandomString(const DWORD Count){
 
-	static const char CharList[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+	const char CharList[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 									 'A', 'B', 'C', 'D', 'E', 'F', '_', 'a', 'b', 'c',
 									 'd', 'e', 'f', '-', 'r', 'u', 'm', 'o', 'i', 'l', 'g', 'n' };
 
@@ -1756,10 +1754,10 @@ void UploadScreenshot(const _HttpRes &res, _Con s){
 	static const std::string Start = SCREENSHOT_START;
 
 	auto it = std::search(
-		std::cbegin(res.Body), std::cend(res.Body),
-		std::cbegin(Start), std::cend(Start));
+		begin(res.Body), end(res.Body),
+		begin(Start), end(Start));
 
-	if (it == std::cend(res.Body))
+	if (it == end(res.Body))
 		return s.Dis();
 
 	it += _strlen_(SCREENSHOT_START);
@@ -1782,22 +1780,30 @@ namespace MIRROR {
 
 	void HandleMirrorAPI(){
 
+		std::vector<std::pair<const std::string, _Con>> QueCopy;
+
 		while (1){
 
 			if (MirrorAPIQue.size()){
 
-				MirrorAPILock.lock();
+				QueCopy.clear();
 
-				auto QueCopy = MirrorAPIQue;
+				if(std::scoped_lock<std::mutex> L(MirrorAPILock);1){
 
-				MirrorAPIQue.clear();
-				MirrorAPILock.unlock();
+					for (DWORD i = 0; i < MirrorAPIQue.size(); i++)
+						QueCopy.emplace_back(_M(MirrorAPIQue[i].first), MirrorAPIQue[i].second);
+
+					auto QueCopy = MirrorAPIQue;
+
+					MirrorAPIQue.clear();
+				}
 
 				for (auto& [req,Con] : QueCopy){
 					Con.SendData(GET_WEB(MIRROR_IP, _M(req)));
 					Con.Dis();
 				}
 			}
+
 			Sleep(10);
 		}
 	}
@@ -1893,43 +1899,40 @@ void HandleAria(_Con s){
 
 		std::string v;
 		v.reserve(8);
+
 		for (DWORD i = res.Host.size(); i-- > 0;) {
 			if (IS_NUM(res.Host[i]))
 				v.push_back(res.Host[i]);
 			else break;
 		}
-		std::reverse(v.begin(), v.end());
 
-		const DWORD SetID = StringToNum(DWORD,v);
+		std::reverse(begin(v), end(v));
 
-		if (SetID) {
+		if (const DWORD SetID = StringToNum(DWORD, v); SetID){
+			DontCloseConnection = 1;
 
 			MIRROR::MirrorAPILock.lock();
 			MIRROR::MirrorAPIQue.emplace_back("api/set?b=" + std::to_string(SetID), s);
 			MIRROR::MirrorAPILock.unlock();
-
-			DontCloseConnection = 1;
 		}
 	}
-	else if (MEM_CMP_START(res.Host, "/web/osu-search.php")) {
+	else if (MEM_CMP_START(res.Host, "/web/osu-search.php")){
 
-		const USHORT Key = *(USHORT*)"&r";
 		DWORD Start = 0;
 
-		for (DWORD i = _strlen_("/web/osu-search.php"); i < res.Host.size() - 2; i++) {
-			if (*(USHORT*)& res.Host[i] == Key) {
+		for (DWORD i = _strlen_("/web/osu-search.php"); i < res.Host.size() - 2; i++){
+			if (*(USHORT*)&res.Host[i] == 0x7226){//&r
 				Start = i + 1;
 				break;
 			}
 		}
 
 		if (Start){
+			DontCloseConnection = 1;
 
 			MIRROR::MirrorAPILock.lock();
 			MIRROR::MirrorAPIQue.emplace_back("api/search?" + std::string(res.Host.begin() + Start, res.Host.end()),s);
 			MIRROR::MirrorAPILock.unlock();
-
-			DontCloseConnection = 1;
 		}
 	}
 	else if (MEM_CMP_START(res.Host, "/web/osu-getreplay.php"))
@@ -1946,10 +1949,10 @@ void HandleAria(_Con s){
 
 		const DWORD ID = StringToNum(DWORD,v);
 
-		if (ID) {
+		if (ID){
+			DontCloseConnection = 1;
 			std::thread a(Thread_DownloadOSZ, ID, s);
 			a.detach();
-			DontCloseConnection = 1;
 		}
 	}
 	else if (MEM_CMP_START(res.Host, "/web/maps/")) {//used when updating a single maps .osu

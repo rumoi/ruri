@@ -1,10 +1,5 @@
 #pragma once
 
-#define Roll(u,input)\
-	[&](const uint64_t Max)->const std::string{\
-		return u->Username + " rolled " + std::to_string(BR::GetRand64(0, (Max) ? Max : 100));\
-	}(input)
-
 #define TRIMSTRING(str)\
 	[](std::string &s)->std::string{\
 		if(!s.size())return s;\
@@ -690,8 +685,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 		case _WeakStringToInt_("!roll"):
 			PrivateRes = 0;
-			return Roll(u, (Split.size() > 1) ? StringToNum(uint64_t, Split[1]) : 100);
-
+				return u->Username + " rolled " + std::to_string(BR::GetRand64(0, Split.size() > 1 ? StringToNum(uint64_t, Split[1]) : 100));
 		case _WeakStringToInt_("!priv"):
 			return std::to_string(Priv);
 		case _WeakStringToInt_("!reconnect"):
