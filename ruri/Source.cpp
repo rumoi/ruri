@@ -430,8 +430,6 @@ template<typename T, const size_t Size>
 #define PAIR(a,b) std::pair<a,b>
 #define IT_COPY(a) begin(a),end(a)
 
-#define SS_PAIR_VEC VEC(PAIR(std::string, std::string))
-
 const std::string BOT_NAME = "ruri";
 const std::string FAKEUSER_NAME = []{const byte a[] = { 226,128,140,226,128,141,0 }; return std::string((char*)a); }();
 
@@ -1077,7 +1075,6 @@ struct _DelayedBanchoPacket{
 		Time = t;
 		b = a;
 	}
-
 };
 
 struct _UserStats {
@@ -1149,26 +1146,26 @@ const VEC(std::string_view) Explode_View(const T& Input, const char Delim, const
 	return Views;
 }
 
-template<typename T>
-const VEC(std::string_view) Explode_View_Multi(const T& Input, const char* const Delim, const DWORD ExpectedSize) {
+template<typename T, size_t Size>
+const VEC(std::string_view) Explode_View_Multi(const T& Input, const char const (&Delim)[Size], const DWORD ExpectedSize) {
 
 	VEC(std::string_view) Views;
 
-	if (const size_t DelimSize = _strlen_(Delim); Input.size() && DelimSize) {
+	if (Input.size() && Size) {
 		Views.reserve(ExpectedSize);
 
-		if (Input.size() > DelimSize) {
+		if (Input.size() > (Size - 1)) {
 
 			size_t Start = 0;
 
-			for (size_t i = 0; i < Input.size() - DelimSize; i++) {
+			for (size_t i = 0; i < Input.size() - (Size-1); i++) {
 
-				for (size_t z = 0; z < DelimSize; z++) {
+				for (size_t z = 0; z < (Size-1); z++) {
 
 					if (Input[i + z] != Delim[z])
 						break;
 
-					if (z != DelimSize - 1)
+					if (z != (Size-1) - 1)
 						continue;
 
 					Views.emplace_back((const char*)& Input[Start], i - Start);
@@ -1219,7 +1216,7 @@ _inline void AddStringToVector(std::vector<byte> &v, const std::string &s){
 #include "Connection.h"
 
 
-const SS_PAIR_VEC Empty_Headers = {};
+#define Empty_Headers std::vector<std::pair<std::string,std::string>>{}
 
 const std::vector<byte> Empty_Byte;
 
@@ -1643,7 +1640,7 @@ void reset() {
 			}
 		}
 		if (SendBytes.size())
-			s.SendData(ConstructResponse(200, (!SendToken) ? Empty_Headers : SS_PAIR_VEC{{"cho-token", std::to_string(choToken)}}, SendBytes));
+			s.SendData(ConstructResponse(200, (!SendToken) ? Empty_Headers : std::vector<std::pair<std::string,std::string>>{{"cho-token", std::to_string(choToken)}}, SendBytes));
 		else{
 		FEEDALIVE:
 			s.SendData(ConstructResponse(200, {}, SendBytes));
@@ -3614,7 +3611,7 @@ void Event_client_requestStatusUpdate(_User *const tP){
 	tP->addQue(bPacket::UserStats(tP));
 }
 
-void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &PacketBundle){
+void DoBanchoPacket(_Con s,const uint64_t choToken,const std::string_view PacketBundle){
 
 	_UserRef tP(GetUserFromToken(choToken),1);
 
@@ -3638,7 +3635,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::vector<byte> &Pack
 			return;
 		}
 
-		const byte* const Packet = (byte*)&PacketBundle[In];
+		const byte* const Packet = ((byte*)&PacketBundle[In-1]) + 1;
 		In += PacketSize;
 
 		switch (PacketID){
@@ -3853,6 +3850,8 @@ void BanchoServerFull(_Con s) {
 	LogError("Server Full");
 	s.SendData(ConstructResponse(200, { {"cho-token", "0"} }, PACKET_SERVERFULL));
 }
+
+bool Outdated = 0;
 
 void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
@@ -4100,6 +4099,8 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 			if (!(Priv & Privileges::UserPublic))
 				u->addQueNonLocking(bPacket::Notification("Your account is currently restricted."));
+			if(Outdated && (Priv & Privileges::AdminDev))
+				u->addQueNonLocking(bPacket::BotMessage(BOT_NAME,"This instance of ruri is out of date.\nConsider updating https://github.com/rumoi/ruri"));
 
 			const int SilenceDelta = (SilenceEnd && SilenceEnd > time(0)) ? SilenceEnd - time(0) : 0;
 
@@ -4223,13 +4224,13 @@ void HandlePacket(_Con s){
 		return s.Dis();
 	}
 	
-	const std::string& UserAgent = res.GetHeaderValue("User-Agent");
+	const auto UserAgent = res.GetHeaderValue("User-Agent");
 
 	const uint64_t choToken = StringToNum(uint64_t, res.GetHeaderValue("osu-token"));
 
 	if (UserAgent.size() == 0){
 
-		const std::string& UserAgent2 = res.GetHeaderValue("user-agent");
+		const auto UserAgent2 = res.GetHeaderValue("user-agent");
 
 		if (!UserAgent2.size()){
 			LogMessage("No user agent set.");
@@ -4253,8 +4254,13 @@ void LazyThread(){
 
 	printf("LazyThread running.\n");
 
+	int LastUpdateCheck = 0;
+
 	_SQLCon lThreadSQL;
 	lThreadSQL.Connect();
+
+
+	VEC(std::string) Que;
 
 	while (1){
 
@@ -4277,8 +4283,6 @@ void LazyThread(){
 				}
 			}else if (User.LastPacketTime + FREE_SLOT_TIME < cTime)//Free slots after 30 minutes of logging out.
 				User.LastPacketTime = INT_MIN;
-
-
 		}
 		COUNT_CURRENTONLINE = PCount;
 
@@ -4294,12 +4298,11 @@ void LazyThread(){
 
 		if (SQLExecQue.Commands.size()){
 
-			VEC(std::string) Que;
-
 			{
-				MUTEX_LOCKGUARD(SQLExecQue.CommandLock);
 
-				Que.reserve(SQLExecQue.Commands.size());
+				Que.clear();
+
+				MUTEX_LOCKGUARD(SQLExecQue.CommandLock);
 
 				for(auto& Command : SQLExecQue.Commands)
 					Que.emplace_back(_M(Command));
@@ -4310,6 +4313,12 @@ void LazyThread(){
 			for(auto& Command : Que)
 				lThreadSQL.ExecuteUPDATE(_M(Command), 1);
 		}
+
+		if (!Outdated && LastUpdateCheck < cTime){
+
+			LastUpdateCheck = cTime + 15144840;
+		}
+
 	}
 }
 
@@ -4451,6 +4460,7 @@ void BanchoWork(const DWORD ID){
 	while(1){
 
 		if(BanchoConnectionQue[ID].size()){
+
 			if(std::scoped_lock<std::mutex> l(BanchoWorkLock[ID]); 1){
 
 				Req.resize(BanchoConnectionQue[ID].size());
@@ -4477,7 +4487,7 @@ void receiveConnections(){
 
 		for (DWORD i = 0; i < BANCHO_THREAD_COUNT; i++){
 			BanchoConnectionQue[i].reserve(64);
-			printf("BanchoThread%i: %i\n", i, 1,int(SQL_BanchoThread[i].Connect()));
+			printf("BanchoThread%i: %i\n", i, int(SQL_BanchoThread[i].Connect()));
 			std::thread T([=]{
 				BanchoWork(i);
 			});

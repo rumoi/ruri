@@ -5,26 +5,26 @@
 #define DMNL "\r\n\r\n"
 
 
-const std::string Empty_string = "";
 
 struct _HttpRes{
 
-	std::vector<byte> Body;
-	std::vector<byte> Host;
-	SS_PAIR_VEC Headers;
+	std::vector<byte> Raw;
+	std::string_view Body;
+	std::string_view Host;
 
-	__inline const std::string& GetHeaderValue(const std::string &&Name)const{
+	std::vector<std::pair<std::string_view,std::string_view>> Headers;
+
+	__inline const std::string_view GetHeaderValue(const std::string &&Name)const{
 
 		for (const auto& [Text, Value] : Headers)
 			if (Text == Name)
 				return Value;
 
-		return Empty_string;
+		return std::string_view();
 	}
 	
 	_HttpRes(){}
 };
-
 
 template<typename T>
 	const std::string ConstructResponse(const DWORD Code, const std::vector<std::pair<std::string, std::string>> &Headers, const T& Body) {
@@ -60,13 +60,12 @@ struct _Con{
 	const bool RecvData(_HttpRes &res)const{
 
 		DWORD pSize = 0;
-		std::vector<byte> p;
-		p.reserve(USHORT(-1));
+
+		res.Raw.reserve(USHORT(-1));
 
 		while (1){
-			p.resize(MAX_PACKET_LENGTH + pSize);
-			
-			if (int pLength = recv(s, (char*)&p[pSize], MAX_PACKET_LENGTH, 0);
+			res.Raw.resize(MAX_PACKET_LENGTH + pSize);
+			if (int pLength = recv(s, (char*)&res.Raw[pSize], MAX_PACKET_LENGTH, 0);
 				pLength > 0)
 				pSize += pLength;
 			else break;
@@ -75,15 +74,15 @@ struct _Con{
 		if (!pSize)
 			return 0;
 
-		p.resize(pSize);
+		res.Raw.resize(pSize);
 
-		const auto DATA = Explode_View(p,'\r',64);
+		const auto DATA = Explode_View_Multi(res.Raw, "\r\n", 64);
 
 		if (!DATA.size() || !DATA[0].size())
 			return 0;
 
-		if(const auto PageName = Explode_View(DATA[0], ' ', 8); PageName.size() > 1)
-			res.Host = VEC(byte)(begin(PageName[1]), end(PageName[1]));
+		if(const auto PageName = Explode_View(DATA[0], ' ', 8); PageName.size() > 1 && PageName[1].size())
+			res.Host = std::string_view((const char*)&PageName[1][0], PageName[1].size());
 
 		int CurrentOffset = 1;
 
@@ -96,47 +95,17 @@ struct _Con{
 				break;
 			
 			if (const auto Head = Explode_View(DATA[i], ':', 2);
-				Head.size() < 2 || Head[0].size() < 2 || Head[1].size() < 2)
+				Head.size() < 2 || !Head[0].size() || !Head[1].size())
 				continue;
 			else
 				res.Headers.push_back({
-					std::string(Head[0].substr(1, Head[0].size() - 1)),
-					std::string(Head[1].substr(1, Head[1].size() - 1))
+					Head[0],
+					Head[1]
 				});
 		}
 
-		//Body
-		{
-
-			{
-				int TotalSize = 0;
-				CurrentOffset++;
-
-				for (DWORD i = CurrentOffset; i < DATA.size(); i++)
-					TotalSize += DATA[i].size() + 1;
-
-				res.Body.reserve(TotalSize);
-
-				if (DWORD i = CurrentOffset; i < DATA.size()){
-					if (size_t Size = DATA[i].size() - 1; DATA[i].size()) {
-						res.Body.resize(Size);
-						memcpy(res.Body.data(), &DATA[1], Size);
-					}
-				}
-
-				CurrentOffset++;
-			}
-
-			for (DWORD i = CurrentOffset; i < DATA.size(); i++){
-				if (unlikely(!DATA[i].size())){
-					res.Body.push_back('\r');
-					continue;
-				}
-				res.Body.resize(res.Body.size() + DATA[i].size() + 1);
-				res.Body[res.Body.size() - (DATA[i].size() + 1)] = '\r';
-				memcpy(&res.Body[res.Body.size() - DATA[i].size()], DATA[i].data(), DATA[i].size());
-			}
-		}
+		if (++CurrentOffset < DATA.size() && !DATA[CurrentOffset - 1].size())
+			res.Body = std::string_view(DATA[CurrentOffset].data(), size_t(res.Raw.data() + res.Raw.size()) - size_t(DATA[CurrentOffset].data()));
 
 		return 1;
 	}

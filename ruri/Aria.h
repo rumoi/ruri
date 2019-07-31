@@ -1426,7 +1426,7 @@ std::string urlDecode(const std::string_view SRC){
 void osu_getScores(const _HttpRes& http, _Con s) {
 	const char* mName = "Aria";
 
-	const auto Params = _GetParams(std::string_view((const char*)& http.Host[0], http.Host.size()));
+	const auto Params = _GetParams(http.Host);
 
 	const std::string_view BeatmapMD5 = Params.get(_WeakStringToInt_("c"));
 
@@ -1751,10 +1751,10 @@ void UploadScreenshot(const _HttpRes &res, _Con s){
 	#define SCREENSHOT_START "Content-Disposition: form-data; name=\"ss\"; filename=\"ss\"\r\nContent-Type: application/octet-stream\r\n\r\n"
 	#define SCREENSHOT_END "\r\n-------------------------------28947758029299--"
 	
-	static const std::string Start = SCREENSHOT_START;
+	const std::string Start = SCREENSHOT_START;
 
 	auto it = std::search(
-		begin(res.Body), end(res.Body),
+		res.Body.begin(), res.Body.end(),
 		begin(Start), end(Start));
 
 	if (it == end(res.Body))
@@ -1879,7 +1879,6 @@ void HandleAria(_Con s){
 		return LogError("Connection Lost", mName);
 	}
 
-
 	bool DontCloseConnection = 0;
 	if (MEM_CMP_START(res.Host, "/web/osu-submit-modular-selector.php")) {
 
@@ -1936,7 +1935,7 @@ void HandleAria(_Con s){
 		}
 	}
 	else if (MEM_CMP_START(res.Host, "/web/osu-getreplay.php"))
-		GetReplay(std::string_view((const char*)&res.Host[0], res.Host.size()), s);
+		GetReplay(res.Host, s);
 	else if (MEM_CMP_START(res.Host, "/d/")) {
 
 		std::string v;
@@ -1968,7 +1967,7 @@ void HandleAria(_Con s){
 	else if (MEM_CMP_START(res.Host, "/web/osu-screenshot.php"))
 		UploadScreenshot(res, s);
 	else if (MEM_CMP_START(res.Host, "/web/lastfm.php"))
-		LastFM(_GetParams(std::string_view((const char*)&res.Host[0],res.Host.size())),s);
+		LastFM(_GetParams(res.Host),s);
 	else SendAria404(s);
 
 	if (!DontCloseConnection){

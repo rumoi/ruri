@@ -153,8 +153,7 @@ struct _SQLCon {
 		try {
 			driver = get_driver_instance();
 
-			if (!driver) {
-				Lock.unlock();
+			if (!driver){
 				return 0;
 			}
 			con = driver->connect("localhost", SQL_Username, SQL_Password);
