@@ -713,8 +713,7 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 						else if (RankedStatus == osuapi_loved)
 							RankedStatus = LOVED;
 
-						auto AlreadyThere = SQLCon->ExecuteQuery("SELECT id, ranked FROM beatmaps WHERE beatmap_id = " + std::to_string(beatmap_id) + " LIMIT 1");
-						
+						auto AlreadyThere = SQLCon->ExecuteQuery("SELECT id, ranked FROM beatmaps WHERE beatmap_id = " + std::to_string(beatmap_id) + " LIMIT 1");						
 
 						if (AlreadyThere && AlreadyThere->next()) {
 
@@ -1025,13 +1024,9 @@ struct _GetParams {
 	_GetParams(std::vector<std::pair<int, std::string_view>>&& Params) : Params(_M(Params)) {}
 };
 
-
-
 void SendAria404(_Con s){
 
-	static std::string const NotFound = "<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/570910676428652544/Kanzaki.png\"><br><b>404</b> - Aria does not know this page.</HTML>";
-
-	s.SendData(ConstructResponse(200, Empty_Headers, NotFound));
+	s.SendData(ConstructResponse(200, Empty_Headers, STACK("<HTML><img src=\"https://cdn.discordapp.com/attachments/385279293007200258/570910676428652544/Kanzaki.png\"><br><b>404</b> - Aria does not know this page.</HTML>")));
 	s.Dis();
 }
 

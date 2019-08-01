@@ -1147,7 +1147,7 @@ const VEC(std::string_view) Explode_View(const T& Input, const char Delim, const
 }
 
 template<typename T, size_t Size>
-const VEC(std::string_view) Explode_View_Multi(const T& Input, const char const (&Delim)[Size], const DWORD ExpectedSize) {
+const VEC(std::string_view) Explode_View_Multi(const T& Input, const char (&Delim)[Size], const DWORD ExpectedSize) {
 
 	VEC(std::string_view) Views;
 
@@ -1216,10 +1216,9 @@ _inline void AddStringToVector(std::vector<byte> &v, const std::string &s){
 #include "Connection.h"
 
 
-#define Empty_Headers std::vector<std::pair<std::string,std::string>>{}
+std::vector<std::pair<std::string, std::string>> Empty_Headers;
 
 const std::vector<byte> Empty_Byte;
-
 
 _UserStats RecalculatingStats;
 
@@ -3023,7 +3022,7 @@ void Event_client_matchChangeSlot(_User *const tP, const byte* const Packet, con
 				OldSlot = &Slot;
 				break;
 			}
-		if (_Slot& New = m->Slots[al_min(*(DWORD*)& Packet[0], MULTI_MAXSIZE - 1)];
+		if (_Slot& New = m->Slots[al_min(*(DWORD*)&Packet[0], MULTI_MAXSIZE - 1)];
 			OldSlot && OldSlot != &New &&
 			!New.User && New.SlotStatus != SlotStatus::Locked && OldSlot->SlotStatus != SlotStatus::Ready){
 
@@ -4160,7 +4159,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 			const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
 			printf("LoginTime: %fms\n", double(double(TTime) / 1000000.0));
-			;
+
 			u->doQue(s);
 
 			debug_SendOnlineToAll(u.User);
@@ -4464,7 +4463,7 @@ void BanchoWork(const DWORD ID){
 			if(std::scoped_lock<std::mutex> l(BanchoWorkLock[ID]); 1){
 
 				Req.resize(BanchoConnectionQue[ID].size());
-				memcpy(&Req[0], BanchoConnectionQue[ID].data(), Req.size() * sizeof(Req[0]));
+				memcpy(Req.data(), BanchoConnectionQue[ID].data(), BanchoConnectionQue[ID].size() * sizeof(Req[0]));
 
 				BanchoConnectionQue[ID].clear();
 			}

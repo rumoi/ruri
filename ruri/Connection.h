@@ -1,10 +1,7 @@
 #pragma once
 
-
 #define MNL "\r\n"
 #define DMNL "\r\n\r\n"
-
-
 
 struct _HttpRes{
 
@@ -46,7 +43,7 @@ template<typename T>
 
 		if (Body.size()){
 			Return.resize(Return.size() + Body.size());
-			memcpy(&Return[Return.size() - Body.size()], &Body[0], Body.size());
+			memcpy(&Return[Return.size() - Body.size()], Body.data(), Body.size());
 		}
 
 		return Return;
@@ -57,21 +54,25 @@ struct _Con{
 	SOCKET s;
 	DWORD ID;
 
-	const bool RecvData(_HttpRes &res)const{
-
+	const bool RecvData(_HttpRes &res)const {
+		
 		DWORD pSize = 0;
+		int pLength = MAX_PACKET_LENGTH;
 
 		res.Raw.reserve(USHORT(-1));
 
-		while (1){
-			res.Raw.resize(MAX_PACKET_LENGTH + pSize);
-			if (int pLength = recv(s, (char*)&res.Raw[pSize], MAX_PACKET_LENGTH, 0);
-				pLength > 0)
-				pSize += pLength;
-			else break;
-		}
+		do{
+			res.Raw.resize(pSize + MAX_PACKET_LENGTH);
 
-		if (!pSize)
+			pLength = recv(s, (char*)&res.Raw[pSize], MAX_PACKET_LENGTH, 0);
+
+			if (pLength <= 0)break;
+
+			pSize += pLength;
+
+		} while (pLength == MAX_PACKET_LENGTH);
+
+		if (pSize == 0)
 			return 0;
 
 		res.Raw.resize(pSize);
@@ -128,19 +129,19 @@ struct _Con{
 		return 0;
 	}
 
-	template<typename T>
-	bool SendData(const T &Data){
+template<typename T>
+	bool SendData(const T& Data){
 
 		if (DWORD Count = 0; likely(s)){
 
 			const DWORD Size = Data.size();
 
-			while (Count < Size)
-				if (int Sent = send(s, (char*)&Data[Count], al_min(Size - Count, MAX_PACKET_LENGTH), 0);
+			while (Count < Size){
+				if (int Sent = send(s, (const char*)&Data[Count], al_min(Size - Count, MAX_PACKET_LENGTH), 0);
 					Sent != SOCKET_ERROR)
 					Count += Sent;
-				else
-					return 0;
+				else break;
+			}
 
 			return 1;
 		}
