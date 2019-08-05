@@ -1,3 +1,6 @@
+#define USERID_START 1000
+#define M_BOT_NAME "ruri"
+#define BOT_LOCATION 0
 
 enum Privileges{
 	UserBanned = 0,
@@ -116,7 +119,6 @@ enum RankStatus {
 #define KCYN  "\x1B[36m"
 #define KGRY  "\x1B[37m"
 #define KRESET "\033[0m"
-#define BOT_LOCATION 38
 
 #define MIRROR_IP "5.9.151.156"
 #define MIRROR_PORT 80
@@ -134,7 +136,6 @@ enum RankStatus {
 #define S_MUTEX_LOCKGUARD(a) std::scoped_lock<std::shared_mutex> LOCKGUARD(a)
 
 #define CHO_VERSION 19
-#define USERID_START 1000
 #define _M(a) std::move(a)
 
 const int PING_TIMEOUT_OSU = 80000;//yes thanks peppy
@@ -252,6 +253,78 @@ enum OPac {
 	client_specialLeaveMatchChannel = 109
 };
 
+
+namespace Packet {
+
+	enum class Server : unsigned short{
+
+		userID = 5,
+		commandError = 6,
+		sendMessage = 7,
+		ping = 8,
+		handleIRCUsernameChange = 9,
+		handleIRCQuit = 10,
+		userStats = 11,
+		userLogout = 12,
+		spectatorJoined = 13,
+		spectatorLeft = 14,
+		spectateFrames = 15,
+		versionUpdate = 19,
+		spectatorCantSpectate = 22,
+		getAttention = 23,
+		notification = 24,
+		updateMatch = 26,
+		newMatch = 27,
+		disposeMatch = 28,
+		matchJoinSuccess = 36,
+		matchJoinFail = 37,
+		fellowSpectatorJoined = 42,
+		fellowSpectatorLeft = 43,
+		AllPlayersLoaded = 45,
+		matchStart = 46,
+		matchScoreUpdate = 48,
+		matchTransferHost = 50,
+		matchAllPlayersLoaded = 53,
+		matchPlayerFailed = 57,
+		matchComplete = 58,
+		matchSkip = 61,
+		unauthorised = 62,
+		channelJoinSuccess = 64,
+		channelInfo = 65,
+		channelKicked = 66,
+		channelAvailableAutojoin = 67,
+		beatmapInfoReply = 69,
+		supporterGMT = 71,
+		friendsList = 72,
+		protocolVersion = 75,
+		mainMenuIcon = 76,
+		ratTheirPC = 80,
+		matchPlayerSkipped = 81,
+		userPanel = 83,
+		IRC_only = 84,
+		restart = 86,
+		invite = 88,
+		channelInfoEnd = 89,
+		matchChangePassword = 91,
+		silenceEnd = 92,
+		userSilenced = 94,
+		userPresenceSingle = 95,
+		userPresenceBundle = 96,
+		userPMBlocked = 100,
+		targetIsSilenced = 101,
+		versionUpdateForced = 102,
+		switchServer = 103,
+		accountRestricted = 104,
+		RTX = 105,
+		switchTourneyServer = 107
+	};
+	enum class Client{
+
+
+	};
+
+}
+
 enum LoginReply {
 	Login_Failed = -1
 };
@@ -320,12 +393,24 @@ constexpr size_t aSize(const T(&)[size]) noexcept{ return size; }
 
 #define ZeroArray(s) memset(s,0,sizeof(s))
 
-template<const size_t size>
-constexpr std::array<char, size - 1> STACK(const char(&String)[size]) {
-	std::array<char, size - 1> a = {0}; DWORD i = 0;
-	for (auto& c : a)c = String[i++];
-	return a;
-}
+template<const size_t nSize>
+	_inline const auto STACK(const char(&String)[nSize]) {
+
+		constexpr size_t Size = nSize - 1;
+
+		static_assert((nSize != 0 && nSize != 1), "STACK() can not be called with an empty string");
+
+		std::array<char, Size> a;
+
+		for (size_t i = 0; (i + 4) <= Size; i+=4)
+			*(DWORD*)&a[i] = *(DWORD*)&String[i];
+
+		if constexpr (constexpr size_t Rem = Size % 4; Rem)
+			for (size_t i = Size - Rem; i < Size; i++)
+				a[i] = String[i];
+
+		return a;
+	}
 
 #define FastVByteAlloc(x)[&]{const char*const a = x; const std::vector<byte> b(a,a + _strlen_(a) + 1); return b;}()
 
@@ -430,7 +515,7 @@ template<typename T, const size_t Size>
 #define PAIR(a,b) std::pair<a,b>
 #define IT_COPY(a) begin(a),end(a)
 
-const std::string BOT_NAME = "ruri";
+const std::string BOT_NAME = M_BOT_NAME;
 const std::string FAKEUSER_NAME = []{const byte a[] = { 226,128,140,226,128,141,0 }; return std::string((char*)a); }();
 
 #include <time.h>
@@ -994,76 +1079,7 @@ _inline void AddString_SQL(std::vector<byte>& v, const sql::SQLString &&Value) {
 		memcpy(&v[v.size() - Size], &Value[0], Size);
 	}
 }
-
-struct _BanchoPacket {
-	short Type;
-	byte Compression;
-	std::vector<byte> Data;
-
-	std::vector<byte> GetBytes() const{
-		const DWORD DataSize = Data.size();
-		std::vector<byte> Bytes(DataSize + 7);
-
-		byte* D = &Bytes[0];
-		
-		*(USHORT*)(D) = Type;
-		*(byte*)(D + 2) = Compression;
-		*(DWORD*)(D + 3) = DataSize;
-
-		if (DataSize)
-			memcpy(D + 7, &Data[0], DataSize);
-
-		return Bytes;
-	}
-
-	const size_t GetSize()const {
-		return 7 + Data.size();
-	}
-	void GetBytes(std::vector<byte> &Bytes) const{
-
-		Bytes.reserve(Bytes.size() + 7 + Data.size());
-		byte D[7];
-		
-		*(USHORT*)D = Type;
-		D[2] = Compression;
-		*(DWORD*)(D + 3) = Data.size();
-		AddMem(Bytes, D, 7);
-		AddVector(Bytes, Data);
-	}
-	void GetBytesRaw(byte* &D) const{
-		
-		const DWORD DataSize = Data.size();
-		*(USHORT*)(D) = Type;
-		*(byte*)(D + 2) = Compression;
-		*(DWORD*)(D + 3) = DataSize;
-
-		if (DataSize)
-			memcpy(D + 7, &Data[0], DataSize);
-
-		D += 7 + DataSize;
-	}
-
-	_BanchoPacket() {
-		Type = 0;
-		Compression = 0;
-	}
-
-	template<typename T>
-	_BanchoPacket(const short ID, T&& v) : Data(std::forward<T>(v)) {
-		Type = ID;
-		Compression = 0;
-	}
-
-	_BanchoPacket(const short ID, const DWORD vSize = 0) {
-		Type = ID;
-		Compression = 0;
-		Data.resize(vSize);
-	}
-
-
-};
-const _BanchoPacket erPacket(NULL_PACKET);
-
+/*
 struct _DelayedBanchoPacket{
 	int Time;
 	_BanchoPacket b;
@@ -1075,7 +1091,7 @@ struct _DelayedBanchoPacket{
 		Time = t;
 		b = a;
 	}
-};
+};*/
 
 struct _UserStats {
 
@@ -1372,7 +1388,9 @@ struct _User{
 	float lat;
 	float lon;
 
-	std::vector<_BanchoPacket> Que;std::mutex qLock;
+	/*std::vector<_BanchoPacket> Que;*/
+	std::mutex qLock;
+	std::vector<byte> QueBytes;
 
 	std::mutex StatsAdd;
 
@@ -1400,7 +1418,7 @@ struct _User{
 
 	_Achievement Ach;//TODO: thread this.
 	
-	std::vector<_DelayedBanchoPacket> dQue;
+	//std::vector<_DelayedBanchoPacket> dQue;
 	size_t ActiveChannels[MAX_CHAN_COUNT];//There is no way to resolve the actual size without restructuring xdxdxd
 	
 	std::string c1Check;
@@ -1456,14 +1474,24 @@ struct _User{
 			return GameMode;
 	}
 
-	void SendToSpecs(const _BanchoPacket &b){
+	void SendToSpecs(const VEC(byte) &b){
 		if (Spectators.size()){
 			std::scoped_lock<std::mutex> L(SpecLock);
 			for (_User* const Spec : Spectators)
 				if (Spec)
-					Spec->addQue(b);
+					Spec->addQueVector(b);
 		}
 	}
+	template<size_t Size>
+		void SendToSpecs(const std::array<byte, Size> &b) {
+			if (Spectators.size()) {
+				std::scoped_lock<std::mutex> L(SpecLock);
+				for (_User* const Spec : Spectators)
+					if (Spec)
+						Spec->addQueArray(b);
+			}
+		}
+
 	bool isFriend(const DWORD ID) const{
 
 		if (UserID == ID)
@@ -1512,8 +1540,8 @@ void reset() {
 		CurrentMatchID = 0;
 		inLobby = 0;
 		Spectators.clear();
-		Que.clear();
-		dQue.clear();
+		QueBytes.clear();
+		//dQue.clear();
 		SpamLevel = 0;
 		LastSentBeatmap = 0;
 		FriendsOnlyChat = 0;
@@ -1525,57 +1553,57 @@ void reset() {
 	_User(){
 		reset();
 		Spectators.reserve(16);
-		Que.reserve(512);
+		QueBytes.reserve(2048);
 		ref = 0;
 		LastPacketTime = INT_MIN;
 	}
 	
+	/*
 	template<typename... T>
 	void addQue(T&& ... b) {
 		if (choToken){
 			std::scoped_lock<std::mutex> L(qLock);
-			Que.emplace_back(std::forward<T>(b)...);
+			//Que.emplace_back(std::forward<T>(b)...);
 		}
-	}
+	}*/
 
-	template<typename T>
-	void addQueDelay(T&& b) {
-		if (b.b.Type == NULL_PACKET || b.Time == 0 || !choToken)
-			return;
-		std::scoped_lock<std::mutex> L(qLock);
-		dQue.push_back(std::forward<T>(b));
-	}
+	template<const bool Locked = true>
+		void addQueVector(const VEC(byte) &b){
+			if (choToken && b.size()){
 
-	void addQue(const VEC(_BanchoPacket) &b){
-		if (choToken && b.size()){
-			std::scoped_lock<std::mutex> L(qLock);
-			for (auto& p : b){
-				if (p.Type != NULL_PACKET)
-					Que.push_back(p);
+				if constexpr (Locked)
+					qLock.lock();
+
+				QueBytes.resize(QueBytes.size() + b.size());
+				memcpy(&QueBytes[QueBytes.size() - b.size()], b.data(), b.size());
+
+				if constexpr (Locked)
+					qLock.unlock();
+				//Que.emplace_back(std::forward<T>(b)...);
 			}
 		}
-	}
-
-	void addQue(std::initializer_list<_BanchoPacket>&& bundle) {
-		if (choToken && bundle.size()){
-
-			std::scoped_lock<std::mutex> L(qLock);
-
-			for (auto& b : bundle)
-				Que.emplace_back(_M(b));
-		}
-	}
-
 
 	template<typename T>
-	void addQueNonLocking(T&& b){
-		if (b.Type == NULL_PACKET || !choToken)
-			return;
-		Que.push_back(std::forward<T>(b));
+		void addQueNonLocking(T&& b){
+			if (b.Type == NULL_PACKET || !choToken)
+				return;
+			//Que.push_back(std::forward<T>(b));
+		}
+
+	template<const bool Locked = true, size_t Size>
+	_inline void addQueArray(const std::array<byte, Size>& Array) {
+
+		if constexpr (Locked)qLock.lock();
+		if (choToken) {
+			QueBytes.resize(Size + QueBytes.size());
+			*(std::array<byte, Size>*)& QueBytes[QueBytes.size() - Size] = Array;
+		}
+		if constexpr (Locked)qLock.unlock();
 	}
 
 	template<typename T>
 	void addQueDelayNonLocking(T&& b){
+
 		if (b.b.Type == NULL_PACKET || b.Time == 0 || !choToken)
 			return;
 		dQue.push_back(std::forward<T>(b));
@@ -1583,31 +1611,13 @@ void reset() {
 
 	void doQue(_Con s){
 
-		VEC(byte) SendBytes;
+		if (QueBytes.size()){
 
-		if (Que.size() == 0 && dQue.size() == 0)
-			goto FEEDALIVE;
-		{
-			std::scoped_lock<std::mutex> L(qLock);
-
-			if (Que.size()) {
-
-				SendBytes.resize([&]() {
-					size_t S = 0;
-					for (const auto& q : Que)
-						S += q.GetSize();
-					return S;
-					}());
-
-				byte* cPos = (byte*)& SendBytes[0];
-
-				for (const auto& q : Que)
-					q.GetBytesRaw(cPos);
-
-				Que.clear();
-			}
-
-			if (dQue.size()){
+			qLock.lock();
+			VEC(byte) SendBytes(_M(QueBytes));
+			QueBytes.clear(); QueBytes.reserve(2048);
+			qLock.unlock();
+			/*if (dQue.size()){
 
 				std::sort(begin(dQue), end(dQue), [](const _DelayedBanchoPacket &i, const _DelayedBanchoPacket &j) { return (i.Time < j.Time); });
 
@@ -1636,14 +1646,21 @@ void reset() {
 						dQue.pop_back();
 					}else break;
 				}
+			}*/
+
+			{
+				std::string HTTPHeader = "HTTP/1.0 200 OK" MNL "Connection: close" MNL "Content-Length: " + std::to_string(SendBytes.size());
+				if (SendToken)
+					HTTPHeader += MNL "cho-token: " + std::to_string(choToken);
+
+				HTTPHeader += MNL MNL;
+
+				::send(s.s,HTTPHeader.data(), HTTPHeader.size(),0);
+				if(SendBytes.size())
+					::send(s.s, (const char*)&SendBytes[0], SendBytes.size(),0);
 			}
-		}
-		if (SendBytes.size())
-			s.SendData(ConstructResponse(200, (!SendToken) ? Empty_Headers : std::vector<std::pair<std::string,std::string>>{{"cho-token", std::to_string(choToken)}}, SendBytes));
-		else{
-		FEEDALIVE:
-			s.SendData(ConstructResponse(200, {}, SendBytes));
-		}
+
+		}else s.SendData(STACK("HTTP/1.0 200 OK\r\nConnection: close\r\nContent-Length: 0"));
 
 	}
 
@@ -1795,296 +1812,381 @@ _inline byte GetUserType(const DWORD p){
 		:	UserType::Normal;
 }
 
-namespace bPacket {
+namespace PacketBuilder {
 
-	_BanchoPacket Message(const std::string_view senderName, const std::string_view targetname, const std::string_view message, const int senderId) {
 
-		_BanchoPacket b(OPac::server_sendMessage);
-
-		AddString(b.Data, senderName);
-		AddString(b.Data, message);
-		AddString(b.Data, targetname);
-		AddStream(b.Data, senderId);
-
-		return b;
+	namespace CT {
+		template<size_t Size>
+			constexpr auto _GetUleb_();
 	}
 
-	_BanchoPacket BotMessage_NonDefault(const std::string_view Target, const std::string_view message, const std::string_view Name , const DWORD ID = (USERID_START - 1)) {
+	constexpr size_t PreAlloc(const char v) { return (v == 's' || v == 'v') ? 64 : v == '5' ? 32 : v == 'l' ? 8 : v == '!' ? 7 : v == 'i' ? 4 : v == 'w' ? 2 : 1; }
 
-		_BanchoPacket b(OPac::server_sendMessage);
+	template<size_t A, size_t B> struct TAssertEquality {
+		static_assert(A == B, "Not equal");
+		static constexpr bool _cResult = (A == B);
+	};
 
-		b.Data.reserve(10 + Name.size() + message.size() + Target.size());
+	template<Packet::Server ID,char... Format,typename... T>
+		void Build(std::vector<byte>& c, T... A){
 
-		AddString(b.Data, Name);
-		AddString(b.Data, message);
-		AddString(b.Data, Target);
-		AddStream(b.Data, ID);
+			constexpr size_t Reserve = []{
+				size_t R = 7;
+				((R = R + (Format == '-' ? (sizeof(CT::_GetUleb_<sizeof(T)>()) + sizeof(T)) : PreAlloc(Format))) | ...);
+				return R;
+			}();			
 
-		return b;
-	}
+			constexpr bool Locked = []{		
+				int C = 0;
+				((C = C + (Format == 'm' ? 1 : 0)) | ...);
+				return C > 0;
+			}();
 
-	_BanchoPacket BotMessage(const std::string_view Target, const std::string_view message) {
+			size_t StartID = c.size();
+			
+			if constexpr (!Locked){
+				c.reserve(StartID + Reserve);
+				c.resize(StartID + 7);
+				*(USHORT*)& c[StartID] = (USHORT)ID;
+			}
+			std::mutex* Lock = 0;
 
-		_BanchoPacket b(OPac::server_sendMessage);
+			(([&]{
+				if constexpr (Format == 's'){
+					const std::string* v = A;
+					const size_t Size = v->size();
+					AddUleb(c, Size);
+					if (Size) {
+						c.resize(c.size() + Size);
+						memcpy(&c[c.size() - Size], v->data(), Size);
+					}
+					return 0;
+				}
+				if constexpr (Format == 'v'){
+					const std::string_view* v = A;
+					const size_t Size = v->size();
+					AddUleb(c, Size);
+					if (Size) {
+						c.resize(c.size() + Size);
+						memcpy(&c[c.size() - Size], v->data(), Size);
+					}
+					return 0;
+				}
+				if constexpr (Format == '5'){
 
-		b.Data.reserve(10 + BOT_NAME.size() + message.size() + Target.size());
+					if (A[0]){//Assume it is at least 32 bytes long.
+						const size_t cI = c.size();
+						c.resize(c.size() + 34);
+						*(USHORT*)&c[cI] = 0x200b;
+						*(uint64_t*)&c[cI + 2]  = *(uint64_t*)(A);
+						*(uint64_t*)&c[cI + 10] = *(uint64_t*)(A + 8);
+						*(uint64_t*)&c[cI + 18] = *(uint64_t*)(A + 16);
+						*(uint64_t*)&c[cI + 26] = *(uint64_t*)(A + 24);
+					}else c.push_back(0);
 
-		AddString(b.Data, BOT_NAME);
-		AddString(b.Data, message);
-		AddString(b.Data, Target);
-		AddStream(b.Data,(USERID_START-1));
+					return 0;
+				}
+				if constexpr (Format == '!') {
+					*(DWORD*)& c[StartID + 3] = c.size() - (StartID + 7);
+					StartID = c.size();
+					c.resize(StartID + 7);
+					*(USHORT*)&c[StartID] = (USHORT)A;
+				}
+				if constexpr (Format == '-') {
 
-		return b;
+					constexpr auto ULEB = CT::_GetUleb_<sizeof(T)>();
+
+					const size_t Off = c.size();
+
+					c.resize(c.size() + sizeof(ULEB) + sizeof(T));
+
+					*(std::array<byte, sizeof(ULEB)>*)& c[Off] = ULEB;
+					*(T*)& c[Off + sizeof(ULEB)] = A;
+
+					return 0;
+				}
+				if constexpr (Format == 'l') {
+					c.resize(c.size() + 8);
+					*(long long*)& c[c.size() - 8] = A;
+					return 0;
+				}
+				if constexpr (Format == 'i'){
+					c.resize(c.size() + 4);
+					*(int*)&c[c.size() - 4] = A;
+					return 0;
+				}
+				if constexpr (Format == 'w'){
+					c.resize(c.size() + 2);
+					*(short*)&c[c.size() - 2] = A;
+					return 0;
+				}
+				if constexpr (Format == 'w'){
+					c.push_back(A);
+					return 0;
+				}
+				if constexpr (Format == 'm'){
+					if (A) {
+						Lock = A;
+						Lock->lock();
+					}
+					c.reserve(StartID + Reserve);
+					c.resize(StartID + 7);
+
+					*(USHORT*)&c[StartID] = (USHORT)ID;
+					return 0;
+				}
+				return 0; }()
+				) | ...);
+
+			if (Lock)
+				Lock->unlock();
+
+			*(DWORD*)&c[StartID + 3] = c.size() - (StartID + 7);
+
+		}
+
+	template<Packet::Server ID, char... Format, typename... T>
+		auto Fixed_Build(T... A){
+
+			constexpr size_t Size = [] {
+				size_t R = 7;
+				((R = R + ((Format == '-') ? (sizeof(CT::_GetUleb_<sizeof(T)>()) + sizeof(T)) : PreAlloc(Format))) | ...);
+				return R;
+			}();
+
+			std::array<byte, Size> Ret;
+
+			size_t Start = 7;
+
+			*(USHORT*)&Ret[0] = USHORT(ID);Ret[2] = 0;
+
+			size_t Off = 7;
+			
+			(([&]{
+				if constexpr (Format == 'i'){
+					*(int*)&Ret[Off] = A;
+					Off += 4;
+					return 0;
+				}
+				if constexpr (Format == 'w') {
+					*(short*)& Ret[Off] = A;
+					Off += 2;
+					return 0;
+				}
+				if constexpr (Format == 'b') {
+					Ret[Off++] = A;
+					return 0;
+				}
+				if constexpr (Format == '!'){
+					*(DWORD*)&Ret[Start - 4] = Off - Start;
+					*(USHORT*)&Ret[Off] = USHORT(A);
+					Ret[Off + 2] = 0;
+					Off += 7;
+					Start = Off;
+					return 0;
+				}
+				if constexpr (Format == '-'){
+					constexpr auto ULEB = CT::_GetUleb_<sizeof(T)>();
+					*(std::array<byte, sizeof(ULEB)>*)&Ret[Off] = ULEB; Off += sizeof(ULEB);
+					*(T*)&Ret[Off] = A; Off += sizeof(T);
+					return 0;
+				}
+
+				return 0;
+			}()) | ...);
+
+			*(DWORD*)&Ret[Start - 4] = Off - Start;
+
+			return Ret;
+		}
+
+	namespace CT {
+
+		template<size_t Size>
+		constexpr auto _GetUleb_() {
+
+			constexpr byte HeaderSize = [] {
+				if (Size == 0)return 1;
+				if (Size >> 7 == 0)return 2;
+				if (Size >> 14 == 0)return 3;
+				if (Size >> 21 == 0)return 4;
+				if (Size >> 28 == 0)return 5;
+				return 6;
+			}();
+
+			if constexpr (HeaderSize == 1)
+				return std::array<byte, 1>{0};
+			if constexpr (HeaderSize == 2)
+				return std::array<byte, 2>{0xb, byte(Size)};
+			if constexpr (HeaderSize == 3)
+				return std::array<byte, 3>{0xb, byte((Size) | 0x80), byte((Size >> 7))};
+			if constexpr (HeaderSize == 4)
+				return std::array<byte, 4>{0xb, byte((Size) | 0x80), byte((Size >> 7) | 0x80), byte((Size >> 14))};
+			if constexpr (HeaderSize == 5)
+				return std::array<byte, 5>{0xb, byte((Size) | 0x80), byte((Size >> 7) | 0x80), byte((Size >> 14) | 0x80), byte((Size >> 21))};
+			if constexpr (HeaderSize == 6)
+				return std::array<byte, 6>{0xb, byte((Size) | 0x80), byte((Size >> 7) | 0x80), byte((Size >> 14) | 0x80), byte((Size >> 21) | 0x80), byte((Size >> 28))};
+
+			return std::array<byte, HeaderSize>{0};
+		}
+
+		template<size_t Size>
+		constexpr auto String(const char(&S)[Size]) {
+
+			constexpr auto ULEB = _GetUleb_<Size - 1>();
+
+			std::array<byte, ULEB.size() + Size - 1> Ret = { 0 };
+
+			for (size_t i = 0; i < ULEB.size(); i++)
+				Ret[i] = ULEB[i];
+			for (size_t i = 0; i < Size - 1; i++)
+				Ret[i + ULEB.size()] = S[i];
+
+			return Ret;
+		}
+
+		template<typename T>
+		constexpr std::array<byte, sizeof(T)> Number(const T Num) {
+			std::array<byte, sizeof(T)> Ret{ 0 };
+			for (size_t i = 0; i < sizeof(T); i++)
+				Ret[i] = byte(Num >> (8 * i));
+			return Ret;
+		}
+
+		constexpr std::array<byte, 7> PacketHeader(Packet::Server ID) {
+			std::array<byte, 7> Ret{ 0 };
+			Ret[0] = byte(USHORT(ID));
+			Ret[1] = byte(USHORT(ID) >> 8);
+			return Ret;
+		}
+		template<size_t Size>
+			constexpr std::array<byte, Size> PopulateHeader(std::array<byte, Size> Packet) {
+				Packet[3] = byte((Size - 7));
+				Packet[4] = byte((Size - 7) >> 8);
+				Packet[5] = byte((Size - 7) >> 16);
+				Packet[6] = byte((Size - 7) >> 24);
+				return Packet;
+			}
+
+		template<size_t DestSize, size_t SrcSize>
+			constexpr size_t Write(std::array<byte,DestSize> &Dest, std::array<byte,SrcSize>& Src, size_t Offset){
+				for (size_t i = 0; i < SrcSize; i++)
+					Dest[Offset + i] = Src[i];
+				return SrcSize;
+				}
+
+		template<typename... T>
+			constexpr auto Concate(T... Arr){
+
+				constexpr size_t TotalBytes = [&]{
+					size_t Total = 0; ((Total = Total + sizeof(Arr)) && ...); return Total;	
+				}();
+
+				std::array<byte, TotalBytes> Ret = {0};
+				size_t Offset = 0;
+				((Offset = Offset + Write(Ret, Arr, Offset)) | ...);
+
+				return Ret;
+			}
+
+		template<const size_t nSize>
+			constexpr auto _STACK_(const char(&String)[nSize]){
+				constexpr size_t Size = nSize - 1;
+				static_assert((nSize != 0 && nSize != 1), "STACK() can not be called with an empty string");
+				std::array<byte, Size> a{};
+				for (size_t i = 0; i < Size; i++)
+					a[i] = String[i];
+				return a;
+			}
+
+		template<size_t Size>
+			constexpr auto String_Packet(Packet::Server ID, const char(&S)[Size]){
+				return PopulateHeader(Concate(PacketHeader(ID), String(S)));
+			}
+		template<typename T>
+			constexpr auto Number_Packet(Packet::Server ID, T Num) {
+				return PopulateHeader(Concate(PacketHeader(ID), Number(Num)));
+			}
+
+			template<size_t Number>
+				constexpr auto IntToArray(){
+
+					constexpr size_t DigitCount = [] {size_t n(Number), c(1); while (n /= 10)c++; return c; }();
+					constexpr auto iPow = [](size_t i, size_t e) {size_t r = i; while (--e)r *= i; return r; };
+
+					std::array<byte, DigitCount> Ret{};
+
+					for (size_t i = DigitCount; i-- > 0;)
+						Ret[(DigitCount - 1) - i] = '0' + (!i ? Number % 10 : (Number / iPow(10, i)) % 10);
+
+					return Ret;
+				}
+
+			template<USHORT Code,size_t Size, size_t Size2>
+				constexpr auto HTTPBytes(const std::array<byte, Size> Body,std::array<byte, Size2> Header){
+
+					constexpr auto resCode = [=] {
+						if constexpr(Code == 200)return _STACK_("HTTP/1.0 200 OK");
+						if constexpr(Code == 404)return _STACK_("HTTP/1.0 404 Not Found");
+						if constexpr(Code == 405)return _STACK_("HTTP/1.0 405 Method Not Allowed");
+						if constexpr(Code == 408)return _STACK_("HTTP/1.0 408 Request Timeout");
+					}();
+					constexpr auto ContentLength = Concate(_STACK_("Connection: close\r\nContent-Length: "), IntToArray<sizeof(Body)>(),_STACK_("\r\n\r\n"));
+
+					return Concate(resCode,Header, ContentLength ,Body);
+				}
+
 	}
 
 }
+
 
 #include "Channel.h"
 
 
-const _BanchoPacket BOT_STATS = [] {
-	_BanchoPacket b(OPac::server_userStats);
-	AddStream(b.Data, (USERID_START-1));
-	b.Data.push_back(0);//actionID
-	AddString(b.Data, "");//actiontext
-	AddString(b.Data, "");//md5
-	AddStream(b.Data, 0);//mods
-	b.Data.push_back(0);//gamemode
-	AddStream(b.Data, 0);//beatmapid
-	AddStream(b.Data, (long long)0);//rankedscore
-	AddStream(b.Data, 0);//acc
-	AddStream(b.Data, 0);//playcount
-	AddStream(b.Data, (long long)0);//total score
-	AddStream(b.Data, 0);//gamerank
-	AddStream(b.Data, short(0));//pp
-	return b;
-}();
+namespace CT_BotInfo {
 
-namespace bPacket {
+	using namespace PacketBuilder::CT;
 
-	_inline _BanchoPacket Notification(const std::string_view Mes) {
+	constexpr const auto Bot_Stats = PopulateHeader(Concate(
+		PacketHeader(Packet::Server::userPanel),
+		Number<int>(USERID_START - 1), String(M_BOT_NAME), Number<byte>(0), Number<byte>(BOT_LOCATION), Number<byte>(UserType::Peppy),
+		Number<int>(0), Number<int>(0), Number<int>(0)
+	));
 
-		_BanchoPacket b(OPac::server_notification);
-
-		AddString(b.Data, Mes);
-
-		return b;
-	}
-	_BanchoPacket ChannelInfo(const _Channel* c) {
-
-		_BanchoPacket b(OPac::server_channelInfo);
-
-		AddString(b.Data, c->ChannelName);
-		AddString(b.Data, c->ChannelDesc);
-		AddStream(b.Data, short(c->ChannelCount));
-
-		return b;
-	}
-	_BanchoPacket ChannelInfo(const std::string Name, const std::string Desc, USHORT Count) {
-
-		_BanchoPacket b(OPac::server_channelInfo);
-
-		AddString(b.Data, Name);
-		AddString(b.Data, Desc);
-		AddStream(b.Data, short(Count));
-
-		return b;
-	}
-
-	#define bPacket4Byte(ID, VALUE) _BanchoPacket(ID,VEC(byte){\
-												static_cast<byte>(VALUE),\
-												static_cast<byte>(VALUE >> 8),\
-												static_cast<byte>(VALUE >> 16),\
-												static_cast<byte>(VALUE >> 24)})
-	
-	_inline _BanchoPacket RawData(const short ID, const byte* Value, const DWORD Size) {
-
-		_BanchoPacket b(ID);
-
-		b.Data.resize(Size);
-
-		memcpy(&b.Data[0], Value, Size);
-
-		return b;
-	}
-
-	_inline _BanchoPacket GenericString(const short ID, const std::string_view Value){
-		_BanchoPacket b(ID);
-		AddString(b.Data, Value);
-		return b;
-	}
-
-	_inline _BanchoPacket GenericInt32List(const short ID, const std::vector<int> &Value, const bool BigHeader) {
-
-		_BanchoPacket b(ID);
-
-		if (BigHeader)
-			AddStream(b.Data, DWORD(Value.size()));
-		else
-			AddStream(b.Data, USHORT(Value.size()));
-
-		for (const auto i : Value)
-			AddStream(b.Data, i);
-
-		return b;
-	}
-	_inline _BanchoPacket GenericDWORDList(const short ID, const std::vector<DWORD> &Value, const bool BigHeader){
-
-		_BanchoPacket b(ID);
-
-		if(BigHeader)
-			AddStream(b.Data, DWORD(Value.size()));
-		else
-			AddStream(b.Data, USHORT(Value.size()));
-
-		for (const auto i : Value)
-			AddStream(b.Data, i);
-
-		return b;
-	}
-
-
-	_BanchoPacket UserPanel(const DWORD UserID, const DWORD AskerID) {
-
-		if (UserID < USERID_START){
-			_BanchoPacket b(OPac::server_userPanel);b.Data.reserve(32);
-			AddStream(b.Data, UserID);
-			AddString(b.Data, UserID == (USERID_START-1) ? BOT_NAME : "Not Set");
-			b.Data.push_back(0);//timezone
-			b.Data.push_back(BOT_LOCATION);//country
-			b.Data.push_back(UserType::Peppy);//userank
-			AddStream(b.Data, 0);//long
-			AddStream(b.Data, 0);//lat
-			AddStream(b.Data, 0);//gamerank
-			return b;
-		}
-		_UserRef tP(GetUserFromID(UserID),1);
-
-		if (!tP || !tP->UserID || (UserID != AskerID && !(tP->privileges & UserPublic)))
-			return bPacket4Byte(OPac::server_userLogout, UserID);
-
-		_BanchoPacket b(OPac::server_userPanel);b.Data.reserve(48);
-
-		AddStream(b.Data, UserID);
-		AddString(b.Data, tP->Username);
-		b.Data.push_back(24 + tP->timeOffset);
-		b.Data.push_back(tP->country);
-		b.Data.push_back(UserID != AskerID ? GetUserType(tP->privileges) : UserType::Supporter);
-		AddStream(b.Data, tP->lon);
-		AddStream(b.Data, tP->lat);
-		const DWORD sOff = tP->GetStatsOffset();
-		AddStream(b.Data, tP->Stats[sOff].getRank(sOff,tP->UserID));
-
-		return b;
-	}
-
-	_BanchoPacket UserPanel(_User *tP) {
-
-		_BanchoPacket b(OPac::server_userPanel);
-
-		AddStream(b.Data, tP->UserID);
-		AddString(b.Data, tP->Username);
-		b.Data.push_back(24 + tP->timeOffset);
-		b.Data.push_back(tP->country);
-		b.Data.push_back(GetUserType(tP->privileges));
-		AddStream(b.Data, tP->lon);
-		AddStream(b.Data, tP->lat);
-		const DWORD sOff = tP->GetStatsOffset();
-		AddStream(b.Data, tP->Stats[sOff].getRank(sOff,tP->UserID));
-
-		return b;
-	}
-
-	_BanchoPacket UserStats(const DWORD UserID, const DWORD AskerID) {
-
-		if (UserID == USERID_START-1)
-			return BOT_STATS; 
-		if (UserID < USERID_START){
-				_BanchoPacket b = BOT_STATS; 
-				* (DWORD*)& b.Data[0] = UserID; 
-				return b; 
-		}
-
-		_UserRef tP(GetUserFromID(UserID), 1);
-
-		if (!tP || !tP->choToken || (!(tP->privileges & UserPublic) && UserID != AskerID))
-			return bPacket4Byte(OPac::server_userLogout, UserID);
-
-		const DWORD Off = tP->GetStatsOffset(); 
-						
-		_BanchoPacket b(OPac::server_userStats); 
-		b.Data.reserve(128); 
-		AddStream(b.Data, UserID); 
-		b.Data.push_back(tP->actionID); 
-						
-		AddString(b.Data, tP->ActionText); 
-		if (tP->ActionMD5[0] == 0)AddString(b.Data, ""); 
-		else{			
-			AddUleb(b.Data, 32); 
-			AddMem(b.Data, tP->ActionMD5, 32); 
-		}
-		AddStream(b.Data, tP->actionMods); 
-		b.Data.push_back(tP->GameMode); 
-		AddStream(b.Data, tP->BeatmapID); 
-		AddStream(b.Data, tP->Stats[Off].rScore); 
-		AddStream(b.Data, tP->Stats[Off].Acc); 
-		AddStream(b.Data, (tP->Stats[Off].pp > USHORT(-1)) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount); \
-		AddStream(b.Data, tP->Stats[Off].tScore); 
-		AddStream(b.Data, tP->Stats[Off].getRank(Off, tP->UserID)); 
-		AddStream(b.Data, USHORT(tP->Stats[Off].pp)); 
-								
-		return b;
-	}
-
-	_BanchoPacket UserStats(_User *tP){
-
-		if (!tP || !tP->choToken || !(tP->privileges & UserPublic))
-			return bPacket4Byte(OPac::server_userLogout, tP ? tP->UserID : 0);
-
-		const DWORD Off = tP->GetStatsOffset();
-
-		_BanchoPacket b(OPac::server_userStats);
-		b.Data.reserve(128);
-
-		AddStream(b.Data, tP->UserID);
-		b.Data.push_back(tP->actionID);
-		AddString(b.Data, tP->ActionText);
-		if (tP->ActionMD5[0] == 0)
-			AddString(b.Data, "");
-		else{
-			AddUleb(b.Data, 32);
-			AddMem(b.Data, tP->ActionMD5, 32);
-		}
-		AddStream(b.Data, tP->actionMods);
-		b.Data.push_back(tP->GameMode);
-		AddStream(b.Data, tP->BeatmapID);
-		AddStream(b.Data, tP->Stats[Off].rScore);
-		AddStream(b.Data, tP->Stats[Off].Acc);
-		AddStream(b.Data, (tP->Stats[Off].pp > USHORT(-1)) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount);
-		AddStream(b.Data, tP->Stats[Off].tScore);
-		AddStream(b.Data, tP->Stats[Off].getRank(Off, tP->UserID));
-		AddStream(b.Data, USHORT(tP->Stats[Off].pp));
-
-		return b;
-	}
+	constexpr const auto Bot_Panel = PopulateHeader(
+		Concate(
+			PacketHeader(Packet::Server::userStats),
+			Number<int>(USERID_START - 1), Number<byte>(0), Number<byte>(0), Number<byte>(0), Number<int>(0), Number<int>(0)
+		));
 }
-
 
 void debug_SendOnlineToAll(_User *u){
 
 	if (u->privileges & UserPublic){
 
-		const VEC(_BanchoPacket) Stats = { bPacket::UserPanel(u->UserID, 0) , bPacket::UserStats(u->UserID, 0) };
+		VEC(byte) b;
 
+		const DWORD Off = u->GetStatsOffset();
+		
+		PacketBuilder::Build<Packet::Server::userPanel,'i','s','b','b','b','i','i','i',
+			'!','i','b','s','5','i','b','i','l','i','i','l','i','w'>
+			(b,u->UserID,&u->Username, 24 + u->timeOffset,u->country, GetUserType(u->privileges), *(int*)&u->lon, *(int*)&u->lat, u->Stats[Off].getRank(Off, u->UserID),
+			Packet::Server::userStats,u->UserID,u->actionID,&u->ActionText,u->ActionMD5,u->actionMods,u->GameMode,u->BeatmapID, u->Stats[Off].rScore, *(int*)&u->Stats[Off].Acc,
+				u->Stats[Off].pp > USHORT(-1) ? u->Stats[Off].pp : u->Stats[Off].PlayCount, u->Stats[Off].tScore, u->Stats[Off].getRank(Off, u->UserID), USHORT(u->Stats[Off].pp));
+				
 		for (auto& User : Users)
 			if (User.choToken && &User != u)
-				User.addQue(Stats);
+				User.addQueVector(b);
 	}
 }
 
 void Event_client_stopSpectating(_User *u){
 	
-	u->addQue(bPacket::GenericString(OPac::server_channelKicked, "#spectator"));
+
+	auto specLeave = PacketBuilder::Fixed_Build<Packet::Server::channelKicked, '-'>(STACK("#spectator"));
+
+	u->addQueArray(specLeave);
 
 	if (_User* const SpecTarget = u->CurrentlySpectating; SpecTarget){
 
@@ -2092,7 +2194,8 @@ void Event_client_stopSpectating(_User *u){
 
 		bool AllEmptySpecs = 1;
 
-		_BanchoPacket b = bPacket4Byte(OPac::server_fellowSpectatorLeft, u->UserID);
+
+		auto b = PacketBuilder::Fixed_Build<Packet::Server::fellowSpectatorLeft, 'i'>(u->UserID);
 
 		if(std::scoped_lock<std::mutex> l(SpecTarget->SpecLock); 1){
 
@@ -2100,7 +2203,7 @@ void Event_client_stopSpectating(_User *u){
 				if (Spec == u)
 					Spec = 0;
 				else if (Spec){
-					Spec->addQue(b);
+					Spec->addQueArray(b);
 					AllEmptySpecs = 0;
 				}
 			}
@@ -2108,20 +2211,24 @@ void Event_client_stopSpectating(_User *u){
 			if (AllEmptySpecs)
 				SpecTarget->Spectators.clear();
 		}
-		b.Type = OPac::server_spectatorLeft;
+
+		*(USHORT*)b.data() = USHORT(Packet::Server::spectatorLeft);
 
 		AllEmptySpecs?
-			SpecTarget->addQue({ b, bPacket::GenericString(OPac::server_channelKicked, "#spectator") })
-			: SpecTarget->addQue(b);
+			SpecTarget->addQueArray(PacketBuilder::CT::Concate(b, specLeave))//Pretty gross.
+			: SpecTarget->addQueArray(b);
 	}
 }
 
 void Event_client_cantSpectate(_User *tP){
 
 	if (_User* const SpecHost = tP->CurrentlySpectating; SpecHost){
-		const _BanchoPacket b = bPacket4Byte(OPac::server_spectatorCantSpectate, tP->UserID);
+
+
+		const auto b = PacketBuilder::Fixed_Build<Packet::Server::spectatorCantSpectate, 'i'>(tP->UserID);
+
 		SpecHost->SendToSpecs(b);
-		SpecHost->addQue(_M(b));
+		SpecHost->addQueArray(b);
 	}
 }
 
@@ -2195,11 +2302,13 @@ void Event_client_channelJoin(_User *tP,const byte* const Packet, const DWORD Si
 
 		_Channel* c = GetChannelByName(ChannelName);
 
+		
 		if (c) {
 			c->JoinChannel(tP);
-			tP->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess, ChannelName));
-		}
-		else tP->addQue(bPacket::GenericString(OPac::server_channelKicked, ChannelName));
+			PacketBuilder::Build<Packet::Server::channelJoinSuccess, 'm', 'v'>(tP->QueBytes, &tP->qLock, &ChannelName);
+		}else
+			PacketBuilder::Build<Packet::Server::channelKicked, 'm', 'v'>(tP->QueBytes, &tP->qLock, &ChannelName);
+			
 	}
 }
 void Event_client_channelPart(_User *tP, const byte* const Packet, const DWORD Size){
@@ -2219,8 +2328,28 @@ void Event_client_userStatsRequest(_User *u, const byte* const Packet, const DWO
 
 		if ((Count << 2) + 2 <= Size) {
 			if (std::scoped_lock<std::mutex> L(u->qLock); 1)
-				for (DWORD i = 0; i < Count; i++)
-					u->addQueNonLocking(bPacket::UserStats(*(DWORD*)& Packet[2 + (i << 2)], u->UserID));
+				for (DWORD i = 0; i < Count; i++){
+
+
+					const DWORD uID = *(DWORD*)& Packet[2 + (i << 2)];
+
+					_UserRef tP(GetUserFromID(uID), 1);
+
+					if (!tP || !tP->choToken || (!(tP->privileges & UserPublic) && u != tP.User)){
+						u->addQueArray<0>(PacketBuilder::Fixed_Build<Packet::Server::userLogout,'i'>(uID));
+						continue;
+					}
+
+					const DWORD Off = tP->GetStatsOffset();
+					
+					PacketBuilder::Build<Packet::Server::userStats,
+						'i', 'b', 's', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(u->QueBytes,
+							tP->UserID, tP->actionID, &tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
+							tP->BeatmapID, tP->Stats[Off].rScore, *(int*)& tP->Stats[Off].Acc,
+							tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
+							tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
+							);
+				}
 		}
 	}
 }
@@ -2252,7 +2381,16 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 	tP->GameMode = n_GameMode;
 	if(n_BeatmapID)tP->BeatmapID = n_BeatmapID;
 
-	tP->addQue(bPacket::UserStats(tP));
+
+	const DWORD Off = tP->GetStatsOffset();
+
+	PacketBuilder::Build<Packet::Server::userStats, 'm',
+		'i', 'b', 's', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(tP->QueBytes, &tP->qLock,
+			tP->UserID, tP->actionID, &tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
+			tP->BeatmapID, tP->Stats[Off].rScore, *(int*)&tP->Stats[Off].Acc,
+			tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
+			tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
+			);
 
 }
 
@@ -2491,13 +2629,10 @@ void BotMessaged(_User *tP, const std::string_view Message){
 	if (Message[0] == '!'){
 
 		if (!MEM_CMP_START(Message, "!with") && !MEM_CMP_START(Message, "!acc")) {
-
+			
 			DWORD Unused;
-
-			const std::string Res = ProcessCommand(tP, Message, Unused);
-
-			if (Res.size())
-				tP->addQue(bPacket::BotMessage(tP->Username, Res));
+			if (const std::string& Res = ProcessCommand(tP, Message, Unused); Res.size())
+				PacketBuilder::Build<Packet::Server::sendMessage, 'm','-','s','s','i'>(tP->QueBytes,&tP->qLock,STACK(M_BOT_NAME),&Res,&tP->Username,USERID_START-1);
 
 			return;
 		}
@@ -2520,9 +2655,10 @@ void BotMessaged(_User *tP, const std::string_view Message){
 			const DWORD BeatmapOffset = (BotMessage[2] == "listening") ? 4:3;
 
 			const DWORD mSize = BotMessage[BeatmapOffset].size();
-
+			
 			if(BotMessage[BeatmapOffset].find("/s/") != std::string::npos || mSize < 5)//mSize check is just to make it safe.
-				return tP->addQue(bPacket::BotMessage(tP->Username, "This appears to be a Beatmapset - Which is not currently supported sorry!"));
+				return PacketBuilder::Build<Packet::Server::sendMessage, 'm', '-', '-', 's', 'i'>(tP->QueBytes, &tP->qLock, STACK(M_BOT_NAME),
+					STACK("This appears to be a Beatmapset - Which is not currently supported sorry!"), &tP->Username, USERID_START - 1);
 
 			char* Temp = new char[mSize]();
 
@@ -2569,9 +2705,10 @@ void BotMessaged(_User *tP, const std::string_view Message){
 
 	if (!mapID){
 		if (BotMessage.size() >= 2){
-
+			
 			if (BotMessage[0] == "!acc")
-				return tP->addQue(bPacket::BotMessage(tP->Username, "This is now in !with. Here are some examples of the usage.\n!with HDDT 95\n!with 98.5 HD HR"));
+				return PacketBuilder::Build<Packet::Server::sendMessage,'m','-','-','s','i'>(tP->QueBytes,&tP->qLock,STACK(M_BOT_NAME),
+					STACK("This is now in !with. Here are some examples of the usage.\n!with HDDT 95\n!with 98.5 HD HR"),&tP->Username, USERID_START-1);
 
 			if (BotMessage[0] == "!with"){
 
@@ -2647,32 +2784,36 @@ WITHMODS:
 	
 	ezpp_t ez = ezpp_new();
 
-	if (!ez)return;
+	if (ez){
 
-	tP->addQue(bPacket::BotMessage(tP->Username, [&]()->std::string{
-		ezpp_set_mods(ez, Mods);
-		ezpp_set_accuracy_percent(ez, (Acc == 0.f) ? 95.f : Acc);
+		const std::string& Res = [&]()->std::string{
 
-		if (Combo)ezpp_set_combo(ez, Combo);
+			ezpp_set_mods(ez, Mods);
+			ezpp_set_accuracy_percent(ez, (Acc == 0.f) ? 95.f : Acc);
 
-		if (!OppaiCheckMapDownload(ez, mapID))
-			return "Sorry. I failed to get that map.";
+			if (Combo)ezpp_set_combo(ez, Combo);
 
-		tP->LastSentBeatmap = mapID;
+			if (!OppaiCheckMapDownload(ez, mapID))
+				return "Sorry. I failed to get that map.";
 
-		const float PP = ezpp_pp(ez);
+			tP->LastSentBeatmap = mapID;
 
-		if (Acc != 0.f || Combo != 0)
-			return RoundTo2(PP) + " pp";
+			const float PP = ezpp_pp(ez);
 
-		const float PPValues[3] = { ezpp_NewAcc(ez,98.f),ezpp_NewAcc(ez,99.f),ezpp_NewAcc(ez,100.f) };
+			if (Acc != 0.f || Combo != 0)
+				return RoundTo2(PP) + " pp";
 
-		return "95%: " + RoundTo2(PP) + " pp\n98%: "
-			+ RoundTo2(PPValues[0]) + " pp\n99%: " + RoundTo2(PPValues[1]) + " pp\n100%: "
-			+ RoundTo2(PPValues[2]) + " pp";
-	}()));
+			const float PPValues[3] = { ezpp_NewAcc(ez,98.f),ezpp_NewAcc(ez,99.f),ezpp_NewAcc(ez,100.f) };
 
-	ezpp_free(ez);
+			return "95%: " + RoundTo2(PP) + " pp\n98%: "
+				+ RoundTo2(PPValues[0]) + " pp\n99%: " + RoundTo2(PPValues[1]) + " pp\n100%: "
+				+ RoundTo2(PPValues[2]) + " pp";
+		}();
+
+		PacketBuilder::Build<Packet::Server::sendMessage, 'm', '-', 's', 's', 'i'>(tP->QueBytes, &tP->qLock, STACK(M_BOT_NAME), &Res, &tP->Username, USERID_START - 1);
+
+		ezpp_free(ez);
+	}
 }
 
 void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const DWORD Size){
@@ -2691,27 +2832,25 @@ void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const 
 	if (O + 4 > End)return;
 	const int ID = *(int*)O;
 
-	if (Message.size() == 0)return;
+	if (Message.size()) {
 
-	if (Target == BOT_NAME)
-		return BotMessaged(tP, Message);
+		if (Target == BOT_NAME)
+			return BotMessaged(tP, Message);
 
-	_UserRef u(GetUserFromName(Target),1);
+		_UserRef u(GetUserFromName(Target), 1);
 
-	if (unlikely(!u))
-		return tP->addQue(bPacket4Byte(OPac::server_userLogout, ID));
-	
-	if (u->isBlocked(tP->UserID))
-		return;
+		if (unlikely(!u))
+			return tP->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::userLogout, 'i'>(ID));
 
-	if(u->FriendsOnlyChat && !u->isFriend(tP->UserID))
-		tP->addQue([&] {//hmm yes im peppy this is a great system!!1m!1! I AM GEN I US PEPPPYYY
-		auto b = bPacket::Message(tP->Username, u->Username, "", tP->UserID);
-		b.Type = OPac::server_userPMBlocked;
-		return b;
-		}());
-	else
-		u->addQue(bPacket::Message(tP->Username, Target, Message, tP->UserID));
+		if (u->isBlocked(tP->UserID))
+			return;
+		
+		if (u->FriendsOnlyChat && !u->isFriend(tP->UserID))
+			PacketBuilder::Build<Packet::Server::userPMBlocked, 'm', 's', 'b', 's', 'i'>(tP->QueBytes, &tP->qLock, &tP->Username, 0, &u->Username, tP->UserID);
+		else PacketBuilder::Build<Packet::Server::sendMessage, 'm', 's', 'v', 'v', 'i'>(u->QueBytes, &u->qLock, &tP->Username, &Message, &Target, tP->UserID);
+
+	}
+
 }
 
 void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const DWORD Size) {
@@ -2741,19 +2880,27 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 			_Match *const m = getMatchFromID(MultiID);
 			if (m){
 				DWORD notVisible = 0;
-				const std::string s = ProcessCommandMultiPlayer(tP, Message, notVisible, m);
 
+				const std::string s = ProcessCommandMultiPlayer(tP, Message, notVisible, m);
+				
 				if (s.size() == 0){
+
+					VEC(byte) Pack;
+					PacketBuilder::Build<Packet::Server::sendMessage,'s','s','v','i'>(Pack, &tP->Username, &Message, &Target, tP->UserID);
+
 					m->Lock.lock();
-					m->sendUpdate(bPacket::Message(tP->Username, Target, Message, tP->UserID), tP);
+					m->sendUpdateVector(Pack, tP);
 					m->Lock.unlock();
 				}else{
 
+					VEC(byte) Pack;
+					PacketBuilder::Build<Packet::Server::sendMessage, '-', 's', '-', 'i'>(Pack, STACK(M_BOT_NAME), &s, STACK("#multiplayer"), tP->UserID);
+
 					if(notVisible)
-						tP->addQue(bPacket::BotMessage("#multiplayer", s));
+						tP->addQueVector(Pack);
 					else{
 						m->Lock.lock();
-						m->sendUpdate(bPacket::BotMessage("#multiplayer", s), 0);
+						m->sendUpdateVector(Pack, 0);
 						m->Lock.unlock();
 					}
 				}
@@ -2766,37 +2913,37 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 
 		if (SpecHost){
 
-			const _BanchoPacket b = bPacket::Message(tP->Username, Target, Message, tP->UserID);
 
-			SpecHost->SpecLock.lock();
+			VEC(byte) b;
+			PacketBuilder::Build<Packet::Server::sendMessage,'s','s','v','i'>(b, &tP->Username, &Message, &Target, tP->UserID);
 
-			for (_User *const s : SpecHost->Spectators)
-				if (s && s != tP)
-					s->addQue(b);
-
-			SpecHost->SpecLock.unlock();
-
+			if (std::scoped_lock<std::mutex> L(SpecHost->SpecLock); 1){
+				for (_User* const s : SpecHost->Spectators){
+					if (s && s != tP)
+						s->addQueVector(b);
+				}
+			}
 			if (SpecHost != tP)
-				SpecHost->addQue(b);
+				SpecHost->addQueVector(b);
 		}
 
 		return;
 	}else c = GetChannelByName(Target);
 
 	if (!c)
-		return tP->addQue(bPacket::GenericString(OPac::server_channelKicked, Target));
+		return PacketBuilder::Build<Packet::Server::channelKicked, 'm', 'v'>(tP->QueBytes, &tP->qLock, &Target);
 
 	if (Message[0] == '!'){
 
 		DWORD notVisible = 0;
-		const std::string Res = ProcessCommand(tP, Message, notVisible);
+		const std::string& Res = ProcessCommand(tP, Message, notVisible);
 
 		if (!(tP->privileges & Privileges::UserPublic))
 			notVisible = 1;
 
 		if (Res.size()){
 			if (notVisible)
-				tP->addQue(bPacket::BotMessage(c->ChannelName, Res));
+				PacketBuilder::Build<Packet::Server::sendMessage, 'm', '-', 's', 's', 'i'>(tP->QueBytes, &tP->qLock, STACK(M_BOT_NAME), &Res, &tP->Username, USERID_START - 1);
 			else
 				c->Bot_SendMessage(Res);
 		}
@@ -2804,8 +2951,12 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 		return;
 	}
 
-	if (tP->privileges & Privileges::UserPublic)
-		c->SendPublicMessage(tP, bPacket::Message(tP->Username, Target, Message, tP->UserID));
+	if (tP->privileges & Privileges::UserPublic) {
+		VEC(byte) Pack;
+		PacketBuilder::Build<Packet::Server::sendMessage, 's', 's', 'v', 'i'>(Pack,&tP->Username,&Message,&Target,tP->UserID);
+
+		c->SendPublicMessage(tP, Pack);
+	}
 }
 
 void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWORD Size){
@@ -2814,13 +2965,16 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 
 	const DWORD ID = *(DWORD*)&Packet[0];
 
-	if (ID < USERID_START || ID == tP->UserID)
-		return tP->addQue(bPacket::Notification("You can not spectate that user."));
-
+	if (ID < USERID_START || ID == tP->UserID){
+		constexpr auto cPack = PacketBuilder::CT::String_Packet(Packet::Server::notification, "You can not spectate that user.");
+		return tP->addQueArray(cPack);
+	}
 	_UserRef SpecTarget(GetUserFromID(ID),1);
 
-	if (!SpecTarget)
-		return tP->addQue(bPacket::Notification("Failed to find user."));
+	if (!SpecTarget){
+		constexpr auto cPack = PacketBuilder::CT::String_Packet(Packet::Server::notification, "Failed to find user.");
+		return tP->addQueArray(cPack);
+	}
 
 	if (tP->CurrentlySpectating)
 		Event_client_stopSpectating(tP);
@@ -2829,38 +2983,46 @@ void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWO
 
 	tP->CurrentlySpectating = SpecTarget.User;
 
-	tP->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess,"#spectator"));
-	
 	{
 
-		const _BanchoPacket b = bPacket4Byte(OPac::server_fellowSpectatorJoined, tP->UserID);
+		const auto b = PacketBuilder::Fixed_Build<Packet::Server::fellowSpectatorJoined, 'i'>(tP->UserID);
 
 		std::scoped_lock<std::mutex> L(SpecTarget->SpecLock);
 
 		if (SpecTarget->Spectators.size() == 0)
-			SpecTarget->addQue(bPacket::GenericString(OPac::server_channelJoinSuccess, "#spectator"));
+			SpecTarget->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::channelJoinSuccess, '-'>(STACK("#spectator")));
+
+		VEC(byte) Fellow; Fellow.reserve(SpecTarget->Spectators.size() * 11);
 
 		for (auto& fSpec : SpecTarget->Spectators){
 			if (!fSpec){
 				if (Add)
 					fSpec = tP;
 				Add = 0;
-			}
-			else if (fSpec != tP) {
-				fSpec->addQue(b);
-				tP->addQue(bPacket4Byte(OPac::server_fellowSpectatorJoined, fSpec->UserID));
+			}else if (fSpec != tP){
+				fSpec->addQueArray(b);
+				PacketBuilder::Build<Packet::Server::fellowSpectatorJoined, 'i'>(Fellow, fSpec->UserID);
 			}
 			else Add = 0;
 		}
+
+		tP->addQueVector(Fellow);
 
 		if (Add)
 			SpecTarget->Spectators.push_back(tP);
 
 	}
-	SpecTarget->addQue({
-		bPacket::UserPanel(tP),
-		bPacket4Byte(OPac::server_spectatorJoined, tP->UserID)
-	});
+
+	{
+		const DWORD sOff = tP->GetStatsOffset();
+
+		PacketBuilder::Build<Packet::Server::userPanel,'m', 'i', 's', 'b', 'b', 'b', 'i', 'i', 'i'
+													  ,'!', 'i'>
+				(SpecTarget->QueBytes,&SpecTarget->qLock,
+				tP->UserID, &tP->Username, 24 + tP->timeOffset, tP->country, GetUserType(tP->privileges), *(int*)&tP->lon, *(int*)&tP->lat, tP->Stats[sOff].getRank(sOff, tP->UserID),
+				OPac::server_spectatorJoined, tP->UserID);
+
+	}
 
 }
 
@@ -2869,13 +3031,20 @@ void Event_client_spectateFrames(_User *tP, const byte* const Packet, const DWOR
 	if (tP->Spectators.size() == 0)
 		return;
 
-	const VEC(_BanchoPacket) Frame = { bPacket::UserStats(tP), bPacket::RawData(OPac::server_spectateFrames, Packet, Size) };
+	//TODO Move the stats to the actual MOVE
+
+	VEC(byte) Frame; Frame.resize(Size + 7);
+	*(USHORT*)Frame.data() = (USHORT)Packet::Server::spectateFrames;
+	Frame[2] = 0;
+	*(DWORD*)&Frame[3] = Size;
+
+	memcpy(&Frame[7], Packet, Size);
 
 	MUTEX_LOCKGUARD(tP->SpecLock);
 
 	for (_User* s : tP->Spectators){
-		if (!s)continue;
-		s->addQue(Frame);
+		if (s)
+			s->addQueVector(Frame);
 	}
 
 }
@@ -2948,14 +3117,16 @@ void ReadMatchData(_Match *m, const byte* const Packet,const DWORD Size, bool Sa
 
 void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD Size){
 
+	constexpr auto Failed = PacketBuilder::CT::PacketHeader(Packet::Server::matchJoinFail);
+
 	if (tP->CurrentMatchID || !(tP->privileges & UserPublic))//already in a match? Might want to kick them from the old one.
-		return tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));
+		return tP->addQueArray(Failed);
 
 
 	_Match *const m = getEmptyMatch();
 
 	if(unlikely(!m))
-		return tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));
+		return tP->addQueArray(Failed);
 
 	tP->inLobby = 0;
 
@@ -2971,10 +3142,10 @@ void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD S
 	tP->CurrentMatchID = m->MatchId;
 	m->Tournament = 0;
 
-	tP->addQue({
-		bPacket::GenericString(OPac::server_channelJoinSuccess,"#multiplayer"),
-		bPacket::bMatch(OPac::server_matchJoinSuccess,m,1)
-		});
+	auto MatchData = bPacket::bMatch(m);
+	PacketBuilder::Build<Packet::Server::channelJoinSuccess, '-'>(MatchData,STACK("#multiplayer"));
+
+	tP->addQueVector(MatchData);
 }
 
 _inline void SendMatchList(_User *tP){
@@ -2988,13 +3159,13 @@ _inline void SendMatchList(_User *tP){
 				S_MUTEX_LOCKGUARD(Lock);
 				Match[i].Lock.lock();
 				UpdateTime = Match[i].LastUpdate;
-				Cache = bPacket::bMatch(OPac::server_updateMatch, &Match[i],0);
-				tP->addQue(Cache);
+				Cache = bPacket::bMatch<0>(&Match[i]);
+				tP->addQueVector(Cache);
 				Match[i].Lock.unlock();
 
 			}else{
 				S_MUTEX_SHARED_LOCKGUARD(Lock);
-				tP->addQue(Cache);
+				tP->addQueVector(Cache);
 			}
 
 		}
@@ -3003,9 +3174,10 @@ _inline void SendMatchList(_User *tP){
 
 void Event_client_partMatch(_User *tP){
 	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m){
+
 		m->Lock.lock();
 		m->removeUser(tP, 0);
-		m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+		m->sendUpdateVector(bPacket::bMatch(m));
 		m->Lock.unlock();
 	}
 }
@@ -3028,7 +3200,7 @@ void Event_client_matchChangeSlot(_User *const tP, const byte* const Packet, con
 
 			New = *OldSlot;
 			*OldSlot = _Slot();
-			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+			m->sendUpdateVector(bPacket::bMatch(m));
 		}
 
 		m->Lock.unlock();
@@ -3044,7 +3216,7 @@ void Event_client_joinLobby(_User *tP){
 	if (m){
 		m->Lock.lock();
 		m->removeUser(tP, 0);
-		m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));//tell the other people that they left.
+		m->sendUpdateVector(bPacket::bMatch(m));//tell the other people that they left.
 		m->Lock.unlock();
 	}
 
@@ -3101,18 +3273,20 @@ void Event_client_matchChangeSettings(_User *tP, const byte* const Packet, const
 		}
 	}
 
-	if (PreviousBeatmapID != m->Settings.BeatmapID){
-		if (m->Settings.BeatmapID != -1){
-			m->sendUpdate(bPacket::BotMessage("#multiplayer","(Bloodcat)[https://bloodcat.com/osu?q=" + std::to_string(m->Settings.BeatmapID) + "]"));
-		}
-	}
+	const bool MapUpdated = (PreviousBeatmapID != m->Settings.BeatmapID && m->Settings.BeatmapID != -1);
 
 	if (unReadyUsers){
 		m->ClearPlaying();
 		m->UnreadyUsers();
 	}
 
-	m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+	VEC(byte) Update = bPacket::bMatch(m);
+	if (MapUpdated){
+		std::string Mes = "(Bloodcat)[https://bloodcat.com/osu?q=" + std::to_string(m->Settings.BeatmapID) + "]";
+		PacketBuilder::Build<Packet::Server::sendMessage, '-', 's', '-', 'i'>(Update, STACK(M_BOT_NAME), &Mes, STACK("#multiplayer"), USERID_START - 1);
+	}
+
+	m->sendUpdateVector(Update);
 
 	m->Lock.unlock();
 }
@@ -3136,7 +3310,7 @@ void Event_client_matchLock(_User *tP, const byte* const Packet, const DWORD Siz
 			}else
 				Slot.SlotStatus = (Slot.SlotStatus == SlotStatus::Open) ? SlotStatus::Locked : SlotStatus::Open;
 
-			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+			m->sendUpdateVector(bPacket::bMatch(m));
 		}
 
 		m->Lock.unlock();
@@ -3175,7 +3349,7 @@ void Event_client_matchChangeMods(_User *tP, const byte* const Packet, const DWO
 			}
 		}
 
-		m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+		m->sendUpdateVector(bPacket::bMatch(m));
 	}
 
 	
@@ -3184,9 +3358,10 @@ void Event_client_matchChangeMods(_User *tP, const byte* const Packet, const DWO
 void Event_client_joinMatch(_User *tP, const byte* const Packet, const DWORD Size) {
 
 
-	if(!(tP->privileges & UserPublic))
-		return tP->addQue(_BanchoPacket(OPac::server_matchJoinFail));
-
+	if (!(tP->privileges & UserPublic)){
+		constexpr auto b = PacketBuilder::CT::PacketHeader(Packet::Server::matchJoinFail);
+		return tP->addQueArray(b);
+	}
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size;
 	
@@ -3220,11 +3395,12 @@ void Event_client_joinMatch(_User *tP, const byte* const Packet, const DWORD Siz
 
 					tP->CurrentMatchID = m->MatchId;
 
-					tP->addQue({
-						bPacket::GenericString(OPac::server_channelJoinSuccess, "#multiplayer"),
-						bPacket::bMatch(OPac::server_matchJoinSuccess, m, 1)
-						});
-					m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1), tP);
+					VEC(byte) Pack = bPacket::bMatch(m);
+					PacketBuilder::Build<Packet::Server::channelJoinSuccess, '-'>(Pack,STACK("#multiplayer"));
+
+					tP->addQueVector(Pack);
+
+					m->sendUpdateVector(bPacket::bMatch(m), tP);
 					Failed = 0;
 					break;
 				}
@@ -3235,7 +3411,7 @@ void Event_client_joinMatch(_User *tP, const byte* const Packet, const DWORD Siz
 	}
 	
 	if (Failed)
-		tP->addQue({bPacket4Byte(OPac::server_disposeMatch, MatchID),_BanchoPacket(OPac::server_matchJoinFail)});
+		tP->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::disposeMatch,'i','!'>(MatchID, Packet::Server::matchJoinFail));
 	else tP->inLobby = 0;
 }
 
@@ -3248,7 +3424,7 @@ void Event_client_matchChangeTeam(_User *tP){
 		for (auto& Slot : m->Slots)
 			if (Slot.User == tP){
 				Slot.SlotTeam = !Slot.SlotTeam;
-				m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+				m->sendUpdateVector(bPacket::bMatch(m));
 				break;
 			}
 
@@ -3267,7 +3443,7 @@ void Event_client_matchNoBeatmap(_User *tP){
 			if (Slot.User == tP){
 				if (Slot.SlotStatus != SlotStatus::NoMap){
 					Slot.SlotStatus = SlotStatus::NoMap;
-					m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+					m->sendUpdateVector(bPacket::bMatch(m));
 				}
 				break;
 			}
@@ -3287,7 +3463,7 @@ void Event_client_matchHasBeatmap(_User *tP){
 			if (Slot.User == tP) {
 				if (Slot.SlotStatus == SlotStatus::NoMap) {
 					Slot.SlotStatus = SlotStatus::NotReady;
-					m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+					m->sendUpdateVector(bPacket::bMatch(m));
 				}break;
 			}
 
@@ -3310,9 +3486,9 @@ void Event_client_matchTransferHost(_User *tP, const byte* const Packet, const D
 
 			m->HostID = Slot.User->UserID;
 
-			Slot.User->addQue(_BanchoPacket(OPac::server_matchTransferHost));
+			Slot.User->addQueArray(PacketBuilder::CT::PacketHeader(Packet::Server::matchTransferHost));
 
-			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+			m->sendUpdateVector(bPacket::bMatch(m));
 		}
 
 		m->Lock.unlock();
@@ -3330,7 +3506,7 @@ void Event_client_matchReady(_User *tP) {
 		for (auto& Slot : m->Slots)
 			if (Slot.User == tP){
 				Slot.SlotStatus = SlotStatus::Ready;
-				m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+				m->sendUpdateVector(bPacket::bMatch(m));
 				break;
 			}
 
@@ -3347,7 +3523,7 @@ void Event_client_matchNotReady(_User *tP){
 		for (auto& Slot : m->Slots)
 			if (Slot.User == tP) {
 				Slot.SlotStatus = SlotStatus::NotReady;
-				m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+				m->sendUpdateVector(bPacket::bMatch(m));
 				break;
 			}
 
@@ -3375,7 +3551,7 @@ void Event_client_matchStart(_User *tP) {
 				Slot.SlotStatus = SlotStatus::Playing;
 			}
 
-		m->sendUpdate(bPacket::bMatch(OPac::server_matchStart, m, 1));
+		m->sendUpdateVector(bPacket::bMatch(m));
 
 		m->Lock.unlock();
 	}
@@ -3396,35 +3572,50 @@ void Event_client_matchLoadComplete(_User *tP){
 			else if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Loaded)
 				AllLoaded = 0;
 
-		if (AllLoaded)
-			m->sendUpdates({
-				_BanchoPacket(OPac::server_matchAllPlayersLoaded),
-				bPacket::bMatch(OPac::server_updateMatch, m, 1)
-				});
+		if (AllLoaded){
+			auto Packet = bPacket::bMatch(m);
+			PacketBuilder::Build<Packet::Server::matchAllPlayersLoaded,'.'>(Packet,0);
+			m->sendUpdateVector(Packet);
+		}
 	}
 }
 
 void Event_client_matchScoreUpdate(_User *tP, const byte* const Packet, const DWORD Size){
 
-	if (Size < 10)return;
-	if (!tP->CurrentMatchID)return;//not in a match currently
+	if (tP->CurrentMatchID){
 
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m && Size >= 10) {
+		const bool ScoreV2 = Size == 45;
 
-		_BanchoPacket b(OPac::server_matchScoreUpdate);
-		AddMem(b.Data, Packet, Size);
+		if (_Match* m = getMatchFromID(tP->CurrentMatchID); m && (Size == 29 || ScoreV2)){
 
-		m->Lock.lock();
-		
-		for (auto& Slot : m->Slots)
-			if (Slot.User == tP) {
-				b.Data[4] = (byte)GetIndex(m->Slots, Slot);
-				m->sendUpdate(_M(b));
-				break;
-			}
+			std::scoped_lock<std::mutex> L(m->Lock);
 
-		m->Lock.unlock();
+			for (auto& Slot : m->Slots)
+				if (Slot.User == tP){
 
+					const byte Index = (byte)GetIndex(m->Slots, Slot);
+
+					if (ScoreV2){
+						std::array<byte, 45 + 7> P;
+						memcpy(P.data() + 7, Packet, 45);
+						P[4 + 7] = Index;
+						*(USHORT*)P.data() = (USHORT)Packet::Server::matchScoreUpdate;
+						P[2] = 0;
+						PacketBuilder::CT::PopulateHeader(P);
+						m->sendUpdate(P);
+					}else{
+						std::array<byte, 29 + 7> P;
+						memcpy(P.data() + 7, Packet, 29);
+						P[4 + 7] = Index;
+						*(USHORT*)P.data() = (USHORT)Packet::Server::matchScoreUpdate;
+						P[2] = 0;
+						PacketBuilder::CT::PopulateHeader(P);
+						m->sendUpdate(P);
+					}
+
+					break;
+				}
+		}
 	}
 }
 
@@ -3450,10 +3641,9 @@ void Event_client_matchComplete(_User *tP){
 
 			m->ClearPlaying();
 
-			m->sendUpdates({
-				_BanchoPacket(OPac::server_matchComplete),
-				bPacket::bMatch(OPac::server_updateMatch, m, 1)
-				});
+			auto Packet = bPacket::bMatch(m);
+			PacketBuilder::Build<Packet::Server::matchComplete,'.'>(Packet,0);//This might _need_ to be the other way around.
+			m->sendUpdateVector(Packet);
 		}
 
 		m->Lock.unlock();
@@ -3467,8 +3657,8 @@ void Event_client_matchFailed(_User *tP){
 		m->Lock.lock();
 
 		for (auto& Slot : m->Slots)
-			if (Slot.User == tP) {
-				m->sendUpdate(bPacket4Byte(OPac::server_matchPlayerFailed, GetIndex(m->Slots, Slot)));
+			if (Slot.User == tP){
+				m->sendUpdate(PacketBuilder::Fixed_Build<Packet::Server::matchPlayerFailed, 'i'>(GetIndex(m->Slots, Slot)));
 				break;
 			}
 
@@ -3485,7 +3675,7 @@ void Event_client_matchSkipRequest(_User* tP){
 		for (auto& Slot : m->Slots)
 			if (Slot.User == tP){
 				Slot.Skipped = 1;
-				m->sendUpdate(bPacket4Byte(OPac::server_matchPlayerSkipped, GetIndex(m->Slots, Slot)));
+				m->sendUpdate(PacketBuilder::Fixed_Build<Packet::Server::matchPlayerSkipped,'i'>(GetIndex(m->Slots, Slot)));
 				break;
 			}
 
@@ -3498,7 +3688,7 @@ void Event_client_matchSkipRequest(_User* tP){
 			}
 
 		if (AllPlayersSkipped)
-			m->sendUpdate(_BanchoPacket(OPac::server_matchSkip));
+			m->sendUpdate(PacketBuilder::CT::PacketHeader(Packet::Server::matchSkip));
 
 		m->Lock.unlock();
 	}
@@ -3515,31 +3705,46 @@ void Event_client_invite(_User *tP, const byte* const Packet, const DWORD Size){
 
 	const DWORD TID = *(DWORD*)&Packet[0];
 
-	if (TID < USERID_START)
-		return tP->addQue(bPacket::BotMessage("#multiplayer", "Why would a bot want to join your match? You dirty shaved monkey."));;
+	using namespace PacketBuilder::CT;
 
+	if (TID < USERID_START){
+
+		constexpr auto b = PopulateHeader(Concate(PacketHeader(Packet::Server::sendMessage),
+			String(M_BOT_NAME),String("Why would a bot want to join your match? You dirty shaved monkey."),String("#multiplayer"),Number<int>(USERID_START - 1)));
+
+		return tP->addQueArray(b);
+	}
 	_UserRef Target(GetUserFromID(TID),1);
 
-	if (!Target)
-		return tP->addQue(bPacket::BotMessage("#multiplayer", "Could not find player."));	
+	if (!Target){
+		constexpr auto b = PopulateHeader(Concate(PacketHeader(Packet::Server::sendMessage),
+			String(M_BOT_NAME), String("Could not find player."), String("#multiplayer"), Number<int>(USERID_START - 1)));
 
-	tP->addQue(bPacket::BotMessage("#multiplayer", "Invited " + Target->Username + " to your match."));
+		return tP->addQueArray(b);
+	}
+	{
+		const std::string Mes = "Invited " + Target->Username + " to your match.";
 
+		PacketBuilder::Build<Packet::Server::sendMessage, 'm', '-', 's', '-', 'i'>(tP->QueBytes, &tP->qLock, STACK(M_BOT_NAME), &Mes, STACK("#multiplayer"), USERID_START - 1);
+	}
 	if (Target->isBlocked(tP->UserID))
 		return;
 
-	_BanchoPacket b = bPacket::Message(tP->Username, Target->Username,"I have invited you to the multiplayer lobby \"[osump://" + std::to_string(m->MatchId) + "/" + m->Settings.Password +" " + m->Settings.Name + "]\".",tP->UserID);
+	{
+		const std::string Mes = "I have invited you to the multiplayer lobby \"[osump://" + std::to_string(m->MatchId) + "/" + m->Settings.Password + " " + m->Settings.Name + "]\".";
 
-	//Users could fuck with the client [] url construction but its not dangerous in anyway so who cares.
+		//Users could fuck with the client [] url construction but its not dangerous in anyway so who cares.
 
-	b.Type = OPac::server_invite;
+		PacketBuilder::Build<Packet::Server::invite, 'm', 's', 's', 's', 'i'>(Target->QueBytes, &Target->qLock,
+			&tP->Username, &Mes, &Target->Username, tP->UserID);
+	}
 
-	Target->addQue(b);
 }
 
 void Event_client_friendAdd(_User *tP, const byte* const Packet, const DWORD Size) {
 
-	if (Size != 4)return;
+	if (Size != 4)
+		return;
 
 	const DWORD ID = *(DWORD*)Packet;
 
@@ -3559,8 +3764,10 @@ void Event_client_friendAdd(_User *tP, const byte* const Packet, const DWORD Siz
 		}
 	}
 
-	if (Status == ListFull)
-		tP->addQue(bPacket::Notification("You may only have a maximum of 256 friends."));
+	if (Status == ListFull){
+		constexpr auto b = PacketBuilder::CT::String_Packet(Packet::Server::notification, "You may only have a maximum of 256 friends.");
+		tP->addQueArray(b);
+	}
 	else if (Status == Added)
 		SQLExecQue.AddQue(SQL_INSERT("users_relationships",{
 			_SQLKey("user1", tP->UserID),
@@ -3597,25 +3804,42 @@ _inline void debug_LogOutUser(_User *tP){
 
 	DisconnectUser(tP);
 
-	if (!UID)return;
+	if (!UID)
+		return;
 
-	const _BanchoPacket b = bPacket4Byte(OPac::server_userLogout, UID);
-	
+	const auto b = PacketBuilder::Fixed_Build<Packet::Server::userLogout, 'i'>(UID);
+
 	for (auto& User : Users)
 		if (User.choToken)
-			User.addQue(b);
+			User.addQueArray(b);
 }
 
+
 void Event_client_requestStatusUpdate(_User *const tP){
-	tP->addQue(bPacket::UserStats(tP));
+
+	const DWORD Off = tP->GetStatsOffset();
+
+	PacketBuilder::Build<Packet::Server::userStats, 'm',
+		'i','b','s','5','i','b','i','l','i','i','l','i','w'>(tP->QueBytes, &tP->qLock,
+		tP->UserID,tP->actionID,&tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
+			tP->BeatmapID, tP->Stats[Off].rScore,*(int*)&tP->Stats[Off].Acc,
+			tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
+			tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
+			);
 }
 
 void DoBanchoPacket(_Con s,const uint64_t choToken,const std::string_view PacketBundle){
 
 	_UserRef tP(GetUserFromToken(choToken),1);
 
-	if (!tP)//No user online with that token
-		return (void)s.SendData(ConstructResponse(200, {}, bPacket4Byte(OPac::server_restart,1).GetBytes()));	
+	if (!tP) {//No user online with that token
+
+		using namespace PacketBuilder::CT;
+
+		constexpr auto b = HTTPBytes<200>(Number_Packet(Packet::Server::restart, 1), _STACK_("\r\n"));
+
+		return (void)s.SendData(b);
+	}
 
 	tP->LastPacketTime = clock_ms();
 
@@ -3802,8 +4026,6 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::string_view Packet
 
 }
 
-const std::vector<byte> PingPacket = _BanchoPacket(OPac::server_ping).GetBytes();
-
 USHORT const countryCodes[] = { 0x2d2d, 0x5041, 0x5545, 0x4441, 0x4541, 0x4641, 0x4741, 0x4941, 0x4c41, 0x4d41, 0x4e41, 0x4f41, 0x5141, 0x5241, 0x5341, 0x5441,
 								0x5541, 0x5741, 0x5a41, 0x4142, 0x4242, 0x4442, 0x4542, 0x4642, 0x4742, 0x4842, 0x4942, 0x4a42, 0x4d42, 0x4e42, 0x4f42, 0x5242,
 								0x5342, 0x5442, 0x5642, 0x5742, 0x5942, 0x5a42, 0x4143, 0x4343, 0x4443, 0x4643, 0x4743, 0x4843, 0x4943, 0x4b43, 0x4c43, 0x4d43,
@@ -3830,24 +4052,24 @@ _inline byte getCountryNum(const USHORT isoCode){
 	return 0;
 }
 
-const std::vector<byte> PACKET_INCORRECTLOGIN = []{return _BanchoPacket(OPac::server_userID, VEC(byte){0xff,0xff,0xff,0xff}).GetBytes();}();
-const std::vector<byte> PACKET_SERVERFULL = [] {
-	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, VEC(byte){ 0xff,0xff,0xff,0xff }).GetBytes();
-	AddVector(packet, _M(bPacket::Notification("Server is currently full").GetBytes()));
-	return packet;
-}();
-const std::vector<byte> PACKET_CLIENTOUTOFDATE = [] {
-	std::vector<byte> packet = _BanchoPacket(OPac::server_userID, VEC(byte){ 0xff,0xff,0xff,0xff }).GetBytes();
-	AddVector(packet, _M(bPacket::Notification("Your client is out of date!\nPlease update it.").GetBytes()));
-	return packet;
-}();
-
 void BanchoIncorrectLogin(_Con s){
-	s.SendData(ConstructResponse(200, { {"cho-token", "0"} }, PACKET_INCORRECTLOGIN));
+
+	using namespace PacketBuilder::CT;
+
+	constexpr auto b = HTTPBytes<200>(Number_Packet(Packet::Server::userID, (int)-1), _STACK_("\r\ncho-token: 0\r\n"));
+
+	s.SendData(b);
 }
 void BanchoServerFull(_Con s) {
 	LogError("Server Full");
-	s.SendData(ConstructResponse(200, { {"cho-token", "0"} }, PACKET_SERVERFULL));
+
+	using namespace PacketBuilder::CT;
+
+
+	constexpr auto b = HTTPBytes<200>(Concate(Number_Packet(Packet::Server::userID, (int)-1), String_Packet(Packet::Server::notification, "Server is currently full"))
+									,_STACK_("\r\ncho-token: 0\r\n"));
+
+	s.SendData(b);
 }
 
 bool Outdated = 0;
@@ -3890,9 +4112,15 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 			return 1;*/
 		}();
 
-		if(VersionFailed)
-			return (void)s.SendData(ConstructResponse(200, { {"cho-token", "0"} }, PACKET_CLIENTOUTOFDATE));
+		if (VersionFailed){
 
+			using namespace PacketBuilder::CT;
+
+			constexpr auto b = HTTPBytes<200>(Concate(Number_Packet(Packet::Server::userID, (int)-1),String_Packet(Packet::Server::notification, "Your client is out of date!\nPlease update it."))
+											,_STACK_("\r\ncho-token: 0\r\n"));
+
+			return (void)s.SendData(b);
+		}
 		int UserID = 0;
 		int Priv = 0;
 		int SilenceEnd = 0;
@@ -3983,8 +4211,14 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 			}
 
 
-			if (!Priv)
-				return (void)s.SendData(ConstructResponse(200, { {"cho-token", "0"} }, bPacket4Byte(OPac::server_userID, -3).GetBytes()));
+			if (!Priv){
+
+				using namespace PacketBuilder::CT;
+
+				constexpr auto b = HTTPBytes<200>(Number_Packet(Packet::Server::userID, (int)-3), _STACK_("\r\ncho-token: 0\r\n"));
+
+				return (void)s.SendData(b);
+			}
 			
 
 			SilenceEnd = res->getInt(5);
@@ -4094,26 +4328,25 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 			u->qLock.lock();
 
-			u->addQueNonLocking(bPacket::Notification("Welcome to ruri.\nBuild: " __DATE__ " " __TIME__));
+			if (!(Priv & Privileges::UserPublic)){
+				constexpr auto b = PacketBuilder::CT::String_Packet(Packet::Server::notification, "Your account is currently restricted.");
+				u->addQueArray<0>(b);
+			}
+			if (Outdated && (Priv & Privileges::AdminDev))
+				PacketBuilder::Build<Packet::Server::sendMessage, '-', '-', 's', 'i'>(u->QueBytes, STACK(M_BOT_NAME),
+					STACK("This instance of ruri is out of date.\nConsider updating https://github.com/rumoi/ruri"), &u->Username, USERID_START - 1);
+			{
+				const int SilenceDelta = (SilenceEnd && SilenceEnd > time(0)) ? SilenceEnd - time(0) : 0;
 
-			if (!(Priv & Privileges::UserPublic))
-				u->addQueNonLocking(bPacket::Notification("Your account is currently restricted."));
-			if(Outdated && (Priv & Privileges::AdminDev))
-				u->addQueNonLocking(bPacket::BotMessage(BOT_NAME,"This instance of ruri is out of date.\nConsider updating https://github.com/rumoi/ruri"));
+				if (!SilenceDelta)u->silence_end = 0;
 
-			const int SilenceDelta = (SilenceEnd && SilenceEnd > time(0)) ? SilenceEnd - time(0) : 0;
-
-			if (!SilenceDelta)u->silence_end = 0;
-
-			u->addQueNonLocking(bPacket4Byte(OPac::server_silenceEnd, SilenceDelta));
-
-			u->addQueNonLocking(bPacket4Byte(OPac::server_userID, UserID));
-			u->addQueNonLocking(bPacket4Byte(OPac::server_protocolVersion, CHO_VERSION));
-			u->addQueNonLocking(bPacket4Byte(OPac::server_supporterGMT, Supporter));
-			u->addQueNonLocking(bPacket::UserPanel(u.User));
-			u->addQueNonLocking(bPacket::UserStats(u.User));
-			
-			u->addQueNonLocking(bPacket4Byte(OPac::server_channelInfoEnd, 0));//Sending this after loading the channels fucks with the desired order. So it is here instead.
+				PacketBuilder::Build<Packet::Server::silenceEnd, 'i', '!', 'i', '!', 'i', 's', 'b', 'b','b','i','i','i','!','i','b','s','5','i','b','i','l','i','i','l','i','w'>(u->QueBytes, SilenceDelta,
+					Packet::Server::userID, UserID,
+					Packet::Server::userPanel, UserID, &u->Username,24 + u->timeOffset, u->country, UserType::Supporter, *(int*)&u->lon, *(int*)&u->lat,u->Stats[0].getRank(0,UserID),					
+					Packet::Server::userStats, UserID, bStatus::sIdle,&u->ActionText,u->ActionMD5,0,0,0,u->Stats[0].rScore,*(int*)&u->Stats[0].Acc,
+						int(u->Stats[0].pp > USHORT(-1) ? (u->Stats[0].pp) : u->Stats[0].PlayCount), u->Stats[0].tScore, u->Stats[0].getRank(0, UserID), USHORT(u->Stats[0].pp)
+					);
+			}
 
 			const int IRC_LEVEL = GetMaxPerm(u->privileges);
 			
@@ -4121,17 +4354,34 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 				if (ChannelList[i]->ViewLevel > IRC_LEVEL)
 					continue;
+				
+				PacketBuilder::Build<Packet::Server::channelInfo, 's', 's', 'w'>(u->QueBytes,
+					&ChannelList[i]->ChannelName, &ChannelList[i]->ChannelDesc, (short)ChannelList[i]->ChannelCount);
 
-				u->addQueNonLocking(bPacket::ChannelInfo(ChannelList[i]));
 				
 				if (ChannelList[i]->AutoJoin){
-					u->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, ChannelList[i]->ChannelName));
+					PacketBuilder::Build<Packet::Server::channelJoinSuccess,'s'>(u->QueBytes, &ChannelList[i]->ChannelName);
 					ChannelList[i]->JoinChannel(u.User);
 				}
 			}
 
-			u->addQueNonLocking(bPacket::GenericString(OPac::server_channelKicked, "#osu"));
+			{
+				using namespace PacketBuilder::CT;
 
+				constexpr auto constPacket = 
+						Concate(
+									String_Packet(Packet::Server::notification, "Welcome to ruri.\nBuild: " __DATE__ " " __TIME__),
+									Number_Packet<int>(Packet::Server::channelInfoEnd, 0),
+									Number_Packet<int>(Packet::Server::supporterGMT, UserType::Supporter),
+									Number_Packet<int>(Packet::Server::protocolVersion, CHO_VERSION),
+									String_Packet(Packet::Server::channelKicked,"#osu"),
+									CT_BotInfo::Bot_Panel,CT_BotInfo::Bot_Stats
+											);
+				u->addQueArray<0>(constPacket);
+			}
+
+
+			/* TODO: readd
 			std::vector<DWORD> FriendsList;
 			FriendsList.reserve(aSize(u->Friends));
 			FriendsList.push_back(USERID_START-1);//Bot is always their friend.
@@ -4139,19 +4389,25 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&res,const uint64_t choToken) {
 
 			for (DWORD i = 0; i < aSize(u->Friends); i++) {
 				if (u->Friends[i])
-					FriendsList.push_back(u->Friends[i]);
+					//u->addQueArray<0>(PacketBuilder::Fixed_Build<Packet::Server::friendsList, 'i'>(u->Friends[i]));
 				else break;
 			}
 
-			u->addQueNonLocking(bPacket::GenericDWORDList(OPac::server_friendsList, FriendsList, 0));
-			u->addQueNonLocking(bPacket::UserPanel(USERID_START-1, 0));
-			u->addQueNonLocking(bPacket::UserStats(USERID_START-1, 0));
-			
-			for (auto& gUser : Users) {
-				if (!gUser.choToken || &gUser == u.User || u->isBlocked(gUser.UserID))
+			u->addQueNonLocking(bPacket::GenericDWORDList(OPac::server_friendsList, FriendsList, 0));*/
+
+			for (auto& gUser : Users){
+
+				if (!gUser.choToken || !(gUser.privileges & Privileges::UserPublic) || &gUser == u.User || u->isBlocked(gUser.UserID))
 					continue;
-				u->addQueNonLocking(bPacket::UserPanel(gUser.UserID, UserID));
-				u->addQueNonLocking(bPacket::UserStats(gUser.UserID, UserID));
+
+				const DWORD Off = gUser.GetStatsOffset();
+				
+				PacketBuilder::Build<Packet::Server::userPanel, 'i', 's', 'b', 'b', 'b', 'i', 'i', 'i',
+					'!', 'i', 'b', 's', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>
+					(u->QueBytes, gUser.UserID, &gUser.Username, 24 + gUser.timeOffset, gUser.country, GetUserType(gUser.privileges), *(int*)&gUser.lon, *(int*)&gUser.lat, gUser.Stats[Off].getRank(Off, gUser.UserID),
+						Packet::Server::userStats, gUser.UserID, gUser.actionID, &gUser.ActionText, gUser.ActionMD5, gUser.actionMods, gUser.GameMode, gUser.BeatmapID, gUser.Stats[Off].rScore, *(int*)& gUser.Stats[Off].Acc,
+						gUser.Stats[Off].pp > USHORT(-1) ? gUser.Stats[Off].pp : gUser.Stats[Off].PlayCount, gUser.Stats[Off].tScore, gUser.Stats[Off].getRank(Off, gUser.UserID), USHORT(gUser.Stats[Off].pp));
+					
 			}
 
 			u->SendToken = 1;
@@ -4195,7 +4451,7 @@ void DisconnectUser(_User *u){
 		if (m) {
 			m->Lock.lock();
 			m->removeUser(u, 0);
-			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+			m->sendUpdateVector(bPacket::bMatch(m));
 			m->Lock.unlock();
 		}
 		u->CurrentMatchID = 0;
@@ -4209,8 +4465,8 @@ void DisconnectUser(_User *u){
 	u->Spectators.clear();
 
 	u->qLock.lock();
-	u->Que.clear();
-	u->dQue.clear();
+	u->QueBytes.clear();
+	//u->dQue.clear();
 	u->qLock.unlock();
 }
 
@@ -4233,7 +4489,13 @@ void HandlePacket(_Con s){
 
 		if (!UserAgent2.size()){
 			LogMessage("No user agent set.");
-			s.SendData(ConstructResponse(200, Empty_Headers, bPacket::Notification("If there is anything that seems wrong make sure to contact rumoi.").GetBytes()));		
+
+			using namespace PacketBuilder::CT;
+
+			constexpr auto b = HTTPBytes<200>(String_Packet(Packet::Server::notification, "An error occurred"), _STACK_("\r\n"));
+
+			s.SendData(b);
+
 			return s.Dis();
 		}
 		if (UserAgent2 != "osu!" && !choToken) {//If it is not found

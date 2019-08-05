@@ -118,23 +118,27 @@ struct _Match{
 	int Seed;
 	int LastUpdate = 0;
 
-	_inline void sendUpdate(const _BanchoPacket &b, const _User*const Sender = 0){
-		for (auto& S : Slots)
-			if (_User*const u = S.User;
-				u && u != Sender && u->choToken)
-				u->addQue(b);
+
+
+	template<size_t Size>
+		_inline void sendUpdate(const std::array<byte,Size> &Data, const _User*const Sender = 0){
+
+			if constexpr (Size)
+				for (auto& S : Slots)
+					if (_User* const u = S.User;
+						u && u != Sender && u->choToken)
+						u->addQueArray(Data);
+
+		}
+
+	_inline void sendUpdateVector(const std::vector<byte>& Data, const _User* const Sender = 0){
+		if (likely(Data.size()))
+			for (auto& S : Slots)
+				if (_User* const u = S.User;
+					u && u != Sender && u->choToken)
+					u->addQueVector(Data);
 	}
 
-	_inline void sendUpdates(const VEC(_BanchoPacket) &&b, const _User*const Sender = 0){
-
-		if (unlikely(!b.size()))
-			return;
-
-		for (auto& S : Slots)
-			if (_User* const u = S.User;
-				u && u != Sender && u->choToken)
-				u->addQue(b);
-	}
 
 	_inline void ClearPlaying() {
 
@@ -155,8 +159,11 @@ struct _Match{
 
 		if (!u || !u->CurrentMatchID)
 			return;
+		{
+			constexpr auto b = PacketBuilder::CT::String_Packet(Packet::Server::channelKicked,"#multiplayer");
+			u->addQueArray(b);
 
-		u->addQue(bPacket::GenericString(OPac::server_channelKicked, "#multiplayer"));
+		}
 
 		u->CurrentMatchID = 0;
 		PlayerCount--;
@@ -168,7 +175,7 @@ struct _Match{
 			for (auto& S : Slots)
 				if (_User* slotUser = S.User; slotUser && slotUser != u){
 					HostID = slotUser->UserID;
-					slotUser->addQue(_BanchoPacket(OPac::server_matchTransferHost));
+					slotUser->addQueArray(PacketBuilder::CT::PacketHeader(Packet::Server::matchTransferHost));
 					break;
 				}
 
@@ -179,7 +186,7 @@ struct _Match{
 				Slot.User = 0;
 
 				if (Kicked){
-					u->addQue(bPacket4Byte(OPac::server_disposeMatch, MatchId));
+					u->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::disposeMatch,'i'>(MatchId));
 					Slot.SlotStatus = SlotStatus::Locked;
 				}
 
@@ -196,7 +203,7 @@ struct _Match{
 
 					if (AllFinished){
 						ClearPlaying();
-						sendUpdate(_BanchoPacket(OPac::server_matchComplete));
+						sendUpdate(PacketBuilder::CT::PacketHeader(Packet::Server::matchComplete));
 					}
 				}
 				if (PlayersLoading) {//Same for if everyone else is waiting for us to load the map.
@@ -213,7 +220,7 @@ struct _Match{
 					if (AllLoaded){
 						PlayersLoading = 0;
 						inProgress = 1;
-						sendUpdate(_BanchoPacket(OPac::server_matchAllPlayersLoaded));
+						sendUpdate(PacketBuilder::CT::PacketHeader(Packet::Server::matchAllPlayersLoaded));
 					}
 				}
 
@@ -263,7 +270,7 @@ struct _Match{
 
 _Match Match[MAX_MULTI_COUNT];
 
-std::tuple<std::shared_mutex,int, _BanchoPacket> LobbyCache[MAX_MULTI_COUNT];
+std::tuple<std::shared_mutex,int, VEC(byte)> LobbyCache[MAX_MULTI_COUNT];
 
 /*
 struct _CommunityMatch{
@@ -314,60 +321,56 @@ _Match* getEmptyMatch(){
 }
 
 
-namespace bPacket {
-
-	_BanchoPacket bMatch(USHORT Packet, _Match *m, bool SendPassword) {
-
-		_BanchoPacket b(Packet);
-		b.Data.reserve(256);
-
-		AddStream(b.Data, m->MatchId);
-		b.Data.push_back((m->inProgress || m->PlayersLoading));
-		b.Data.push_back(m->Settings.MatchType);
-		AddStream(b.Data, m->Settings.Mods);
-		AddString(b.Data, m->Settings.Name);
-
-		if(SendPassword)AddString(b.Data, m->Settings.Password);
-		else (m->Settings.Password.size()) ? AddString(b.Data, "*") : AddString(b.Data, "");		
-
-		AddString(b.Data, m->Settings.BeatmapName);
-		AddStream(b.Data, m->Settings.BeatmapID);
-		AddString(b.Data, m->Settings.BeatmapChecksum);
-
-		for (const auto& Slot : m->Slots)
-			b.Data.push_back(Slot.SlotStatus);
-		for (const auto& Slot : m->Slots)
-			b.Data.push_back(Slot.SlotTeam);
+namespace bPacket{
 
 
-		for (const auto& Slot : m->Slots)
-			if(Slot.User)
-				AddStream(b.Data, Slot.User->UserID);
+	template<const bool SendPassword = 1>
+		VEC(byte) bMatch(_Match *m){
 
-		AddStream(b.Data, m->HostID);
-		b.Data.push_back(m->Settings.PlayMode);
-		b.Data.push_back(m->Settings.ScoringType);
-		b.Data.push_back(m->Settings.TeamType);
-		b.Data.push_back(m->Settings.FreeMod);
+			VEC(byte) Res; Res.reserve(256);
+			
+			if constexpr(SendPassword)
+				PacketBuilder::Build<Packet::Server::updateMatch,'w','b','b','i','s','s','s','i','s'>(Res, m->MatchId, (m->inProgress || m->PlayersLoading), m->Settings.MatchType, m->Settings.Mods, &m->Settings.Name,
+					&m->Settings.Password,&m->Settings.BeatmapName, m->Settings.BeatmapID,&m->Settings.BeatmapChecksum);
+			else 
+				PacketBuilder::Build<Packet::Server::updateMatch, 'w', 'b', 'b', 'i', 's', '-', 's', 'i', 's'>(Res, m->MatchId, (m->inProgress || m->PlayersLoading), m->Settings.MatchType, m->Settings.Mods, &m->Settings.Name,
+					STACK("*"), &m->Settings.BeatmapName, m->Settings.BeatmapID, &m->Settings.BeatmapChecksum);
 
-		if (m->Settings.FreeMod){
+			for (const auto& Slot : m->Slots)
+				Res.push_back(Slot.SlotStatus);
+			for (const auto& Slot : m->Slots)
+				Res.push_back(Slot.SlotTeam);
 
-			DWORD Mods[NORMALMATCH_MAX_COUNT];
+			for (const auto& Slot : m->Slots)
+				if(Slot.User)
+					AddStream(Res, Slot.User->UserID);
 
-			for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++){
-				if (!m->Slots[i].User)Mods[i] = 0;
-				else Mods[i] = m->Slots[i].CurrentMods;
+			AddStream(Res, m->HostID);
+			Res.push_back(m->Settings.PlayMode);
+			Res.push_back(m->Settings.ScoringType);
+			Res.push_back(m->Settings.TeamType);
+			Res.push_back(m->Settings.FreeMod);
+
+			if (m->Settings.FreeMod){
+
+				DWORD Mods[NORMALMATCH_MAX_COUNT];
+
+				for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++){
+					if (!m->Slots[i].User)Mods[i] = 0;
+					else Mods[i] = m->Slots[i].CurrentMods;
+				}
+
+				AddMem(Res, Mods, 64);
 			}
+			AddStream(Res, m->Seed);
 
-			AddMem(b.Data, Mods, 64);
+			if (SendPassword)
+				m->LastUpdate = clock();
+
+			*(DWORD*)&Res[3] = Res.size() - 7;
+
+			return Res;
 		}
-		AddStream(b.Data, m->Seed);
-
-		if (SendPassword)
-			m->LastUpdate = clock();
-
-		return b;
-	}
 
 }
 void Event_client_matchStart(_User *tP);
@@ -407,8 +410,15 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string_view Command, 
 					Slot.reset();
 					Slot.User = Target.User;
 					Slot.SlotStatus = SlotStatus::NotReady;
-					Target->addQue(bPacket::bMatch(OPac::server_matchJoinSuccess, m, 1));
-					m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1),Target.User);
+
+					auto MatchData = bPacket::bMatch(m);
+
+					m->sendUpdateVector(MatchData, Target.User);
+
+					*(USHORT*)MatchData.data() = (USHORT)Packet::Server::matchJoinSuccess;
+
+					Target->addQueVector(MatchData);
+
 					m->PlayerCount++;
 					break;
 				}
@@ -431,9 +441,10 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string_view Command, 
 
 			m->HostID = u->UserID;
 			
-			u->addQue(_BanchoPacket(OPac::server_matchTransferHost));
+			u->addQueArray(PacketBuilder::CT::PacketHeader(Packet::Server::matchTransferHost));
+
 			m->UnreadyUsers();
-			m->sendUpdate(bPacket::bMatch(OPac::server_updateMatch, m, 1));
+			m->sendUpdateVector(bPacket::bMatch(m));
 
 			m->Lock.unlock();
 			PrivateRes = 0;

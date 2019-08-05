@@ -1313,7 +1313,8 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 					 MapStars = (sData.Mods & (NoFail | Relax | Relax2)) ? 0.f : ezpp_stars(ez);
 
 				}else{
-					u->addQue(bPacket::Notification("That gamemode is currently not supported for pp.\nYour score will still be saved for future calculations."));
+					constexpr auto b = PacketBuilder::CT::String_Packet(Packet::Server::notification, "That gamemode is currently not supported for pp.\nYour score will still be saved for future calculations.");
+					u->addQueArray(b);
 					goto SENDSCORE;
 				}
 			}
@@ -1352,8 +1353,9 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			s.SendData(ConstructResponse(200, Empty_Headers, Charts));
 			s.Dis();
 
-			if(!Loved && NewBest && UpdateUserStatsFromDB(&AriaSQL[s.ID], UserID, TrueGameMode, u.User->Stats[TrueGameMode]))
-				u.User->addQue(bPacket::UserStats(u.User));
+			if (const DWORD Off = u->GetStatsOffset(); !Loved && NewBest && UpdateUserStatsFromDB(&AriaSQL[s.ID], UserID, TrueGameMode, u.User->Stats[TrueGameMode]))
+				PacketBuilder::Build<Packet::Server::userStats, 'm','i','b','s','5','i','b','i','l','i','i','l','i','w'>(u->QueBytes,&u->qLock,u->UserID,u->actionID,&u->ActionText,u->ActionMD5,u->actionMods,u->GameMode,u->BeatmapID,
+					u->Stats[Off].rScore,*(int*)&u->Stats[Off].Acc, u->Stats[Off].pp > USHORT(-1) ? u->Stats[Off].pp : u->Stats[Off].PlayCount, u->Stats[Off].tScore, u->Stats[Off].getRank(Off, u->UserID), USHORT(u->Stats[Off].pp));
 
 			if (NewBest && sc.ScoreID && ReplayFile.size())
 				WriteAllBytes(ReplayPath + std::to_string(sc.ScoreID) + ".osr",&ReplayFile[0], ReplayFile.size());
@@ -1444,9 +1446,20 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 
 	const std::string ScoreTableName = (Mods & Relax) ? "scores_relax" : "scores";
 
-	if ((u.User->actionMods & Relax) != (Mods & Relax)) {//actionMods is outdated.
-		u.User->actionMods = Mods;
-		u.User->addQue(bPacket::UserStats(u.User));//Send the updates stats back to the client.
+	if ((u->actionMods & Relax) != (Mods & Relax)) {//actionMods is outdated.
+		u->actionMods = Mods;
+
+		_User* tP = u.User;
+
+		const DWORD Off = tP->GetStatsOffset();
+		
+		PacketBuilder::Build<Packet::Server::userStats, 'm',
+			'i', 'b', 's', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(tP->QueBytes, &tP->qLock,
+				tP->UserID, tP->actionID, &tP->ActionText,tP->ActionMD5, tP->actionMods, tP->GameMode,
+				tP->BeatmapID, tP->Stats[Off].rScore, *(int*)& tP->Stats[Off].Acc,
+				tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
+				tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
+				);
 	}
 
 	if (Mods & Relax)Mode += 4;
@@ -1828,10 +1841,9 @@ void LastFM(_GetParams&& Params, _Con s){
 
 		if (!!u && u->Password == _MD5(Params.get(_WeakStringToInt_("ha"))) && u->privileges & UserPublic){
 			
-			if (Flags != RelifeLoaded)
-				u->addQue(bPacket::GenericString(0x69, "What did you think would happen?"));
-			else u->addQue(bPacket::GenericString(0x69, "Please disable osu-relife or face a possible ban"));
-					   
+
+			PacketBuilder::Fixed_Build<Packet::Server::RTX, '-'>(Flags == RelifeLoaded ? STACK("Disable osu-relife or get banned") : STACK("What did you think would happen?"));
+
 			const DWORD ID = u->UserID;
 
 			std::string FlagString;

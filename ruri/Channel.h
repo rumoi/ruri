@@ -141,9 +141,10 @@ struct _Channel{
 		Lock.unlock();
 	}
 
-	void SendPublicMessage(_User* Sender, const _BanchoPacket &b){
+	void SendPublicMessage(_User* Sender, const VEC(byte) &b){
 		
-		if (!ChannelCount || WriteLevel > GetMaxPerm(Sender->privileges))return;
+		if (!ChannelCount || WriteLevel > GetMaxPerm(Sender->privileges))
+			return;
 
 		const DWORD& ID = Sender->UserID;
 
@@ -157,7 +158,7 @@ struct _Channel{
 				continue;
 			}*/
 
-			User->addQue(b);
+			User->addQueVector(b);
 
 		}
 
@@ -183,9 +184,12 @@ struct _Channel{
 
 	void Bot_SendMessage(const std::string_view message){
 
-		if (!ChannelCount)return;
+		if (!ChannelCount)
+			return;
 
-		const _BanchoPacket b = bPacket::Message(BOT_NAME, ChannelName, message, USERID_START-1);
+		VEC(byte) b;
+
+		PacketBuilder::Build<Packet::Server::sendMessage, '-', 'v', 's', 'i'>(b,STACK(M_BOT_NAME),&message,&ChannelName, USERID_START - 1);
 
 		for (auto const User : IRCUsers){
 
@@ -196,7 +200,7 @@ struct _Channel{
 				continue;
 			}
 
-			User->addQue(b);
+			User->addQueVector(b);
 		}
 
 	}
