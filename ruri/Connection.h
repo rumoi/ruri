@@ -24,7 +24,7 @@ struct _HttpRes{
 };
 
 template<typename T>
-	const std::string ConstructResponse(const DWORD Code, const std::vector<std::pair<std::string, std::string>> &Headers, const T& Body) {
+	const std::string (const DWORD Code, const std::vector<std::pair<std::string, std::string>> &Headers, const T& Body) {
 
 		std::string Return = [=]{
 

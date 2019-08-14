@@ -39,16 +39,15 @@ struct _MatchSettings{
 	}
 };
 
-struct _Slot {
+struct _Slot{
 
 	_User *User;
+
+	DWORD CurrentMods;
 	byte SlotStatus;
 	byte SlotTeam;
-	bool Loaded;
-	bool Completed;
-	bool Failed;
-	bool Skipped;
-	DWORD CurrentMods;
+
+	byte Loaded : 1, Completed : 1, Failed : 1, Skipped : 1;
 
 	_Slot(){
 		User = 0;
@@ -96,13 +95,6 @@ struct _Slot {
 #define NORMALMATCH_MAX_COUNT 16
 #define MULTI_MAXSIZE 16
 
-
-/*
-#define SERVERMATCH_PAGES 3
-#define SERVERMATCH_PERPAGE 14
-
-#define SERVERMATCH_MAX 2 + (SERVERMATCH_PERPAGE * SERVERMATCH_PAGES)//15 on first page then 14 on every other page*/
-
 struct _Match{
 	bool Tournament;
 	bool inProgress;
@@ -132,6 +124,7 @@ struct _Match{
 		}
 
 	_inline void sendUpdateVector(const std::vector<byte>& Data, const _User* const Sender = 0){
+
 		if (likely(Data.size()))
 			for (auto& S : Slots)
 				if (_User* const u = S.User;
@@ -168,7 +161,7 @@ struct _Match{
 		u->CurrentMatchID = 0;
 		PlayerCount--;
 
-		if (PlayerCount == 0)
+		if (!PlayerCount)
 			return;
 
 		if (HostID == u->UserID)//The host is leaving. We need to assign a new host.
@@ -237,20 +230,7 @@ struct _Match{
 		inProgress = 0;
 	}
 
-	_Match(){
-		MatchId = 0;
-		PlayerCount = 0;
-		Tournament = 0;
 
-		HostID = 0;
-
-		for (auto& Slot : Slots)
-			Slot.reset();
-
-		inProgress = 0;
-		PlayersLoading = 0;
-		Seed = 0;
-	}
 	void Reset() {
 		PlayerCount = 0;
 		Tournament = 0;
@@ -265,6 +245,11 @@ struct _Match{
 		Settings = _MatchSettings();
 	}
 
+	_Match(){
+		MatchId = 0;
+
+		Reset();
+	}
 
 };
 
@@ -272,32 +257,8 @@ _Match Match[MAX_MULTI_COUNT];
 
 std::tuple<std::shared_mutex,int, VEC(byte)> LobbyCache[MAX_MULTI_COUNT];
 
-/*
-struct _CommunityMatch{
-	
-	float MinStar, MaxStar;
-	_MatchSettings Settings;
-	std::vector<_User*> User;
-
-	_CommunityMatch(){
-		MinStar = 0.5f;
-		MaxStar = 10.f;
-		User.clear();
-	}
-
-};*/
-
-#define COMMUNITY_MATCH_COUNT 1
-//_CommunityMatch communityMatch[COMMUNITY_MATCH_COUNT];
-
-_Match* getMatchFromID(const USHORT ID) {
-
-	if (ID == 0 || ID >= MAX_MULTI_COUNT)return 0;
-
-	if (Match[ID - 1].PlayerCount)//TODO make sure this is thread safe.
-		return &Match[ID - 1];
-
-	return 0;
+_inline _Match* getMatchFromID(const USHORT ID){
+	return ID && ID < MAX_MULTI_COUNT && Match[ID - 1].PlayerCount ? &Match[ID - 1] : 0;
 }
 
 std::mutex EmptyMatchLock;
@@ -332,9 +293,12 @@ namespace bPacket{
 			if constexpr(SendPassword)
 				PacketBuilder::Build<Packet::Server::updateMatch,'w','b','b','i','s','s','s','i','s'>(Res, m->MatchId, (m->inProgress || m->PlayersLoading), m->Settings.MatchType, m->Settings.Mods, &m->Settings.Name,
 					&m->Settings.Password,&m->Settings.BeatmapName, m->Settings.BeatmapID,&m->Settings.BeatmapChecksum);
-			else 
+			else{
+				m->Settings.Password.size() ?
 				PacketBuilder::Build<Packet::Server::updateMatch, 'w', 'b', 'b', 'i', 's', '-', 's', 'i', 's'>(Res, m->MatchId, (m->inProgress || m->PlayersLoading), m->Settings.MatchType, m->Settings.Mods, &m->Settings.Name,
-					STACK("*"), &m->Settings.BeatmapName, m->Settings.BeatmapID, &m->Settings.BeatmapChecksum);
+					STACK("*"), &m->Settings.BeatmapName, m->Settings.BeatmapID, &m->Settings.BeatmapChecksum) : PacketBuilder::Build<Packet::Server::updateMatch, 'w', 'b', 'b', 'i', 's', 'b', 's', 'i', 's'>(Res, m->MatchId, (m->inProgress || m->PlayersLoading), m->Settings.MatchType, m->Settings.Mods, &m->Settings.Name,
+						0, &m->Settings.BeatmapName, m->Settings.BeatmapID, &m->Settings.BeatmapChecksum);
+			}
 
 			for (const auto& Slot : m->Slots)
 				Res.push_back(Slot.SlotStatus);

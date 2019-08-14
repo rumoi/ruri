@@ -9,7 +9,7 @@ enum IRC_Perm {
 	IRC_Admin = 4,
 	IRC_Dev = 5
 };
-_inline int GetMaxPerm(const DWORD Priv) {
+_inline byte GetMaxPerm(const DWORD Priv) {
 
 	if (Priv & Privileges::AdminDev)return IRC_Dev;
 	if (Priv & Privileges::AdminBanUsers)return IRC_Admin;
@@ -25,36 +25,22 @@ struct _Channel{
 
 	std::string ChannelName;
 	std::string ChannelDesc;
-	int ChannelCount;
 	std::mutex Lock;
-	
 	std::array<_User*, MAX_USER_COUNT> IRCUsers;
 
-	int ViewLevel;
-	int WriteLevel;
 	int NameSum;
-	bool AutoJoin;
 
-	_Channel(const std::string Name, const std::string Desc, const int viewlevel, const int writeLevel, const bool AJ = 0) :IRCUsers({0}) {
-		NameSum = WeakStringToInt(Name);
-		ChannelName = Name;
-		ChannelDesc = Desc;
+	u8 ViewLevel:3, WriteLevel:3, AutoJoin:1, Hidden:1;
+	u16 ChannelCount;
 
-		ViewLevel = viewlevel;
-		WriteLevel = writeLevel;
-
-		AutoJoin = AJ;
-	}
-
-	void CreateChannel(const std::string Name, const std::string Desc, const int viewlevel, const int writeLevel, const bool AJ = 0){
-		NameSum = WeakStringToInt(Name);
-		ChannelName = Name;
-		ChannelDesc = Desc;
-
+	_Channel(const std::string& ChannelName, const std::string &ChannelDesc, const int viewlevel, const int writeLevel, const bool AJ, const bool Hidden = 0):
+			ChannelName(ChannelName),
+			NameSum(WeakStringToInt(ChannelName)),
+			ChannelDesc(ChannelDesc)
+			{		
 		ViewLevel = viewlevel;
 		WriteLevel = writeLevel;
 		AutoJoin = AJ;
-
 		IRCUsers.fill(0);
 	}
 
@@ -163,24 +149,6 @@ struct _Channel{
 		}
 
 	}
-	/*
-	template <typename T>
-	void Bot_SendMessage_Conditional(const std::string &&message, const T Cond){
-
-		if (!ChannelCount)return;
-
-		const _BanchoPacket b = bPacket::Message(BOT_NAME, ChannelName, message, 999);
-
-		for (auto& User : IRCUsers) {
-			
-			if (!User || !User->choToken || !Cond(User))
-				continue;
-			
-			User->addQue(b);
-
-		}
-	}*/
-
 
 	void Bot_SendMessage(const std::string_view message){
 
@@ -204,39 +172,40 @@ struct _Channel{
 		}
 
 	}
-
+	/*
 	_Channel():IRCUsers({ 0 }) {
 		ViewLevel = 0;
 		WriteLevel = 0;
 		NameSum = 0;
 		ChannelCount = 0;
 		AutoJoin = 0;
-	}
+	}*/
 
 };
 
+std::array ChannelTable = { _Channel("#General","General Chat.", IRC_Public,IRC_Public,1),
+							_Channel("#announce", "Public announcements.", IRC_Public, IRC_Admin,1),
+							_Channel("#supporter", "Supporter only chat.", IRC_Supporter, IRC_Supporter,1),
+							_Channel("#admin", "Command dumpster.", IRC_Admin, IRC_Admin,1),
+							_Channel("#devlog", "Log all the things.", IRC_Dev, IRC_Dev, 1),
+							_Channel("#lobby", "Chat with others browsing for a lobby.", IRC_Public, IRC_Public,0,1)
+						};
+VEC(byte) PublicChannelCache;
 
-
-_Channel chan_General("#General","General Chat.", IRC_Public, IRC_Public,1);
-_Channel chan_Announce("#announce", "Public announcements.", IRC_Public, IRC_Admin);//Announcement being an option is on purpose
-_Channel chan_Supporter("#supporter", "Supporter only chat.", IRC_Supporter, IRC_Supporter,1);
-_Channel chan_Admin("#admin", "Command dumpster.", IRC_Admin, IRC_Admin,1);
-_Channel chan_DevLog("#devlog", "Log all the things.", IRC_Dev, IRC_Dev, 1);
-_Channel chan_Lobby("#lobby", "Chat with others browsing for a lobby.", IRC_Public, IRC_Public);
-
-_Channel* const ChannelList[] = {&chan_General,&chan_Announce,&chan_Supporter,&chan_Admin,&chan_DevLog,&chan_Lobby};
-
-constexpr size_t ChannelListSize() noexcept{
-	return sizeof(ChannelList) / sizeof(_Channel*);
-}
+_Channel& chan_General{ChannelTable[0]};
+_Channel& chan_Announce{ChannelTable[1]};
+_Channel& chan_Supporter{ChannelTable[2]};
+_Channel& chan_Admin{ChannelTable[3]};
+_Channel& chan_DevLog{ChannelTable[4]};
+_Channel& chan_Lobby{ChannelTable[5]};
 
 _inline _Channel* GetChannelByName(std::string_view Name){
 
 	const int Sum = WeakStringToInt(Name);
 
-	for (DWORD i = 0; i < ChannelListSize(); i++)
-		if (ChannelList[i]->NameSum == Sum)
-			return ChannelList[i];
-	
+	for (auto& Chan : ChannelTable)
+		if (Chan.NameSum == Sum)
+			return &Chan;
+
 	return 0;
 }

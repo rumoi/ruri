@@ -1,24 +1,26 @@
 #pragma once
 
-#define TRIMSTRING(str)\
-	[](std::string &s)->std::string{\
-		if(!s.size())return s;\
-		for(DWORD ii = s.size()-1;ii>0;ii--){\
-			if(s[ii] != ' ')break;\
-			s.pop_back();\
-		}\
-		if(s[0] != ' ')return s;\
-		DWORD Start = 0;\
-		for(DWORD ii=0;ii<s.size();ii++)\
-			if (s[ii] != ' ') {\
-				Start=ii;\
-				break;\
-			}\
-		if(Start == 0){s.resize(0);return s;}\
-		const DWORD nSize = s.size() - Start;\
-		memcpy(&s[0],&s[Start],nSize);s.resize(nSize);\
-		return s;\
-	}((str))
+std::string_view TrimString_View(std::string_view s) {
+
+	if (s.size()){
+
+		size_t Start(0),Size(s.size());
+
+		for (size_t i = 0; i < s.size(); i++) {
+			if (s[i] != ' ')break;
+			Start++;
+		}
+		for (size_t i = s.size(); i-- > 0;) {
+			if (s[i] != ' ')break;
+			Size = i;
+		}
+
+		s = std::string_view((const char*)&s[Start], Size - Start);
+
+	}
+
+	return s;
+}
 
 bool Fetus(const std::string &Target){
 
@@ -799,7 +801,10 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 			const bool SingleTarget = Split[0].size() == _strlen_("!alertuser");
 			VEC(byte) Packet;
-			PacketBuilder::Build<Packet::Server::notification, 's'>(Packet, &CombineAllNextSplit(SingleTarget + 1, Split));
+
+			const std::string& Noti = CombineAllNextSplit(SingleTarget + 1, Split);
+
+			PacketBuilder::Build<Packet::Server::notification, 's'>(Packet, &Noti);
 
 			if (!SingleTarget) {
 				for (auto& User : Users)
@@ -824,7 +829,9 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			if (!Target.User || !Target.User->choToken)
 				return "User not found.";
 			
-			PacketBuilder::Build<Packet::Server::RTX, 'm','s'>(Target->QueBytes,&Target->qLock, &CombineAllNextSplit(2, Split));
+			const std::string& Noti = CombineAllNextSplit(2, Split);
+
+			PacketBuilder::Build<Packet::Server::RTX, 'm','s'>(Target->QueBytes,&Target->qLock, &Noti);
 
 			return "You monster.";
 		}

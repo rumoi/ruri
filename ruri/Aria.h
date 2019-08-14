@@ -901,7 +901,6 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 
 std::mutex AriaThreadLock[ARIA_THREAD_COUNT];
 _SQLCon AriaSQL[ARIA_THREAD_COUNT];
-std::vector<_Con> AriaConnectionQue[ARIA_THREAD_COUNT];
 
 std::string unAesString(const std::string &Input, const std::string &K, const std::string &IV) {
 
@@ -1985,32 +1984,51 @@ void HandleAria(_Con s){
 	}
 }
 
+#include <condition_variable>
+#include <atomic>
 
-void AriaWork(const DWORD ID){
+template<typename T>
+	struct _ConQue {
 
-	VEC(_Con) Req;
-	Req.reserve(64);
+		int Count = 0;
 
-	while (1) {
+		std::atomic<T> S = T();
+		std::condition_variable cv;
+		std::mutex Lock;
 
-		if (AriaConnectionQue[ID].size()) {
-			if (std::scoped_lock<std::mutex> l(AriaThreadLock[ID]); 1) {
-
-				Req.resize(AriaConnectionQue[ID].size());
-				memcpy(&Req[0], AriaConnectionQue[ID].data(), Req.size() * sizeof(Req[0]));
-
-				AriaConnectionQue[ID].clear();
-			}
-			for (auto& r : Req)
-				HandleAria(r);
-			Req.clear();
+		_inline void notify() {
+			std::lock_guard<std::mutex> L(Lock);
+			Count++;
+			cv.notify_one();
 		}
 
-		Sleep(1);//It being 0 literally hogs an entire core so.. No?
+		_inline void wait() {
+			std::unique_lock<std::mutex> L(Lock);
+			while (!Count)
+				cv.wait(L);
+
+			Count--;
+		}
+
+	};
+
+void AriaWork(const DWORD ID, _ConQue<SOCKET> &Slot){
+
+	SOCKET conSocket = 0;
+
+	while (1){
+
+		while (!(conSocket = Slot.S))
+			Slot.wait();
+
+		Slot.S = 0;
+
+		HandleAria(_Con{ conSocket, ID });
 	}
 
-
 }
+
+
 bool ARIALOADED = 0;
 void Aria_Main(){
 	
@@ -2020,14 +2038,13 @@ void Aria_Main(){
 
 	LogMessage("Starting", mName);
 
+	_ConQue<SOCKET> Slots[ARIA_THREAD_COUNT] = {};
+
 	{
-		for (DWORD i = 0; i < ARIA_THREAD_COUNT; i++) {
-			AriaConnectionQue[i].reserve(64);
+		for (DWORD i = 0; i < ARIA_THREAD_COUNT; i++){
 			printf("	Aria%i: %i\n", i, int(AriaSQL[i].Connect()));
-			std::thread a([=]{
-				AriaWork(i);
-			});
-			a.detach();
+			std::thread t(AriaWork, i, std::ref(Slots[i]));
+			t.detach();
 		}
 		{
 			std::thread a(MIRROR::HandleMirrorAPI);
@@ -2082,6 +2099,7 @@ void Aria_Main(){
 	chmod(ARIA_UNIX_SOCKET, S_IRWXU | S_IRWXG | S_IRWXO);
 
 #endif
+
 	DWORD ID = 0;
 
 	while(1){
@@ -2093,14 +2111,14 @@ void Aria_Main(){
 #else
 		SOCKET s = accept(listening, 0, 0);
 #endif
-
 		if (s == INVALID_SOCKET)continue;
 
-		if (std::scoped_lock<std::mutex> L(AriaThreadLock[ID]); 1)
-			AriaConnectionQue[ID].emplace_back(s, ID);
+		while (Slots[ID].S)
+			ID = ++ID >= ARIA_THREAD_COUNT ? 0 : ID;
 
-		ID++;
-		if (ARIA_THREAD_COUNT >= ID)
-			ID = 0;
+		Slots[ID].S = s;
+		Slots[ID].notify();
+
+		//ID = ++ID >= ARIA_THREAD_COUNT ? 0 : ID;	
 	}
 }
