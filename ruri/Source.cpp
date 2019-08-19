@@ -382,6 +382,9 @@ WSADATA wsData;
 #include <string>
 #include <array>
 #include <nmmintrin.h>
+#include <condition_variable>
+#include <atomic>
+
 
 #ifndef NO_RELAX
 const bool RELAX_MODE = 1;
@@ -400,7 +403,7 @@ constexpr size_t _strlen_(const char* s)noexcept{
 	return *s ? 1 + _strlen_(s + 1) : 0;
 }
 template<typename T, size_t size>
-constexpr size_t aSize(const T(&)[size]) noexcept{ return size; }
+	constexpr size_t aSize(const T(&)[size]) noexcept{ return size; }
 
 #define ZeroArray(s) memset(s,0,sizeof(s))
 
@@ -536,79 +539,6 @@ template<typename T, typename T2>
 size_t GetIndex(const T& Start, const T2& End) {
 	return (size_t(&End) - size_t(&Start[0])) / sizeof(Start[0]);
 }
-
-template<typename T, typename KeyType = DWORD>
-struct _LTable {
-
-#define BUCKET_COUNT 64
-#define BUCKET_SIZE 32768
-	//Failure rate is about ~2 million
-
-#define GETOFF const DWORD OFF = (*(DWORD*)&Key) % BUCKET_COUNT
-
-	std::shared_mutex Lock[BUCKET_COUNT];
-	DWORD TableCount[BUCKET_COUNT];
-	VEC(T) Table[BUCKET_COUNT];
-
-	_inline T* push_back(const T&& A, const bool Locking = 1) {
-
-		const auto Key = A.Key();
-
-		static_assert((sizeof(Key) >= 4), "_LTable::Key must be at least 4 bytes");
-
-		GETOFF;
-
-		if (Locking)Lock[OFF].lock();
-		if (TableCount[OFF] == BUCKET_SIZE) {
-			printf("_LTable overflow\n");
-			TableCount[OFF] = 0;
-		}
-
-		Table[OFF][TableCount[OFF]] = _M(A);
-
-		T* Ret = &Table[OFF][TableCount[OFF]];
-		TableCount[OFF]++;
-		if (Locking)Lock[OFF].unlock();
-		return Ret;
-	}
-
-	_inline std::shared_mutex& getMutex(const KeyType& Key) {
-		GETOFF;
-		return Lock[OFF];
-	}
-
-	_inline T* get(const KeyType& Key, const bool Locking = 1) {
-
-		GETOFF;
-
-		T* ret = 0;
-
-		if (Locking)Lock[OFF].lock_shared();
-
-		const DWORD Size = TableCount[OFF];
-
-		for (DWORD i = 0; i != Size; i++) {
-			if (Table[OFF][i].Key() == Key) {
-				ret = &Table[OFF][i];
-				break;
-			}
-		}
-		if (Locking)Lock[OFF].unlock_shared();
-
-		return ret;
-	}
-	_LTable() {
-
-		ZeroMemory(&TableCount[0], BUCKET_COUNT * 4);
-		for (DWORD i = 0; i < BUCKET_COUNT; i++)
-			Table[i].resize(BUCKET_SIZE);
-	}
-
-
-	//#undef BUCKET_COUNT
-#undef BUCKET_SIZE
-#undef GETOFF
-};
 
 #include "SQL.h"
 #define BANCHO_THREAD_COUNT 4
@@ -1689,6 +1619,8 @@ struct _MD5 {
 	}
 };
 
+u32 LogoutOffset = 0;
+
 struct _User{
 
 	uint64_t choToken;
@@ -1701,7 +1633,7 @@ struct _User{
 	char ActionMD5[32];
 	DWORD actionMods;
 	int BeatmapID;
-
+	u32 LogOffset;
 	byte timeOffset:5, GameMode:3;
 	byte SpamLevel:5, SendToken:1, inLobby:1, FriendsOnlyChat:1;
 
@@ -1710,8 +1642,29 @@ struct _User{
 	float lat;
 	float lon;
 
+	std::shared_mutex CacheLock;
+	VEC(byte) PanelCache;
+	VEC(byte) StatsCache;
+
+	void getPanel(VEC(byte)& q){
+		CacheLock.lock_shared();
+		{
+			q.resize(q.size() + PanelCache.size());
+			memcpy(&q[q.size() - PanelCache.size()], PanelCache.data(), PanelCache.size());
+		}
+		CacheLock.unlock_shared();
+	}
+	void getStats(VEC(byte)& q){
+		CacheLock.lock_shared();
+		{
+			q.resize(q.size() + StatsCache.size());
+			memcpy(&q[q.size() - StatsCache.size()], StatsCache.data(), StatsCache.size());
+		}
+		CacheLock.unlock_shared();
+	}
+
 	std::mutex qLock;
-	std::vector<byte> QueBytes;
+	VEC(byte) QueBytes;
 
 	_UserStats Stats[GM_MAX + 1];//4 normal modes + 4 more relax ones
 
@@ -1723,21 +1676,20 @@ struct _User{
 	_User* CurrentlySpectating;
 
 	std::shared_mutex SpecLock;
-	std::vector<_User*> Spectators;
+	VEC(_User*) Spectators;
 
-	USHORT CurrentMatchID;
+	u16 CurrentMatchID;
 	
 	int LastSentBeatmap;
 
 	_Achievement Ach;//TODO: thread this.
 	
-	//std::vector<_DelayedBanchoPacket> dQue;
 	size_t ActiveChannels[MAX_CHAN_COUNT];//There is no way to resolve the actual size without restructuring xdxdxd
 	
 	std::string c1Check;
 
 	std::mutex RefLock;
-	DWORD ref;
+	u32 ref;
 
 	/*MM_ALIGN */u32 Friends[256];
 	/*MM_ALIGN */u32 Blocked[32];
@@ -1809,7 +1761,6 @@ struct _User{
 		}
 
 	bool isFriend(const DWORD ID) const{
-
 		if (UserID == ID)
 			return 1;//Always friends with your self :)
 
@@ -1819,6 +1770,7 @@ struct _User{
 
 		return 0;
 	}
+
 	bool isBlocked(const DWORD ID) const {
 		if (UserID < USERID_START || ID == UserID)
 			return 0;
@@ -1857,7 +1809,6 @@ void reset() {
 		inLobby = 0;
 		Spectators.clear();
 		QueBytes.clear();
-		//dQue.clear();
 		SpamLevel = 0;
 		LastSentBeatmap = 0;
 		FriendsOnlyChat = 0;
@@ -1865,6 +1816,7 @@ void reset() {
 		ZeroArray(Blocked);
 		c1Check.clear();
 		silence_end = 0;
+		LogOffset = LogoutOffset;
 	}
 	_User(){
 		reset();
@@ -1885,7 +1837,7 @@ void reset() {
 				memcpy(&QueBytes[QueBytes.size() - b.size()], b.data(), b.size());
 
 				if constexpr (Locked)
-					qLock.unlock();				
+					qLock.unlock();
 			}
 		}
 
@@ -2848,7 +2800,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 				}else{
 
 					VEC(byte) Pack;
-					PacketBuilder::Build<Packet::Server::sendMessage, '-', 's', '-', 'i'>(Pack, STACK(M_BOT_NAME), &s, STACK("#multiplayer"), tP->UserID);
+					PacketBuilder::Build<Packet::Server::sendMessage, '-', 's', '-', 'i'>(Pack, STACK(M_BOT_NAME), &s, STACK("#multiplayer"), USERID_START-1);
 
 					if(notVisible)
 						tP->addQueVector(Pack);
@@ -2897,7 +2849,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 
 		if (Res.size()){
 			if (notVisible)
-				PacketBuilder::Build<Packet::Server::sendMessage, 'm', '-', 's', 's', 'i'>(tP->QueBytes, &tP->qLock, STACK(M_BOT_NAME), &Res, &tP->Username, USERID_START - 1);
+				PacketBuilder::Build<Packet::Server::sendMessage, 'm', '-', 's', 'v', 'i'>(tP->QueBytes, &tP->qLock, STACK(M_BOT_NAME), &Res, &Target, USERID_START - 1);
 			else
 				c->Bot_SendMessage(Res);
 		}
@@ -3537,41 +3489,25 @@ void Event_client_matchLoadComplete(_User *tP){
 
 void Event_client_matchScoreUpdate(_User *tP, const byte* const Packet, const DWORD Size){
 
-	if (tP->CurrentMatchID){
-
-		const bool ScoreV2 = Size == 45;
-
+	if (const bool ScoreV2 = Size == 45; tP->CurrentMatchID)
 		if (_Match* m = getMatchFromID(tP->CurrentMatchID); m && (Size == 29 || ScoreV2)){
+
+			VEC(byte) b(Size + 7);
+
+			*(USHORT*)b.data() = (USHORT)Packet::Server::matchScoreUpdate;
+			b[2] = 0;
+			*(u32*)&b[3] = Size;;
+			memcpy(b.data() + 7, Packet, Size);
 
 			std::scoped_lock<std::mutex> L(m->Lock);
 
 			for (auto& Slot : m->Slots)
 				if (Slot.User == tP){
-
-					const byte Index = (byte)GetIndex(m->Slots, Slot);
-
-					if (ScoreV2){
-						std::array<byte, 45 + 7> P;
-						memcpy(P.data() + 7, Packet, 45);
-						P[4 + 7] = Index;
-						*(USHORT*)P.data() = (USHORT)Packet::Server::matchScoreUpdate;
-						P[2] = 0;
-						PacketBuilder::CT::PopulateHeader(P);
-						m->sendUpdate(P);
-					}else{
-						std::array<byte, 29 + 7> P;
-						memcpy(P.data() + 7, Packet, 29);
-						P[4 + 7] = Index;
-						*(USHORT*)P.data() = (USHORT)Packet::Server::matchScoreUpdate;
-						P[2] = 0;
-						PacketBuilder::CT::PopulateHeader(P);
-						m->sendUpdate(P);
-					}
-
+					b[11] = (byte)GetIndex(m->Slots, Slot);
+					m->sendUpdateVector(b);
 					break;
 				}
 		}
-	}
 }
 
 void Event_client_matchComplete(_User *tP){
@@ -3602,8 +3538,6 @@ void Event_client_matchComplete(_User *tP){
 			m->ClearPlaying();
 
 			m->sendUpdateVector(bPacket::bMatch(m));
-
-			printf("Match complete\n");
 
 		}
 
@@ -3758,20 +3692,34 @@ void Event_client_friendRemove(_User *tP, const byte* const Packet, const DWORD 
 	
 }
 
-_inline void debug_LogOutUser(_User *tP){
+std::shared_mutex LogOutLock;
+DWORD LogoutLog[32] = {};
 
-	const DWORD UID = tP->UserID;
+void LogOutUser(_User* tP){
+
+	if (std::scoped_lock<std::shared_mutex> L(LogOutLock); 1)
+		LogoutLog[LogoutOffset++ & 0x1f] = tP->UserID;
 
 	DisconnectUser(tP);
+}
 
-	if (!UID)
-		return;
+_inline void LogoutUpdates(_User* tP){
+	if (tP->LogOffset != LogoutOffset){
 
-	const auto b = PacketBuilder::Fixed_Build<Packet::Server::userLogout, 'i'>(UID);
+		DWORD Arr[aSize(LogoutLog)];
+		int Start(tP->LogOffset), End(tP->LogOffset);
 
-	for (auto& User : Users)
-		if (User.choToken)
-			User.addQueArray(b);
+		if (std::shared_lock<std::shared_mutex> L(LogOutLock);1){
+			memcpy(Arr, LogoutLog, sizeof(Arr));
+			End = LogoutOffset & 0x1f;
+		}
+
+		tP->LogOffset = End;
+
+		do tP->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::userLogout, 'i'>(Arr[Start]));
+		while (++Start & 0x1f != End);
+
+	}
 }
 
 
@@ -3858,7 +3806,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::string_view Packet
 
 		case OPac::client_logout:
 			if (tP->LoginTime + 5000 > tP.User->LastPacketTime)break;
-			debug_LogOutUser(tP.User);
+			LogOutUser(tP.User);
 			break;
 
 		case OPac::client_startSpectating:
@@ -3979,11 +3927,9 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::string_view Packet
 
 	if (tP->inLobby)
 		SendMatchList(tP.User);//Sends multiplayer data if they are in the lobby.
-
 	tP->LastPacketTime = clock_ms();
 
-
-	//PacketBuilder::Build<Packet::Server::notification,'m', '-'>(tP->QueBytes,&tP->qLock, STACK("Yeah"));
+	LogoutUpdates(tP.User);
 
 	tP->doQue(s);
 
@@ -4528,7 +4474,7 @@ void LazyThread(){
 				PCount++;
 				if (User.LastPacketTime + PING_TIMEOUT_OSU < cTime) {
 					_UserRef UF(&User, 0);
-					debug_LogOutUser(UF.User);
+					LogOutUser(UF.User);
 				}
 			}else if (User.LastPacketTime + FREE_SLOT_TIME < cTime)//Free slots after 30 minutes of logging out.
 				User.LastPacketTime = INT_MIN;

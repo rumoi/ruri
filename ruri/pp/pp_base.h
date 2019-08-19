@@ -143,7 +143,7 @@ enum HitObjectType
 #include "pp_taiko.h"
 #include "pp_ctb.h"
 #include "pp_mania.h"
-
+/*
 namespace pp_base{
 
 	_LTable<_RawBeatmap> Cache_RawMap;
@@ -373,4 +373,4 @@ namespace pp_base{
 		return Ret;
 	}
 	
-}
+}*/

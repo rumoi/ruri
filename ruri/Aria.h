@@ -113,7 +113,6 @@ struct _ScoreCache{
 		pp = 0;
 	}
 
-
 	//id,score,max_combo,50_count,100_count,300_count,misses_count,katus_count,gekis_count,full_combo,mods,userid,pp,time
 	_ScoreCache(sql::ResultSet *r, const byte GM){
 		GameMode = GM;
@@ -359,28 +358,48 @@ struct _BeatmapData{
 	std::string DisplayTitle;
 	std::string DiffName;
 	std::string Hash;
-	_LeaderBoardCache* lBoard[GM_MAX + 1];
+	std::array<_LeaderBoardCache*, GM_MAX + 1> lBoard;
 	int RankStatus;
 
-	~_BeatmapData(){
-		for (DWORD i = 0; i <= GM_MAX; i++){
-			DeleteAndNull(lBoard[i]);
+	struct cAtomic {
+		std::atomic<int> v;
+		cAtomic(const cAtomic& o) {
+			v.store(o.v.load());
 		}
+		cAtomic(const int v) : v{ v } {};
+	}; cAtomic rCount;
+
+	~_BeatmapData(){
+
+		rCount.v--;
+
+		while(rCount.v > 0)//This should be fine.
+			Sleep(0);
+
+		BeatmapID = 0;
+		SetID = 0;
+		Rating = 0;
+
+		for (auto& i : lBoard){
+			DeleteAndNull(i);
+		}
+
 	}
 
-	_BeatmapData() {
+	_BeatmapData() : rCount(1){
 		BeatmapID = 0;
 		SetID = 0;
 		RankStatus = RankStatus::UNKNOWN;
 		Rating = 0.f;
-		ZeroArray(lBoard);
+
+		for (auto& i : lBoard)i = 0;
 	}
 
-	_BeatmapData(const int RankStatus):RankStatus(RankStatus){
+	_BeatmapData(const int RankStatus) : rCount(1), RankStatus(RankStatus){
 		BeatmapID = 0;
 		SetID = 0;
 		Rating = 0.f;
-		ZeroArray(lBoard);
+		for (auto& i : lBoard)i = 0;
 	}
 
 	_LeaderBoardCache* GetLeaderBoard(const DWORD Mode, _SQLCon* const SQL){
@@ -428,10 +447,25 @@ struct _BeatmapData{
 
 };
 
+
+struct _BeatmapDataRef {
+
+	_BeatmapData* Ref = 0;
+
+	~_BeatmapDataRef() {
+		if (Ref)
+			Ref->rCount.v--;
+		Ref = 0;
+	}
+
+};
+
 struct _BeatmapSet{
+
 	DWORD ID;
 	DWORD LastUpdate;
 	std::vector<_BeatmapData> Maps;
+	std::shared_mutex MapUpdateLock;
 	bool Deleted;
 
 	_BeatmapSet(){
@@ -461,13 +495,9 @@ struct _BeatmapSet{
 		Deleted = 0;
 	}
 
-	const inline DWORD Key()const noexcept {
-		return ID;
-	}
-
 };
 
-_LTable<_BeatmapSet> BeatmapSet_Cache;
+_BeatmapSet* BeatmapSet_Cache[2097152] = {};
 
 std::vector<std::vector<std::pair<int, std::string_view>>> JsonListSplit(const std::string_view Input, const size_t ExpectedSize) {
 
@@ -569,54 +599,44 @@ void FileNameClean(std::string &S){
 
 
 //Calling GetBeatmapSetFromSetID can collect setID information from the osu API if it misses in the database
-_BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _BeatmapSet* SET = 0 , bool ForceUpdate = 0){
+_BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, bool ForceUpdate = 0){
+
 	const char* mName = "Aria";
 
-	if (!SetID)
+	if ((!SetID || SetID >= aSize(BeatmapSet_Cache)))
 		return 0;
 
-	if(!SET && !ForceUpdate){
-		auto Set = BeatmapSet_Cache.get(SetID);
-		if (Set)
-			return Set;
-	}
+	if (!ForceUpdate && BeatmapSet_Cache[SetID])
+		return BeatmapSet_Cache[SetID];
 
 	if (!SQLCon && !ForceUpdate)
 		return 0;
 
 	//Set ID is not in the cache. We need to add it.
+	
+	_BeatmapSet* Set = BeatmapSet_Cache[SetID] ? BeatmapSet_Cache[SetID] : new _BeatmapSet();
 
-	std::shared_mutex& bMutex = BeatmapSet_Cache.getMutex(SetID);
+	std::scoped_lock<std::shared_mutex> L(Set->MapUpdateLock);
 
-	S_MUTEX_LOCKGUARD(bMutex);
+	Set->ID = SetID;
 
-	//Attempt to get it again. Just incase there was another request that already handled it.
-	if(!SET && !ForceUpdate){
-		auto Set = BeatmapSet_Cache.get(SetID,0);
-		if (Set)
-			return Set;
-	}
+	BeatmapSet_Cache[SetID] = Set;
 
-	const auto GetMapData = [&](_SQLCon* SQL)->_BeatmapSet*{
+	Set->Maps.clear();
+
+	const auto GetMapData = [&](_SQLCon* SQL)->bool{
 
 		sql::ResultSet* res = SQL ? SQL->ExecuteQuery("SELECT ranked, beatmap_id, song_name, rating, beatmap_md5 FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID)) : 0;
 
-		_BeatmapSet *Set = 0;
+		bool Ret = 0;
 
 		if (res && res->next()){
-					
-			_BeatmapSet TempSet(SetID);
-
-			Set = SET ? SET : &TempSet;
-
-			if (SET)//TODO: Solve threading issue
-				Set->Maps.clear();
-			
-			int Count = 0;
+			Ret = 1;
 
 			do{
 
-				_BeatmapData l;
+				auto& l = Set->Maps.emplace_back();
+
 				l.SetID = SetID;
 
 				l.RankStatus = res->getInt(1);
@@ -634,33 +654,20 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 				l.Hash = res->getString(5);
 
 				if (l.Hash.size() != 32)
-					continue;
-
-				Count++;
-				if (SET) {
-					if (Count == Set->Maps.capacity())//:(
-						break;
-
-					if (Count <= Set->Maps.size())
-						Set->Maps[Count - 1] = l;
-					else Set->Maps.push_back(l);
-
-				}else Set->Maps.push_back(l);
+					Set->Maps.pop_back();
 
 			} while (res->next());
 
-			if (!SET)
-				Set = BeatmapSet_Cache.push_back(_M(*Set), 0);
-			else Set->Maps.resize(Count);
 		}
 		DeleteAndNull(res);
 
-		return Set;
+		return Ret;
 	};
 
-	_BeatmapSet* Set = (!SET && !ForceUpdate) ? GetMapData(SQLCon) : 0;
+	if (!ForceUpdate && GetMapData(SQLCon))
+		return Set;
 
-	if (!Set && SQLCon){//Failed - Or requesting an updated version.
+	if (SQLCon){//Failed - Or requesting an updated version.
 
 		LogMessage("Getting beatmap data from the osu!API", mName);
 
@@ -779,23 +786,15 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 				LogMessage(CountString.c_str(), mName);
 
 				LogMessage("Got data. Attempting grab again.", mName);
-				Set = GetMapData(SQLCon);
 
-				if (Set) LogMessage("Grab success.", mName);
+				if (GetMapData(SQLCon)) LogMessage("Grab success.", mName);
 				else     LogMessage("Grab fail.", mName);
 
-				return Set;
-				
 			}else{
 				LogMessage("SetID has been removed from the osu server\n", mName);
 
+				Set->Deleted = 1;
 
-				_BeatmapSet* B = BeatmapSet_Cache.get(SetID, 0);
-
-				if (B)B->Deleted = 1;
-				else 
-					BeatmapSet_Cache.push_back(_BeatmapSet(SetID,1), 0);
-				
 				/*
 
 				//The set does not exist on the osu server. Cache this fact.
@@ -815,15 +814,16 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, _Beatmap
 
 	return Set;
 }
+
 _BeatmapData BeatmapNotSubmitted(RankStatus::UNKNOWN);
 
 
-bool CheckMapUpdate(_BeatmapData *BD, _SQLCon* SQL) {
+bool CheckMapUpdate(_BeatmapData *BD, _SQLCon* SQL){
 
-	if (!BD || !BD->SetID || BD->Hash.size() != 32 || !SQL)
+	if (!BD || (!BD->SetID || BD->SetID >= aSize(BeatmapSet_Cache)) || BD->Hash.size() != 32 || !SQL)
 		return 0;
 
-	_BeatmapSet *BS = BeatmapSet_Cache.get(BD->SetID);
+	_BeatmapSet *BS = BeatmapSet_Cache[BD->SetID];
 	
 	if (!BS)
 		return 0;
@@ -834,20 +834,20 @@ bool CheckMapUpdate(_BeatmapData *BD, _SQLCon* SQL) {
 		return 0;
 
 	BS->LastUpdate = cTime;
-	GetBeatmapSetFromSetID(BD->SetID, SQL, BS, 1);
+	GetBeatmapSetFromSetID(BD->SetID, SQL, 1);
 
 	return 1;
 }
 
 
-_BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::string_view MD5, std::string &&DiffName, _SQLCon* SQL){
+_BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::string_view MD5, std::string &&DiffName, _SQLCon* SQL, _BeatmapDataRef &REF){
 
 	ExtractDiffName(DiffName);
 
 	bool ValidMD5 = (MD5.size() == 32);
 	bool DiffNameGiven = (DiffName.size() > 0);
 
-	_BeatmapSet *BS = (SetID) ? BeatmapSet_Cache.get(SetID) : 0;
+	_BeatmapSet *BS = (SetID && SetID < aSize(BeatmapSet_Cache)) ? BeatmapSet_Cache[SetID] : 0;
 
 	if (BS && BS->Deleted)
 		return 0;
@@ -859,22 +859,20 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 
 	int Tries = 0;
 
-	while (Tries < 2) {
+	while (Tries < 2){
 		if (!BS->ID)
 			return &BeatmapNotSubmitted;
 
-		{
-
-			//S_MUTEX_SHARED_LOCKGUARD(*BS->Lock);
+		if (std::shared_lock<std::shared_mutex> L(BS->MapUpdateLock);1){
 
 			for (auto& Map : BS->Maps){
-
 				if ((ValidMD5 && Map.Hash == MD5) || (BID && Map.BeatmapID == BID) ||
-					(DiffNameGiven && Map.DiffName == DiffName))//TODO: check if the servers md5 is out of date.
+					(DiffNameGiven && Map.DiffName == DiffName)){//TODO: check if the servers md5 is out of date.
+					Map.rCount.v++;//Should be safe
+					REF.Ref = &Map;
 					return &Map;
-				
+				}				
 			}
-
 		}
 		const DWORD cTime = clock_ms();
 		if (BS->LastUpdate + 14400000 < cTime) {//Rate limit to every 4 hours
@@ -882,7 +880,7 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 
 			LogMessage("Possible update to beatmap set.", "Aria");
 
-			BS = GetBeatmapSetFromSetID(SetID, SQL, BS);
+			BS = GetBeatmapSetFromSetID(SetID, SQL,1);
 			if (!BS)
 				break;
 		}
@@ -1265,7 +1263,9 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			sData.GameMode;
 			(u.User->privileges & UserPublic) && !FailTime && !Quit && ReplayFile.size() > 250){
 
-			_BeatmapData *BD = GetBeatmapCache(0, 0, sData.BeatmapHash, "", &AriaSQL[s.ID]);
+			_BeatmapDataRef MapRef;
+
+			_BeatmapData *BD = GetBeatmapCache(0, 0, sData.BeatmapHash, "", &AriaSQL[s.ID], MapRef);
 
 			if (!BD){
 				printf(KRED"(%s) ScoreSubmit map failure\n" KRESET,sData.BeatmapHash.c_str());
@@ -1474,9 +1474,11 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 	if (u.User->actionID != bStatus::sPlaying && BeatmapMD5.size() == 32)
 		memcpy(&u.User->ActionMD5[0], &BeatmapMD5[0], 32);
 
+	_BeatmapDataRef MapRef;
+
 	_BeatmapData* const BeatData = GetBeatmapCache(SetID, 0, BeatmapMD5,
 		std::string(Params.get(_WeakStringToInt_("f")))
-		, &AriaSQL[s.ID]);
+		, &AriaSQL[s.ID],MapRef);
 
 
 	if (!BeatData || !BeatData->BeatmapID){
@@ -1983,9 +1985,6 @@ void HandleAria(_Con s){
 		printf(KMAG"Aria> " KRESET "%fms\n", double(double(Time) / 1000000.0));*/
 	}
 }
-
-#include <condition_variable>
-#include <atomic>
 
 template<typename T>
 	struct _ConQue {

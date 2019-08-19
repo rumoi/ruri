@@ -268,37 +268,26 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 			}
 		}
 
-		for (DWORD i = 0; i < BUCKET_COUNT; i++){
-			
-			BeatmapSet_Cache.Lock[i].lock();
+		for (size_t i = 0; i < aSize(BeatmapSet_Cache); i++)//This is very expensive. So dont restrict people willy nilly :)
+			if (auto* Set = BeatmapSet_Cache[i]; Set){				
+				std::shared_lock<std::shared_mutex> L(Set->MapUpdateLock);
+				for (auto& Map : Set->Maps) {
+					for (auto& Leaderboard : Map.lBoard) {
 
-			const DWORD BucketSize = BeatmapSet_Cache.TableCount[i];
+						if (!Leaderboard)continue;
 
-			for (DWORD z = 0; z < BucketSize; z++){
-				for (auto& Map : BeatmapSet_Cache.Table[i][z].Maps){
-					for (DWORD p = 0; p <= GM_MAX; p++){
-						if (!Map.lBoard[p])
-							continue;
+						std::scoped_lock<std::shared_mutex> lLock(Leaderboard->ScoreLock);
 
-						Map.lBoard[p]->ScoreLock.lock();
-
-						for (auto it = Map.lBoard[p]->ScoreCache.begin(); it != Map.lBoard[p]->ScoreCache.end(); ++it){
-							if (it->UserID == ID){
-								std::rotate(it, it + 1, Map.lBoard[p]->ScoreCache.end());
-								Map.lBoard[p]->ScoreCache.pop_back();
+						for (auto it = Leaderboard->ScoreCache.begin(); it != Leaderboard->ScoreCache.end(); ++it) {
+							if (it->UserID == ID) {
+								std::rotate(it, it + 1, Leaderboard->ScoreCache.end());
+								Leaderboard->ScoreCache.pop_back();
 								break;
 							}
 						}
-
-						Map.lBoard[p]->ScoreLock.unlock();
 					}
-
 				}
-
 			}
-
-			BeatmapSet_Cache.Lock[i].unlock();
-		}
 
 	}else return Respond("They already appear to be restricted.");
 	
@@ -402,23 +391,23 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 
 	_BeatmapSet* bData = GetBeatmapSetFromSetID(SetID, 0);
 
-	if (bData){//TODO: Solve threading issue
-		//bData->Lock->lock_shared();
-		if (BeatmapID) {
+	if (bData){
+		
+		std::shared_lock<std::shared_mutex> L(bData->MapUpdateLock);
+
+		if (BeatmapID){
 			for (DWORD i = 0; i < bData->Maps.size(); i++) {
 				if (bData->Maps[i].BeatmapID == BeatmapID) {
 					bData->Maps[i].RankStatus = NewStatus;
 					break;
 				}
 			}
-		}
-		else {
-			for (DWORD i = 0; i < bData->Maps.size(); i++){
+		}else
+			for (DWORD i = 0; i < bData->Maps.size(); i++)
 				bData->Maps[i].RankStatus = NewStatus;
-			}
+			
+		
 
-		}
-		//bData->Lock->unlock_shared();
 	}
 
 	return "Done.";
@@ -581,7 +570,6 @@ void reCalcScore_Playcount(){
 			const std::string tName = (i > 3) ? "rx_stats" : "user_stats";
 			SQL.ExecuteUPDATE("UPDATE " + tName +  " SET total_score_"+GM[i % 4]+"=" + std::to_string(Total) + ",playcount_"+GM[i % 4]+"=" + std::to_string(Count));
 		}
-
 
 	}
 
