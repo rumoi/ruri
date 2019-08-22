@@ -71,23 +71,24 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>C:\boost_1_66_0;C:\Program Files %28x86%29\MySQL\MySQL Connector C++ 8.0\include;$(IncludePath)</IncludePath>
+    <IncludePath>C:\boost_1_66_0;C:\Program Files\MySQL\MySQL Connector C++ 8.0\include;$(IncludePath)</IncludePath>
     <LibraryPath>C:\Program Files %28x86%29\MySQL\MySQL Connector C++ 8.0\lib\vs14;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
+    <IncludePath>C:\boost_1_66_0;C:\Program Files\MySQL\MySQL Connector C++ 8.0\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>C:\boost_1_66_0\;C:\Program Files %28x86%29\MySQL\MySQL Connector C++ 8.0\include;$(IncludePath)</IncludePath>
+    <IncludePath>C:\boost_1_66_0;C:\Program Files\MySQL\MySQL Connector C++ 8.0\include;$(IncludePath)</IncludePath>
     <LibraryPath>C:\Program Files %28x86%29\MySQL\MySQL Connector C++ 8.0\lib\vs14;$(LibraryPath)</LibraryPath>
     <GenerateManifest>false</GenerateManifest>
     <EmbedManifest>false</EmbedManifest>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>C:\Program Files\MySQL\MySQL Connector C++ 8.0\include;$(IncludePath)</IncludePath>
-    <LibraryPath>C:\Program Files\MySQL\MySQL Connector C++ 8.0\lib64\vs14;$(LibraryPath)</LibraryPath>
+    <IncludePath>C:\boost_1_66_0;C:\Program Files\MySQL\MySQL Connector C++ 8.0\include;$(IncludePath)</IncludePath>
+    <LibraryPath>C:\Program Files\MySQL\MySQL Connector C++ 8.0\lib64;C:\Program Files\MySQL\MySQL Connector C++ 8.0\lib64\vs14;$(LibraryPath)</LibraryPath>
     <TargetName>$(ProjectName)64</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
