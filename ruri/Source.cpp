@@ -1,5 +1,5 @@
-#define USERID_START 10
-#define M_BOT_NAME "Chloe"
+#define USERID_START 1000
+#define M_BOT_NAME "ruri"
 #define BOT_LOCATION 0
 
 enum Privileges{
@@ -3693,7 +3693,7 @@ void Event_client_friendRemove(_User *tP, const byte* const Packet, const DWORD 
 }
 
 std::shared_mutex LogOutLock;
-DWORD LogoutLog[32] = {};
+u32 LogoutLog[32] = {};
 
 void LogOutUser(_User* tP){
 
@@ -3711,13 +3711,11 @@ _inline void LogoutUpdates(_User* tP){
 
 		if (std::shared_lock<std::shared_mutex> L(LogOutLock);1){
 			memcpy(Arr, LogoutLog, sizeof(Arr));
-			End = LogoutOffset & 0x1f;
+			tP->LogOffset = End = LogoutOffset & 0x1f;
 		}
 
-		tP->LogOffset = End;
-
 		do tP->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::userLogout, 'i'>(Arr[Start]));
-		while (++Start & 0x1f != End);
+		while ((++Start & 0x1f) != End);
 
 	}
 }
