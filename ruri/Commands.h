@@ -1,41 +1,48 @@
 #pragma once
 
-#define TRIMSTRING(str)\
-	[](std::string &s)->std::string{\
-		if(!s.size())return s;\
-		for(DWORD ii = s.size()-1;ii>0;ii--){\
-			if(s[ii] != ' ')break;\
-			s.pop_back();\
-		}\
-		if(s[0] != ' ')return s;\
-		DWORD Start = 0;\
-		for(DWORD ii=0;ii<s.size();ii++)\
-			if (s[ii] != ' ') {\
-				Start=ii;\
-				break;\
-			}\
-		if(Start == 0){s.resize(0);return s;}\
-		const DWORD nSize = s.size() - Start;\
-		memcpy(&s[0],&s[Start],nSize);s.resize(nSize);\
-		return s;\
-	}((str))
+std::string_view TrimString_View(std::string_view s) {
 
-bool Fetus(const std::string &Target) {
+	if (s.size()){
 
-	if (Target.size() == 0)return 0;
+		size_t Start(0),Size(s.size());
 
-	_UserRef u(GetUserFromNameSafe(Target),1);
+		for (size_t i = 0; i < s.size(); i++) {
+			if (s[i] != ' ')break;
+			Start++;
+		}
+		for (size_t i = s.size(); i-- > 0;) {
+			if (s[i] != ' ')break;
+			Size = i;
+		}
 
-	if (!u.User)return 0;
+		s = std::string_view((const char*)&s[Start], Size - Start);
 
-	const _BanchoPacket b = bPacket::Message("", "", "", 0);
-	u.User->qLock.lock();
-	for (DWORD i = 0; i < 16; i++)
-		u.User->addQueNonLocking(b);
-	u.User->qLock.unlock();
-	return 1;
+	}
+
+	return s;
 }
 
+bool Fetus(const std::string &Target){
+
+	_UserRef u(GetUserFromNameSafe(Target),0);
+
+	if (!u)
+		return 0;
+	
+	using namespace PacketBuilder::CT;
+
+	constexpr auto fPacket = PopulateHeader(Concate(PacketHeader(Packet::Server::sendMessage), Number<byte>(0), Number<byte>(0), Number<byte>(0), Number<int>(0)));
+
+	u->qLock.lock();
+
+	for (DWORD i = 0; i < 16; i++)
+		u->addQueArray<0>(fPacket);
+
+	u->qLock.unlock();
+
+	return 1;
+}
+/*
 std::string CFGExploit(const std::string &Target, std::string NewCFGLine){
 
 	_UserRef u(GetUserFromNameSafe(Target),1);
@@ -53,11 +60,11 @@ std::string CFGExploit(const std::string &Target, std::string NewCFGLine){
 
 	const _BanchoPacket fPacket = bPacket::Message("", "", "", 0);
 	for(DWORD i=0;i<16;i++)
-		u.User->addQueDelayNonLocking(_DelayedBanchoPacket(2, fPacket));
+		u.User->AddQueArray<0>(_DelayedBanchoPacket(2, fPacket));
 	u.User->qLock.unlock();
 
 	return "Done.";
-}
+}*/
 
 int getBeatmapID_fHash(const std::string &H, _SQLCon* c);
 
@@ -131,7 +138,9 @@ void unRestrictUser(_User* Caller, const std::string UserName, DWORD ID) {
 
 	const auto Respond = [=,&SQL](const std::string&& Mess)->void {
 		SQL.Disconnect();
-		return Caller->addQue(bPacket::Notification(Mess));
+		
+		return
+			PacketBuilder::Build<Packet::Server::notification, 'm', 's'>(Caller->QueBytes, &Caller->qLock, &Mess);
 	};
 
 	if (!SQL.Connect())
@@ -196,7 +205,8 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 
 	const auto Respond = [=, &SQL](const std::string& Mess)->void {
 		SQL.Disconnect();
-		return (Caller) ? Caller->addQue(bPacket::Notification(Mess)) : void();
+		if(Caller)
+			PacketBuilder::Build<Packet::Server::notification, 'm', 's'>(Caller->QueBytes, &Caller->qLock, &Mess);
 	};
 
 	if (!SQL.Connect())
@@ -258,37 +268,26 @@ void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::stri
 			}
 		}
 
-		for (DWORD i = 0; i < BUCKET_COUNT; i++){
-			
-			BeatmapSet_Cache.Lock[i].lock();
+		for (size_t i = 0; i < aSize(BeatmapSet_Cache); i++)//This is very expensive. So dont restrict people willy nilly :)
+			if (auto* Set = BeatmapSet_Cache[i]; Set){				
+				std::shared_lock<std::shared_mutex> L(Set->MapUpdateLock);
+				for (auto& Map : Set->Maps) {
+					for (auto& Leaderboard : Map.lBoard) {
 
-			const DWORD BucketSize = BeatmapSet_Cache.TableCount[i];
+						if (!Leaderboard)continue;
 
-			for (DWORD z = 0; z < BucketSize; z++){
-				for (auto& Map : BeatmapSet_Cache.Table[i][z].Maps){
-					for (DWORD p = 0; p <= GM_MAX; p++){
-						if (!Map.lBoard[p])
-							continue;
+						std::scoped_lock<std::shared_mutex> lLock(Leaderboard->ScoreLock);
 
-						Map.lBoard[p]->ScoreLock.lock();
-
-						for (auto it = Map.lBoard[p]->ScoreCache.begin(); it != Map.lBoard[p]->ScoreCache.end(); ++it){
-							if (it->UserID == ID){
-								std::rotate(it, it + 1, Map.lBoard[p]->ScoreCache.end());
-								Map.lBoard[p]->ScoreCache.pop_back();
+						for (auto it = Leaderboard->ScoreCache.begin(); it != Leaderboard->ScoreCache.end(); ++it) {
+							if (it->UserID == ID) {
+								std::rotate(it, it + 1, Leaderboard->ScoreCache.end());
+								Leaderboard->ScoreCache.pop_back();
 								break;
 							}
 						}
-
-						Map.lBoard[p]->ScoreLock.unlock();
 					}
-
 				}
-
 			}
-
-			BeatmapSet_Cache.Lock[i].unlock();
-		}
 
 	}else return Respond("They already appear to be restricted.");
 	
@@ -392,23 +391,23 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 
 	_BeatmapSet* bData = GetBeatmapSetFromSetID(SetID, 0);
 
-	if (bData){//TODO: Solve threading issue
-		//bData->Lock->lock_shared();
-		if (BeatmapID) {
+	if (bData){
+		
+		std::shared_lock<std::shared_mutex> L(bData->MapUpdateLock);
+
+		if (BeatmapID){
 			for (DWORD i = 0; i < bData->Maps.size(); i++) {
 				if (bData->Maps[i].BeatmapID == BeatmapID) {
 					bData->Maps[i].RankStatus = NewStatus;
 					break;
 				}
 			}
-		}
-		else {
-			for (DWORD i = 0; i < bData->Maps.size(); i++){
+		}else
+			for (DWORD i = 0; i < bData->Maps.size(); i++)
 				bData->Maps[i].RankStatus = NewStatus;
-			}
+			
+		
 
-		}
-		//bData->Lock->unlock_shared();
 	}
 
 	return "Done.";
@@ -436,9 +435,11 @@ std::string BlockUser(_User* u, const std::string_view Target, const bool UnBloc
 			if (u->Blocked[i] == UserID)
 				u->Blocked[i] = 0;
 
-		return "UserID " + std::to_string(UserID) + " is no longer blocked.";
+		return "UserID " + std::to_string(UserID) + " is no longer blocked.";	
 	}
-	u->addQue(bPacket4Byte(OPac::server_userLogout,UserID));
+
+	u->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::userLogout,'i'>(UserID));
+
 	return u->AddBlock(UserID) ? "UserID " + std::to_string(UserID) + " is now blocked." : "You can only block 32 players.";
 }
 
@@ -448,8 +449,9 @@ void UpdateAllUserStatsinGM(_User* Caller, const DWORD GM){
 
 	const auto Respond = [=, &SQL](const std::string&& Mess)->void {
 		SQL.Disconnect();
-		if (!Caller)return;
-		return Caller->addQue(bPacket::Notification(Mess));
+		if (Caller)
+			PacketBuilder::Build<Packet::Server::notification, 'm', 's'>(Caller->QueBytes, &Caller->qLock, &Mess);
+
 	};
 
 	if (!SQL.Connect())
@@ -568,7 +570,6 @@ void reCalcScore_Playcount(){
 			const std::string tName = (i > 3) ? "rx_stats" : "user_stats";
 			SQL.ExecuteUPDATE("UPDATE " + tName +  " SET total_score_"+GM[i % 4]+"=" + std::to_string(Total) + ",playcount_"+GM[i % 4]+"=" + std::to_string(Count));
 		}
-
 
 	}
 
@@ -755,13 +756,13 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 			_UserRef t(GetUserFromNameSafe(USERNAMESQL(Split[1])),1);
 
-			if (!t.User)
+			if (!t)
 				return "User not found.";
 
 			const int Length = StringToNum(int, Split[2]);
 
-			t.User->silence_end = time(0) + Length;
-			t.User->addQue(bPacket4Byte(OPac::server_silenceEnd, Length));
+			t->silence_end = time(0) + Length;
+			t->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::silenceEnd,'i'>(Length));
 
 			SQLExecQue.AddQue("UPDATE users SET silence_end = " + std::to_string(t.User->silence_end) + " WHERE id = " + std::to_string(t->UserID));
 
@@ -786,19 +787,22 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 		case _WeakStringToInt_("!alert"):
 		case _WeakStringToInt_("!alertuser"): {
 
-			const char SingleTarget = Split[0].size() == _strlen_("!alertuser");
+			const bool SingleTarget = Split[0].size() == _strlen_("!alertuser");
+			VEC(byte) Packet;
 
-			const _BanchoPacket b = bPacket::Notification(CombineAllNextSplit(SingleTarget + 1, Split));
+			const std::string& Noti = CombineAllNextSplit(SingleTarget + 1, Split);
+
+			PacketBuilder::Build<Packet::Server::notification, 's'>(Packet, &Noti);
 
 			if (!SingleTarget) {
 				for (auto& User : Users)
 					if (User.choToken)
-						User.addQue(b);
+						User.addQueVector(Packet);
 			}
 			else if (Split.size() > 1) {
 				_UserRef Target(GetUserFromNameSafe(USERNAMESQL(Split[1])),1);
-				if (Target.User)
-					Target.User->addQue(b);
+				if (!!Target)
+					Target.User->addQueVector(Packet);
 			}
 
 			return (!SingleTarget) ? "Alerted all online users." : "User has been alerted";
@@ -812,8 +816,10 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 			if (!Target.User || !Target.User->choToken)
 				return "User not found.";
+			
+			const std::string& Noti = CombineAllNextSplit(2, Split);
 
-			Target.User->addQue(bPacket::GenericString(0x69, CombineAllNextSplit(2, Split)));
+			PacketBuilder::Build<Packet::Server::RTX, 'm','s'>(Target->QueBytes,&Target->qLock, &Noti);
 
 			return "You monster.";
 		}
@@ -822,8 +828,8 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			PrivateRes = 0;
 			return CombineAllNextSplit(1, Split);
 
-		case _WeakStringToInt_("!fcfg"):
-			return (Split.size() > 2) ? CFGExploit(USERNAMESQL(Split[1]), CombineAllNextSplit(2, Split)) : "!fcfg <username> <config lines>";
+		//case _WeakStringToInt_("!fcfg"):
+			//return (Split.size() > 2) ? CFGExploit(USERNAMESQL(Split[1]), CombineAllNextSplit(2, Split)) : "!fcfg <username> <config lines>";
 
 		case _WeakStringToInt_("!cbomb"): {
 
@@ -837,8 +843,8 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 				t.User->qLock.lock();
 
-				for (USHORT i = 0; i < Count; i++)
-					t.User->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "#" + std::to_string(i)));
+				//for (USHORT i = 0; i < Count; i++)
+					//t.User->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "#" + std::to_string(i)));
 
 				t.User->qLock.unlock();
 			}

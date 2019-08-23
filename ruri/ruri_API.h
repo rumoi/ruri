@@ -42,7 +42,9 @@ void API_MapLeaderboard_Get(int &Count, const char* p, VEC(byte) &Res, _SQLCon *
 		if(!SID)return AddStream(Res, 0);
 	}
 
-	_BeatmapData* const BD = GetBeatmapCache(SID, BID, "", "", SQL);
+	_BeatmapDataRef MapRef;
+
+	_BeatmapData* const BD = GetBeatmapCache(SID, BID, "", "", SQL, MapRef);
 
 	if (BD){
 
