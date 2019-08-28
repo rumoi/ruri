@@ -120,7 +120,7 @@ enum RankStatus {
 #define KGRY  "\x1B[37m"
 #define KRESET "\033[0m"
 
-#define MIRROR_IP "5.9.151.156"
+#define MIRROR_IP "34.94.215.186"
 #define MIRROR_PORT 80
 #define OSU_IP "1.1.1.1"
 
