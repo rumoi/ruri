@@ -17,7 +17,7 @@ struct _MatchSettings{
 
 	std::string Name;
 	std::string Password;
-	DWORD Mods;
+	u32 Mods;
 	int BeatmapID;
 	std::string BeatmapName;
 	std::string BeatmapChecksum;
@@ -37,6 +37,27 @@ struct _MatchSettings{
 		TeamType = 0;
 		FreeMod = 0;
 	}
+
+	struct StatusChange {
+		union {
+			struct { u64 MB : 32, TeamType : 2, MatchType : 2, ScoringType : 2, FreeMod : 1; };
+			u64 Total;
+		};
+	};
+
+	StatusChange StatusFlags(){
+
+		StatusChange Ret; Ret.Total = 0;
+
+		Ret.MB = Mods ^ u32(BeatmapID);
+		Ret.TeamType = TeamType;
+		Ret.MatchType = MatchType;
+		Ret.ScoringType = ScoringType;
+		Ret.FreeMod = FreeMod;
+
+		return Ret;
+	}
+
 };
 
 struct _Slot{
@@ -60,16 +81,14 @@ struct _Slot{
 		CurrentMods = 0;
 	}
 	
-	void resetPlaying() {
-
+	_inline void resetPlaying() {
 		Loaded = 0;
 		Completed = 0;
 		Failed = 0;
 		Skipped = 0;
 	}
 
-	void reset() {
-
+	void reset(){
 		SlotStatus = SlotStatus::Open;
 		SlotTeam = 0;
 		Loaded = 0;
@@ -138,10 +157,7 @@ struct _Match{
 		for (auto& S : Slots){
 			if (S.SlotStatus == SlotStatus::Playing)
 				S.SlotStatus = SlotStatus::NotReady;
-
-			S.Completed = 0;
-			S.Skipped = 0;
-			S.Loaded = 0;
+			S.resetPlaying();
 		}
 
 		inProgress = 0;
@@ -155,7 +171,6 @@ struct _Match{
 		{
 			constexpr auto b = PacketBuilder::CT::String_Packet(Packet::Server::channelKicked,"#multiplayer");
 			u->addQueArray(b);
-
 		}
 
 		u->CurrentMatchID = 0;
@@ -253,7 +268,7 @@ struct _Match{
 
 };
 
-_Match Match[MAX_MULTI_COUNT];
+std::array<_Match, MAX_MULTI_COUNT> Match;
 
 std::tuple<std::shared_mutex,int, VEC(byte)> LobbyCache[MAX_MULTI_COUNT];
 

@@ -165,11 +165,13 @@ struct _LeaderBoardCache{
 		PassCount = 0;
 	}
 
-	DWORD GetRankByUID(const DWORD UID, bool DontLock = 0){
+	template<bool DontLock = 0>
+	DWORD GetRankByUID(const DWORD UID){
 
 		DWORD Rank = 0;
 
-		if(!DontLock)ScoreLock.lock_shared();
+		if constexpr(!DontLock)
+			ScoreLock.lock_shared();
 
 		for (DWORD i = 0; i < ScoreCache.size(); i++){
 			if (ScoreCache[i].UserID == UID) {
@@ -177,7 +179,8 @@ struct _LeaderBoardCache{
 				break;
 			}
 		}
-		if (!DontLock)ScoreLock.unlock_shared();
+		if constexpr(!DontLock)
+			ScoreLock.unlock_shared();
 
 		return Rank;
 	}
@@ -328,13 +331,13 @@ struct _LeaderBoardCache{
 			#endif				
 				SortScoreCacheByScore);//Could optimize this by bounding it. Will do it if this ever becomes a problem (doubt it)
 
-		const DWORD NewRank = (!NewTop) ? 0 : GetRankByUID(s.UserID,1);
+		const DWORD NewRank = (!NewTop) ? 0 : GetRankByUID<true>(s.UserID);
 		
 		ScoreLock.unlock();
 
 		if (!s.Loved && NewRank == 1 && ScoreCache.size() > 5)
-			chan_Announce.Bot_SendMessage("[https://osu.ppy.sh/u/" + std::to_string(s.UserID) + " " + GetUsernameFromCache(s.UserID) +
-				"] has achieved #1 on [https://osu.ppy.sh/b/" + std::to_string(BID) +" "+ MapName +"] ( " + RoundTo2(s.pp) + "pp )");
+			chan_Announce.Bot_SendMessage(
+				"[https://osu.ppy.sh/u/" + std::to_string(s.UserID) + " " + GetUsernameFromCache(s.UserID) + "] has achieved #1 on [https://osu.ppy.sh/b/"+ std::to_string(BID) +" "+ MapName +"] ( " + RoundTo2(s.pp) + "pp )");
 
 		if (Ret){
 			AppendScoreToString(Ret, LastRank, LastScore, 0);
@@ -391,15 +394,14 @@ struct _BeatmapData{
 		SetID = 0;
 		RankStatus = RankStatus::UNKNOWN;
 		Rating = 0.f;
-
-		for (auto& i : lBoard)i = 0;
+		ZeroMemory(lBoard.data(), sizeof(lBoard));
 	}
 
 	_BeatmapData(const int RankStatus) : rCount(1), RankStatus(RankStatus){
 		BeatmapID = 0;
 		SetID = 0;
 		Rating = 0.f;
-		for (auto& i : lBoard)i = 0;
+		ZeroMemory(lBoard.data(), sizeof(lBoard));
 	}
 
 	_LeaderBoardCache* GetLeaderBoard(const DWORD Mode, _SQLCon* const SQL){
