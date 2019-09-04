@@ -511,10 +511,10 @@ std::vector<std::vector<std::pair<int, std::string_view>>> JsonListSplit(const s
 				if (BraceCount > 0)
 					BraceCount--;
 			}
-			else if (BraceCount) {
-				if (int startIndex = i + 1; Input[i] == '\"') {
-					i++;
-					for (; i < iEnd; i++) {
+			else if (BraceCount){
+				if (Input[i] == '\"'){
+					const int startIndex = ++i;
+					for (; i++ < iEnd;){
 						if (Input[i] == '\"' && Input[i - 1] != '\\') {
 							if (!Body)
 								NameHash = WeakStringToInt(std::string_view((const char*)&Input[startIndex], i - startIndex));
@@ -527,6 +527,8 @@ std::vector<std::vector<std::pair<int, std::string_view>>> JsonListSplit(const s
 							break;
 						}
 					}
+				}else if (Body && Input[i] == ','){
+					Body = 0;
 				}
 			}
 		}
@@ -575,7 +577,7 @@ void FileNameClean(std::string &S){
 
 		bool Add = 1;
 
-		for (DWORD z = 0; z < 9; z++) {
+		for (size_t z = 0; z < sizeof(Banned); z++) {
 			if (S[i] == Banned[z]) {
 				Add = 0;
 				break;
