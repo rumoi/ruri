@@ -127,10 +127,7 @@ enum RankStatus {
 
 #define al_min(a, b) ((a) < (b) ? (a) : (b))
 #define al_max(a, b) ((a) > (b) ? (a) : (b))
-
-#define MUTEX_LOCKGUARD(a) std::scoped_lock<std::mutex> LOCKGUARD(a)
-#define S_MUTEX_SHARED_LOCKGUARD(a) std::shared_lock<std::shared_mutex> LOCKGUARD(a)
-#define S_MUTEX_LOCKGUARD(a) std::scoped_lock<std::shared_mutex> LOCKGUARD(a)
+#define al_clamp(v,minv,maxv) al_min(al_max(v,minv),maxv)
 
 #define CHO_VERSION 19
 #define _M(a) std::move(a)
@@ -322,17 +319,28 @@ WSADATA wsData;
 #include <type_traits>
 
 #ifndef NO_RELAX
-const bool RELAX_MODE = 1;
+constexpr bool RELAX_MODE = 1;
 #define GM_MAX 7
 #else
 const bool RELAX_MODE = 0;
 #define GM_MAX 3
 #endif
 
-const static std::string GameModeNames[] = {
+const std::string GameModeNames[] = {
 	"osu!","osu!taiko","osu!catch","osu!mania"
 	"osu!relax","osu!taiko(relax)","osu!catch(relax)","osu!mania(relax)"
 };
+const std::string Stats_Table_Name[] = {
+	"users_stats",
+	"rx_stats"
+};
+const std::string Score_Table_Name[] = {
+	"scores",
+	"scores_relax"
+};
+const std::string Acc_Col_Name[] = { "avg_accuracy_std","avg_accuracy_taiko","avg_accuracy_ctb","avg_accuracy_mania" };
+const std::string PP_Col_Name[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
+
 
 constexpr size_t _strlen_(const char* s)noexcept{
 	return *s ? 1 + _strlen_(s + 1) : 0;
@@ -356,13 +364,14 @@ template<const size_t nSize>
 
 		std::array<char, Size> a;
 
+		memcpy(a.data(), String, nSize - 1);
+		/*
 		for (size_t i = 0; (i + 4) <= Size; i+=4)
 			*(DWORD*)&a[i] = *(DWORD*)&String[i];
 
 		if constexpr (constexpr size_t Rem = Size % 4; Rem)
 			for (size_t i = Size - Rem; i < Size; i++)
-				a[i] = String[i];
-
+				a[i] = String[i];*/
 		return a;
 	}
 
@@ -1087,43 +1096,35 @@ _inline void AddStringToVector(std::vector<byte> &v, const std::string &s){
 
 #include "Connection.h"
 
-
 std::vector<std::pair<std::string, std::string>> Empty_Headers;
 
 const std::vector<byte> Empty_Byte;
 
 _UserStats RecalculatingStats;
 
-bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _UserStats &stats){
+bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, const DWORD GameMode, _UserStats &stats){
 
 	if (GameMode > GM_MAX)
 		return 0;
 
-	const DWORD RawGameMode = GameMode;
-	const std::string ScoreTableName = (GameMode >= 4) ? "scores_relax" : "scores";
-	const std::string StatsTableName = (GameMode >= 4) ? "rx_stats" : "users_stats";
-	
-	const static std::string AccColName[] = {"avg_accuracy_std","avg_accuracy_taiko","avg_accuracy_ctb","avg_accuracy_mania"};
-	const static std::string ppColName[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
-
-	GameMode = GameMode % 4;
+	const DWORD MMode = GameMode % 4;
 
 	DWORD Count = 0;
 	double TotalAcc = 0.;
 	double TotalPP = 0.;
 
-	if (auto res = SQL->ExecuteQuery("SELECT accuracy,pp FROM " + ScoreTableName +
-	" WHERE userid=" + std::to_string(UserID) + "&&play_mode=" + std::to_string(GameMode) + "&&completed=3&&pp>0 ORDER BY pp DESC LIMIT 100"); res){
+	if (auto res = SQL->ExecuteQuery("SELECT accuracy,pp FROM " + Score_Table_Name[GameMode >= 4] + " WHERE userid=" + std::to_string(UserID) + "&&play_mode=" + std::to_string(MMode) + "&&completed=3&&pp>0 ORDER BY pp DESC LIMIT 100")
+			;res){
+
 		while(res->next()){
 			if(Count < 50)
 				TotalAcc += res->getDouble(1);
 			TotalPP += res->getDouble(2) * std::pow(0.95, double(Count));
 			Count++;
 		}
+
 		delete res;
 	}
-
-
 
 	float acc = 0.f;
 	const int pp = (int)round(TotalPP);
@@ -1134,14 +1135,13 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 	if (acc != stats.Acc || pp != stats.pp || &stats == &RecalculatingStats){
 
 		if (pp != stats.pp && &stats != &RecalculatingStats)
-			UpdateRank(UserID, RawGameMode, pp);
+			UpdateRank(UserID, GameMode, pp);
 
 		stats.pp = pp;
 		stats.Acc = acc;
 
-		SQLExecQue.AddQue("UPDATE " + StatsTableName + " SET " + AccColName[GameMode] + " = " + std::to_string(acc * 100.) + ", "
-			+ ppColName[GameMode] + " = " + std::to_string(TotalPP)
-			+ " WHERE id = " + std::to_string(UserID) + " LIMIT 1");
+		SQLExecQue.AddQue("UPDATE " + Stats_Table_Name[GameMode >= 4] + " SET " + Acc_Col_Name[MMode] + "=" + std::to_string(acc * 100.) + "," + PP_Col_Name[MMode] + " = " + std::to_string(TotalPP)
+						+ " WHERE id = " + std::to_string(UserID) + " LIMIT 1");
 	}
 
 	return 1;
@@ -1149,7 +1149,6 @@ bool UpdateUserStatsFromDB(_SQLCon *SQL,const DWORD UserID, DWORD GameMode, _Use
 
 
 namespace PacketBuilder {
-
 
 	namespace CT {
 		template<size_t Size>
@@ -1163,7 +1162,7 @@ namespace PacketBuilder {
 
 			constexpr size_t Reserve = []{
 				size_t R = 7;
-				((R = R + (Format == '-' ? (sizeof(CT::_GetUleb_<sizeof(T)>()) + sizeof(T)) : PreAlloc(Format))) | ...);
+				((R = R + (Format == 'a' ? sizeof(T) + 6 : Format == '-' ? (sizeof(CT::_GetUleb_<sizeof(T)>()) + sizeof(T)) : PreAlloc(Format))) | ...);
 				return R;
 			}();
 
@@ -1227,7 +1226,7 @@ namespace PacketBuilder {
 
 					c.resize(c.size() + sizeof(ULEB) + sizeof(T));
 
-					*(std::array<byte, sizeof(ULEB)>*)& c[Off] = ULEB;
+					*(std::array<byte, sizeof(ULEB)>*)&c[Off] = ULEB;
 					*(T*)&c[Off + sizeof(ULEB)] = A;
 
 					return 0;
@@ -1249,6 +1248,21 @@ namespace PacketBuilder {
 				if constexpr (Format == 'w'){
 					c.resize(c.size() + 2);
 					*(short*)&c[c.size() - 2] = A;
+					return 0;
+				}if constexpr (Format == 'a'){
+
+					for (size_t i = 0; i < sizeof(T); i++){
+						if (!A[i]){
+							AddUleb(c, i);
+							if (i){
+								const size_t Start = c.size();
+								c.resize(Start + i);
+								memcpy(c.data() + Start, A, i);
+							}
+							return 0;
+						}
+					}
+					c.push_back(0);//Default to nothing on a non null terminated array.
 					return 0;
 				}
 
@@ -1414,7 +1428,7 @@ namespace PacketBuilder {
 			}
 
 		template<const size_t nSize>
-			constexpr auto _STACK_(const char(&String)[nSize]){
+			constexpr auto _STACK(const char(&String)[nSize]){
 				constexpr size_t Size = nSize - 1;
 				static_assert((nSize != 0 && nSize != 1), "STACK() can not be called with an empty string");
 				std::array<byte, Size> a{};
@@ -1450,12 +1464,12 @@ namespace PacketBuilder {
 				constexpr auto HTTPBytes(const std::array<byte, Size> Body,std::array<byte, Size2> Header){
 
 					constexpr auto resCode = [=] {
-						if constexpr(Code == 200)return _STACK_("HTTP/1.0 200 OK");
-						if constexpr(Code == 404)return _STACK_("HTTP/1.0 404 Not Found");
-						if constexpr(Code == 405)return _STACK_("HTTP/1.0 405 Method Not Allowed");
-						if constexpr(Code == 408)return _STACK_("HTTP/1.0 408 Request Timeout");
+						if constexpr(Code == 200)return _STACK("HTTP/1.0 200 OK");
+						if constexpr(Code == 404)return _STACK("HTTP/1.0 404 Not Found");
+						if constexpr(Code == 405)return _STACK("HTTP/1.0 405 Method Not Allowed");
+						if constexpr(Code == 408)return _STACK("HTTP/1.0 408 Request Timeout");
 					}();
-					constexpr auto ContentLength = Concate(_STACK_("Connection: close\r\nContent-Length: "), IntToArray<sizeof(Body)>(),_STACK_("\r\n\r\n"));
+					constexpr auto ContentLength = Concate(_STACK("Connection: close\r\nContent-Length: "), IntToArray<sizeof(Body)>(),_STACK("\r\n\r\n"));
 
 					return Concate(resCode,Header, ContentLength ,Body);
 				}
@@ -1541,6 +1555,8 @@ struct _MD5 {
 	}
 };
 
+#define WriteStringToArray(Array,String){const size_t sSize = al_min(sizeof(Array)-1,String.size());Array[sSize] = 0;memcpy(Array, String.data(), sSize);}
+
 u32 LogoutOffset = 0;
 
 struct _User{
@@ -1553,6 +1569,7 @@ struct _User{
 	std::string Username_Safe;
 	_MD5 Password;
 	char ActionMD5[32];
+	char ActionText[64];
 	DWORD actionMods;
 	int BeatmapID;
 	u32 LogOffset;
@@ -1563,34 +1580,11 @@ struct _User{
 	byte actionID;
 	float lat;
 	float lon;
-/*
-	std::shared_mutex CacheLock;
-	VEC(byte) PanelCache;
-	VEC(byte) StatsCache;
-
-	void getPanel(VEC(byte)& q){
-		CacheLock.lock_shared();
-		{
-			q.resize(q.size() + PanelCache.size());
-			memcpy(&q[q.size() - PanelCache.size()], PanelCache.data(), PanelCache.size());
-		}
-		CacheLock.unlock_shared();
-	}
-	void getStats(VEC(byte)& q){
-		CacheLock.lock_shared();
-		{
-			q.resize(q.size() + StatsCache.size());
-			memcpy(&q[q.size() - StatsCache.size()], StatsCache.data(), StatsCache.size());
-		}
-		CacheLock.unlock_shared();
-	}*/
 
 	std::mutex qLock;
 	VEC(byte) QueBytes;
 
 	_UserStats Stats[GM_MAX + 1];//4 normal modes + 4 more relax ones
-
-	std::string ActionText;
 
 	int LastPacketTime;
 	int LoginTime;
@@ -1631,7 +1625,7 @@ struct _User{
 		for (DWORD i = 0; i < MAX_CHAN_COUNT; i++){
 			if (!ActiveChannels[i]) {
 				ActiveChannels[i] = C;
-				return;
+				break;
 			}
 		}
 	}
@@ -1640,7 +1634,7 @@ struct _User{
 		for (DWORD i = 0; i < MAX_CHAN_COUNT; i++) {
 			if (ActiveChannels[i] == C) {
 				ActiveChannels[i] = 0;
-				return;
+				break;
 			}
 		}
 	}
@@ -1657,6 +1651,8 @@ struct _User{
 		RefLock.unlock();
 	}
 
+	std::string ProfileLink()const{return "(" + Username + ")[https://osu.ppy.sh/u/" + std::to_string(UserID) + "]";}
+
 	DWORD GetStatsOffset()const{
 		if constexpr(RELAX_MODE)
 			return al_min(actionMods & Mods::Relax ? GameMode + 4 : GameMode, GM_MAX);
@@ -1672,6 +1668,7 @@ struct _User{
 					Spec->addQueVector(b);
 		}
 	}
+
 	template<size_t Size>
 		void SendToSpecs(const std::array<byte, Size> &b) {
 			if (Spectators.size()) {
@@ -1717,6 +1714,7 @@ void reset() {
 		Username_Safe.clear();
 		Password.Zero();
 		ZeroArray(ActionMD5);
+		ZeroArray(ActionText);
 		actionMods = 0;
 		BeatmapID = 0;
 		timeOffset = 0;
@@ -1724,7 +1722,7 @@ void reset() {
 		GameMode = 0;
 		lat = 0.f;
 		lon = 0.f;
-		ActionText.clear();
+		
 		LoginTime = 0;
 		CurrentlySpectating = 0;
 		CurrentMatchID = 0;
@@ -1780,30 +1778,25 @@ void reset() {
 
 			if (std::scoped_lock<std::mutex> L(qLock); 1){
 
-				const std::string HTTPHeader = "HTTP/1.0 200 OK\r\nConnection: close\r\nContent-Length: " + std::to_string(QueBytes.size()) +
-					[&]()->std::string{
-						if (SendToken)
-							return "\r\ncho-token: " + std::to_string(choToken) + "\r\n\r\n";
-						return "\r\n\r\n";
-				}();
-				SendToken = 0;
+				if (unlikely(SendToken)) {
+					SendToken = 0;
+					const std::string HTTPHeader = "HTTP/1.0 200 OK\r\nConnection: close\r\nContent-Length: " + std::to_string(QueBytes.size()) + "\r\ncho-token: " + std::to_string(choToken) + "\r\n\r\n";
+					::send(s.s, HTTPHeader.data(), HTTPHeader.size(), 0);
+				}else{
+					const std::string HTTPHeader = "HTTP/1.0 200 OK\r\nConnection: close\r\nContent-Length: " + std::to_string(QueBytes.size()) + "\r\n\r\n";
+					::send(s.s, HTTPHeader.data(), HTTPHeader.size(), 0);
+				}
 
-				::send(s.s, HTTPHeader.data(), HTTPHeader.size(), 0);
 				::send(s.s, (const char*)QueBytes.data(), QueBytes.size(), 0);
 
 				QueBytes.clear();
 			}
 
 		}else{
-			//using namespace PacketBuilder::CT;
-			//constexpr auto Empty = HTTPBytes<200>(std::array<byte,0>(), _STACK_("\r\n"));
+			constexpr auto Empty = PacketBuilder::CT::_STACK("HTTP/1.0 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
 
-			//s.SendData(ConstructResponse(200, {}, std::vector<byte>{}));
-
-			s.SendData(STACK("HTTP/1.0 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
-
+			s.SendData(Empty);
 		}
-
 	}
 
 }; std::array<_User, MAX_USER_COUNT> Users;
@@ -1813,9 +1806,6 @@ void DisconnectUser(_User *u);
 void DisconnectUser(size_t Pointer){
 	return Pointer ? DisconnectUser((_User*)Pointer) : void();
 }
-
-void debug_LogOutUser(_User *p);
-
 
 struct _UserRef {
 	_User* User;
@@ -1853,7 +1843,7 @@ struct _UserRef {
 
 };
 
-#define UserDoubleCheck(s) if(!(s))continue;MUTEX_LOCKGUARD(User.RefLock);if(unlikely(!(s)))continue;User.ref++;
+#define UserDoubleCheck(s) if(!(s))continue;std::scoped_lock L(User.RefLock);if(unlikely(!(s)))continue;User.ref++;
 
 _User* GetPlayerSlot_Safe(const std::string &UserName){
 
@@ -1924,23 +1914,7 @@ _User* GetUserFromNameSafe(const std::string &Name, const bool Force = 0){
 	return 0;
 }
 
-/*
-DWORD GetIDFromName(const std::string &Name){
-
-	if (Name.size())
-		for (auto& User : Users){
-
-			if (User.Username != Name)
-				continue;
-
-			return User.UserID;
-		}
-
-	return 0;
-}*/
-
 #undef UserDoubleCheck
-
 
 _inline byte GetUserType(const DWORD p){
 	return  p & Privileges::AdminDev
@@ -1954,9 +1928,7 @@ _inline byte GetUserType(const DWORD p){
 		:	UserType::Normal;
 }
 
-
 #include "Channel.h"
-
 
 namespace CT_BotInfo {
 
@@ -1985,9 +1957,9 @@ void debug_SendOnlineToAll(_User *u){
 		const DWORD Off = u->GetStatsOffset();
 		
 		PacketBuilder::Build<Packet::Server::userPanel,'i','s','b','b','b','i','i','i',
-			'!','i','b','s','5','i','b','i','l','i','i','l','i','w'>
+			'!','i','b','a','5','i','b','i','l','i','i','l','i','w'>
 			(b,u->UserID,&u->Username, 24 + u->timeOffset,u->country, GetUserType(u->privileges), *(int*)&u->lon, *(int*)&u->lat, u->Stats[Off].getRank(Off, u->UserID),
-			Packet::Server::userStats,u->UserID,u->actionID,&u->ActionText,u->ActionMD5,u->actionMods,u->GameMode,u->BeatmapID, u->Stats[Off].rScore, *(int*)&u->Stats[Off].Acc,
+			Packet::Server::userStats,u->UserID,u->actionID,u->ActionText,u->ActionMD5,u->actionMods,u->GameMode,u->BeatmapID, u->Stats[Off].rScore, *(int*)&u->Stats[Off].Acc,
 				u->Stats[Off].pp > USHORT(-1) ? u->Stats[Off].pp : u->Stats[Off].PlayCount, u->Stats[Off].tScore, u->Stats[Off].getRank(Off, u->UserID), USHORT(u->Stats[Off].pp));
 				
 		for (auto& User : Users)
@@ -2160,8 +2132,8 @@ void Event_client_userStatsRequest(_User *u, const byte* const Packet, const DWO
 					const DWORD Off = tP->GetStatsOffset();
 					
 					PacketBuilder::Build<Packet::Server::userStats,
-						'i', 'b', 's', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(u->QueBytes,
-							tP->UserID, tP->actionID, &tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
+						'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(u->QueBytes,
+							tP->UserID, tP->actionID, tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
 							tP->BeatmapID, tP->Stats[Off].rScore, *(int*)&tP->Stats[Off].Acc,
 							tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
 							tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
@@ -2170,6 +2142,7 @@ void Event_client_userStatsRequest(_User *u, const byte* const Packet, const DWO
 		}
 	}
 }
+
 void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD Size){
 
 	if (Size < 12)return;
@@ -2185,11 +2158,11 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 	if (O + 1 > End)return;
 	const byte n_GameMode = *(byte*)O; O++;
 	if (O + 4 > End)return;
-	const int n_BeatmapID = *(int*)O;
-
+	const int n_BeatmapID = *(int*)O;	
 	tP->actionID = n_actionID;
-	tP->ActionText = n_ActionText;
 
+	WriteStringToArray(tP->ActionText, n_ActionText)
+	
 	if (n_CheckSum.size() == 32)
 		memcpy(tP->ActionMD5, &n_CheckSum[0], 32);
 
@@ -2203,8 +2176,8 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 	const DWORD Off = tP->GetStatsOffset();
 
 	PacketBuilder::Build<Packet::Server::userStats,
-		'i', 'b', 's', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(Stats,
-			tP->UserID, tP->actionID, &tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
+		'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(Stats,
+			tP->UserID, tP->actionID, tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
 			tP->BeatmapID, tP->Stats[Off].rScore, *(int*)&tP->Stats[Off].Acc,
 			tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
 			tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
@@ -2296,8 +2269,9 @@ bool DownloadMapFromOsu(const int ID) {
 }
 
 #include "oppai.h"
+//#include "pp/pp_base.h"
 
-static const std::string String_Space = " ";
+const std::string String_Space = " ";
 
 bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 
@@ -3456,7 +3430,7 @@ void Event_client_invite(_User *tP, const byte* const Packet, const DWORD Size){
 		}
 
 		{
-			const std::string Mes = "Invited " + Target->Username + " to your match.";
+			const std::string Mes = "Invited " + Target->ProfileLink() + " to your match.";
 
 			PacketBuilder::Build<Packet::Server::sendMessage, 'm', '-', 's', '-', 'i'>(tP->QueBytes, &tP->qLock, STACK(M_BOT_NAME), &Mes, STACK("#multiplayer"), USERID_START - 1);
 		}
@@ -3577,8 +3551,8 @@ void Event_client_requestStatusUpdate(_User *const tP){
 	const DWORD Off = tP->GetStatsOffset();
 
 	PacketBuilder::Build<Packet::Server::userStats, 'm',
-		'i', 'b', 's', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(tP->QueBytes, &tP->qLock,
-		tP->UserID,tP->actionID,&tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
+		'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(tP->QueBytes, &tP->qLock,
+		tP->UserID,tP->actionID,tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
 			tP->BeatmapID, tP->Stats[Off].rScore,*(int*)&tP->Stats[Off].Acc,
 			tP->Stats[Off].pp > u16(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
 			tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), u16(tP->Stats[Off].pp)
@@ -3593,7 +3567,7 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::string_view Packet
 
 		using namespace PacketBuilder::CT;
 
-		constexpr auto b = HTTPBytes<200>(Number_Packet(Packet::Server::restart, 1), _STACK_("\r\n"));
+		constexpr auto b = HTTPBytes<200>(Number_Packet(Packet::Server::restart, 1), _STACK("\r\n"));
 
 		return (void)s.SendData(b);
 	}
@@ -3787,28 +3761,37 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::string_view Packet
 
 }
 
-USHORT const countryCodes[] = { 0x2d2d, 0x5041, 0x5545, 0x4441, 0x4541, 0x4641, 0x4741, 0x4941, 0x4c41, 0x4d41, 0x4e41, 0x4f41, 0x5141, 0x5241, 0x5341, 0x5441,
-								0x5541, 0x5741, 0x5a41, 0x4142, 0x4242, 0x4442, 0x4542, 0x4642, 0x4742, 0x4842, 0x4942, 0x4a42, 0x4d42, 0x4e42, 0x4f42, 0x5242,
-								0x5342, 0x5442, 0x5642, 0x5742, 0x5942, 0x5a42, 0x4143, 0x4343, 0x4443, 0x4643, 0x4743, 0x4843, 0x4943, 0x4b43, 0x4c43, 0x4d43,
-								0x4e43, 0x4f43, 0x5243, 0x5543, 0x5643, 0x5843, 0x5943, 0x5a43, 0x4544, 0x4a44, 0x4b44, 0x4d44, 0x4f44, 0x5a44, 0x4345, 0x4545,
-								0x4745, 0x4845, 0x5245, 0x5345, 0x5445, 0x4946, 0x4a46, 0x4b46, 0x4d46, 0x4f46, 0x5246, 0x5846, 0x4147, 0x4247, 0x4447, 0x4547,
-								0x4647, 0x4847, 0x4947, 0x4c47, 0x4d47, 0x4e47, 0x5047, 0x5147, 0x5247, 0x5347, 0x5447, 0x5547, 0x5747, 0x5947, 0x4b48, 0x4d48,
-								0x4e48, 0x5248, 0x5448, 0x5548, 0x4449, 0x4549, 0x4c49, 0x4e49, 0x4f49, 0x5149, 0x5249, 0x5349, 0x5449, 0x4d4a, 0x4f4a, 0x504a,
-								0x454b, 0x474b, 0x484b, 0x494b, 0x4d4b, 0x4e4b, 0x504b, 0x524b, 0x574b, 0x594b, 0x5a4b, 0x414c, 0x424c, 0x434c, 0x494c, 0x4b4c,
-								0x524c, 0x534c, 0x544c, 0x554c, 0x564c, 0x594c, 0x414d, 0x434d, 0x444d, 0x474d, 0x484d, 0x4b4d, 0x4c4d, 0x4d4d, 0x4e4d, 0x4f4d,
-								0x504d, 0x514d, 0x524d, 0x534d, 0x544d, 0x554d, 0x564d, 0x574d, 0x584d, 0x594d, 0x5a4d, 0x414e, 0x434e, 0x454e, 0x464e, 0x474e,
-								0x494e, 0x4c4e, 0x4f4e, 0x504e, 0x524e, 0x554e, 0x5a4e, 0x4d4f, 0x4150, 0x4550, 0x4650, 0x4750, 0x4850, 0x4b50, 0x4c50, 0x4d50,
-								0x4e50, 0x5250, 0x5350, 0x5450, 0x5750, 0x5950, 0x4151, 0x4552, 0x4f52, 0x5552, 0x5752, 0x4153, 0x4253, 0x4353, 0x4453, 0x4553,
-								0x4753, 0x4853, 0x4953, 0x4a53, 0x4b53, 0x4c53, 0x4d53, 0x4e53, 0x4f53, 0x5253, 0x5453, 0x5653, 0x5953, 0x5a53, 0x4354, 0x4454,
-								0x4654, 0x4754, 0x4854, 0x4a54, 0x4b54, 0x4d54, 0x4e54, 0x4f54, 0x4c54, 0x5254, 0x5454, 0x5654, 0x5754, 0x5a54, 0x4155, 0x4755,
-								0x4d55, 0x5355, 0x5955, 0x5a55, 0x4156, 0x4356, 0x4556, 0x4756, 0x4956, 0x4e56, 0x5556, 0x4657, 0x5357, 0x4559, 0x5459, 0x5352,
-								0x415a, 0x4d5a, 0x454d, 0x575a, 0x3141, 0x3241, 0x314f, 0x5841, 0x4747, 0x4d49, 0x454a, 0x4c42, 0x464d
-							};
+MM_ALIGN u16 const countryCodes[] = { 0x2d2d, 0x5041, 0x5545, 0x4441, 0x4541, 0x4641, 0x4741, 0x4941, 0x4c41, 0x4d41, 0x4e41, 0x4f41, 0x5141, 0x5241, 0x5341, 0x5441,
+									  0x5541, 0x5741, 0x5a41, 0x4142, 0x4242, 0x4442, 0x4542, 0x4642, 0x4742, 0x4842, 0x4942, 0x4a42, 0x4d42, 0x4e42, 0x4f42, 0x5242,
+									  0x5342, 0x5442, 0x5642, 0x5742, 0x5942, 0x5a42, 0x4143, 0x4343, 0x4443, 0x4643, 0x4743, 0x4843, 0x4943, 0x4b43, 0x4c43, 0x4d43,
+									  0x4e43, 0x4f43, 0x5243, 0x5543, 0x5643, 0x5843, 0x5943, 0x5a43, 0x4544, 0x4a44, 0x4b44, 0x4d44, 0x4f44, 0x5a44, 0x4345, 0x4545,
+									  0x4745, 0x4845, 0x5245, 0x5345, 0x5445, 0x4946, 0x4a46, 0x4b46, 0x4d46, 0x4f46, 0x5246, 0x5846, 0x4147, 0x4247, 0x4447, 0x4547,
+									  0x4647, 0x4847, 0x4947, 0x4c47, 0x4d47, 0x4e47, 0x5047, 0x5147, 0x5247, 0x5347, 0x5447, 0x5547, 0x5747, 0x5947, 0x4b48, 0x4d48,
+									  0x4e48, 0x5248, 0x5448, 0x5548, 0x4449, 0x4549, 0x4c49, 0x4e49, 0x4f49, 0x5149, 0x5249, 0x5349, 0x5449, 0x4d4a, 0x4f4a, 0x504a,
+									  0x454b, 0x474b, 0x484b, 0x494b, 0x4d4b, 0x4e4b, 0x504b, 0x524b, 0x574b, 0x594b, 0x5a4b, 0x414c, 0x424c, 0x434c, 0x494c, 0x4b4c,
+									  0x524c, 0x534c, 0x544c, 0x554c, 0x564c, 0x594c, 0x414d, 0x434d, 0x444d, 0x474d, 0x484d, 0x4b4d, 0x4c4d, 0x4d4d, 0x4e4d, 0x4f4d,
+									  0x504d, 0x514d, 0x524d, 0x534d, 0x544d, 0x554d, 0x564d, 0x574d, 0x584d, 0x594d, 0x5a4d, 0x414e, 0x434e, 0x454e, 0x464e, 0x474e,
+									  0x494e, 0x4c4e, 0x4f4e, 0x504e, 0x524e, 0x554e, 0x5a4e, 0x4d4f, 0x4150, 0x4550, 0x4650, 0x4750, 0x4850, 0x4b50, 0x4c50, 0x4d50,
+									  0x4e50, 0x5250, 0x5350, 0x5450, 0x5750, 0x5950, 0x4151, 0x4552, 0x4f52, 0x5552, 0x5752, 0x4153, 0x4253, 0x4353, 0x4453, 0x4553,
+									  0x4753, 0x4853, 0x4953, 0x4a53, 0x4b53, 0x4c53, 0x4d53, 0x4e53, 0x4f53, 0x5253, 0x5453, 0x5653, 0x5953, 0x5a53, 0x4354, 0x4454,
+									  0x4654, 0x4754, 0x4854, 0x4a54, 0x4b54, 0x4d54, 0x4e54, 0x4f54, 0x4c54, 0x5254, 0x5454, 0x5654, 0x5754, 0x5a54, 0x4155, 0x4755,
+									  0x4d55, 0x5355, 0x5955, 0x5a55, 0x4156, 0x4356, 0x4556, 0x4756, 0x4956, 0x4e56, 0x5556, 0x4657, 0x5357, 0x4559, 0x5459, 0x5352,
+									  0x415a, 0x4d5a, 0x454d, 0x575a, 0x3141, 0x3241, 0x314f, 0x5841, 0x4747, 0x4d49, 0x454a, 0x4c42, 0x464d, 0x0000, 0x0000, 0x0000};
 
-_inline byte getCountryNum(const USHORT isoCode){
-	for (byte i = 0; i < aSize(countryCodes); i++)
-		if (isoCode == countryCodes[i])
+_inline u8 getCountryNum(const u16 isoCode) {
+
+	const auto Mask = _mm_set1_epi16(isoCode);
+
+	for (size_t i = 0; i < 256; i += 8) {
+
+		u32 res = _mm_movemask_epi8(_mm_cmpeq_epi16(Mask, _mm_load_si128((__m128i*)(countryCodes + i))));
+
+		if (unlikely(res)) {
+			res = ~res;
+			while (res & 3) { res >>= 2; ++i; }
 			return i;
+		}
+	}
 
 	return 0;
 }
@@ -3817,7 +3800,7 @@ void BanchoIncorrectLogin(_Con s){
 
 	using namespace PacketBuilder::CT;
 
-	constexpr auto b = HTTPBytes<200>(Number_Packet(Packet::Server::userID, (int)-1), _STACK_("\r\ncho-token: 0\r\n"));
+	constexpr auto b = HTTPBytes<200>(Number_Packet(Packet::Server::userID, (int)-1), _STACK("\r\ncho-token: 0\r\n"));
 
 	s.SendData(b);
 }
@@ -3827,7 +3810,7 @@ void BanchoServerFull(_Con s) {
 	using namespace PacketBuilder::CT;
 
 	constexpr auto b = HTTPBytes<200>(Concate(Number_Packet(Packet::Server::userID, (int)-1), String_Packet(Packet::Server::notification, "Server is currently full"))
-									,_STACK_("\r\ncho-token: 0\r\n"));
+									,_STACK("\r\ncho-token: 0\r\n"));
 
 	s.SendData(b);
 }
@@ -3876,8 +3859,8 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 
 			using namespace PacketBuilder::CT;
 
-			constexpr auto b = HTTPBytes<200>(Concate(Number_Packet(Packet::Server::userID, (int)-1),String_Packet(Packet::Server::notification, "Your client is out of date!\nPlease update it."))
-											,_STACK_("\r\ncho-token: 0\r\n"));
+			constexpr auto b = HTTPBytes<200>(Concate(Number_Packet(Packet::Server::userID, (int)-1),String_Packet(Packet::Server::notification, "Your client is out of date!\nPlease update your osu."))
+											,_STACK("\r\ncho-token: 0\r\n"));
 
 			return (void)s.SendData(b);
 		}
@@ -3967,7 +3950,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 
 				using namespace PacketBuilder::CT;
 
-				constexpr auto b = HTTPBytes<200>(Number_Packet(Packet::Server::userID, (int)-3), _STACK_("\r\ncho-token: 0\r\n"));
+				constexpr auto b = HTTPBytes<200>(Number_Packet(Packet::Server::userID, (int)-3), _STACK("\r\ncho-token: 0\r\n"));
 
 				return (void)s.SendData(b);
 			}
@@ -3977,8 +3960,6 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 
 			if (Username != GetUsernameFromCache(UserID))
 				UsernameCacheUpdateName(UserID, Username, &SQL_BanchoThread[s.ID]);
-
-			static std::string const TableName[] = {"users_stats","rx_stats"};
 
 			for(byte z = 0; z < 				
 			#ifndef NO_RELAX
@@ -3991,19 +3972,19 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 				res.reset(con->ExecuteQuery("SELECT ranked_score_std, playcount_std, total_score_std, avg_accuracy_std,pp_std,"
 					"ranked_score_taiko, playcount_taiko, total_score_taiko, avg_accuracy_taiko, pp_taiko,"
 					"ranked_score_ctb, playcount_ctb, total_score_ctb, avg_accuracy_ctb, pp_ctb,"
-					"ranked_score_mania, playcount_mania, total_score_mania, avg_accuracy_mania, pp_mania, country FROM " + TableName[z] + " WHERE id = " + std::to_string(UserID) + " LIMIT 1"));
+					"ranked_score_mania, playcount_mania, total_score_mania, avg_accuracy_mania, pp_mania, country FROM " + Stats_Table_Name[z] + " WHERE id = " + std::to_string(UserID) + " LIMIT 1"));
 
 				if (res && res->next()){
-
 
 					if (z == 0) {
 
 						const std::string Country = res->getString(21);
 
 						if (Country.size() == 2)
-							CountryCode = getCountryNum(*(USHORT*)&Country[0]);
+							CountryCode = getCountryNum(*(USHORT*)Country.data());
 
 					}
+
 					DWORD Offset = 0;
 
 					for (byte i = 0; i < 4; i++){
@@ -4108,10 +4089,10 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 				PacketBuilder::Build<Packet::Server::silenceEnd, 'i',
 					//'!', 'i',
 					'!', 'i', 's', 'b', 'b','b','i','i','i',
-					'!','i','b','s','5','i','b','i','l','i','i','l','i','w'>(u->QueBytes, SilenceDelta,
+					'!','i','b','a','5','i','b','i','l','i','i','l','i','w'>(u->QueBytes, SilenceDelta,
 					//Packet::Server::userID, UserID,
 					Packet::Server::userPanel, UserID, &u->Username, 24 + u->timeOffset, u->country, UserType::Supporter, *(int*)&u->lat, *(int*)& u->lon, u->Stats[0].getRank(0, UserID),
-					Packet::Server::userStats, UserID, bStatus::sIdle,&u->ActionText,u->ActionMD5,0,0,0,u->Stats[0].rScore,*(int*)&u->Stats[0].Acc,
+					Packet::Server::userStats, UserID, bStatus::sIdle,u->ActionText,u->ActionMD5,0,0,0,u->Stats[0].rScore,*(int*)&u->Stats[0].Acc,
 						int(u->Stats[0].pp > USHORT(-1) ? (u->Stats[0].pp) : u->Stats[0].PlayCount), u->Stats[0].tScore, u->Stats[0].getRank(0, UserID), USHORT(u->Stats[0].pp)
 				);
 
@@ -4132,26 +4113,27 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 
 			/*{
 
-				constexpr u32 MaxFriend = aSize(Users[0].Friends);
+				constexpr u32 MaxFriend = sizeof(Users[0].Friends) >> 2;
 
 				u32 fList[2 + MaxFriend] = { USERID_START - 1, UserID };
 				size_t fSize = 2;
 
-				for (u32 i(0); i < MaxFriend; i++)
-					fList[fSize++] = (!u->Friends[i] && (i = MaxFriend)) ? 0 : u->Friends[i];
-				
-				size_t fCur = u->QueBytes.size();
+				//for (u32 i(0); i < MaxFriend; i++)
+					//fList[fSize++] = (!u->Friends[i] && (i = MaxFriend)) ? 0 : u->Friends[i];
+				//fSize--;
 
-				u->QueBytes.resize(7 + 2 + (fSize << 2));
+				size_t oSize = u->QueBytes.size();
 
-				fCur += (size_t)u->QueBytes.data();
+				const size_t ListSize = fSize << 2;
 
-				*(u16*)(fCur) = u16(Packet::Server::friendsList);
-				*(u8*)(fCur += 2) = 0;
-				*(u32*)(++fCur) = 2 + (fSize << 2);
-				*(u16*)(fCur += 4) = fSize;
-				memcpy((void*)(fCur + 2), fList, fSize << 2);
-				
+				u->QueBytes.resize(7 + 2);
+
+				size_t fCur = (size_t)u->QueBytes.data() + oSize;
+				*(u16*)(fCur) = u16(Packet::Server::friendsList); fCur += 2;
+				*(u8*)(fCur) = 0; fCur++;
+				*(u32*)(fCur) = 2; fCur += 4;
+				*(u16*)(fCur) = 0; fCur += 2;
+				//memcpy((void*)(fCur), fList, ListSize);
 			}*/
 
 			for (auto& gUser : Users){
@@ -4162,9 +4144,9 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 				const DWORD Off = gUser.GetStatsOffset();
 				
 				PacketBuilder::Build<Packet::Server::userPanel, 'i', 's', 'b', 'b', 'b', 'i', 'i', 'i',
-					'!', 'i', 'b', 's', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>
+					'!', 'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>
 					(u->QueBytes, gUser.UserID, &gUser.Username, 24 + gUser.timeOffset, gUser.country, GetUserType(gUser.privileges), *(int*)&gUser.lon, *(int*)&gUser.lat, gUser.Stats[Off].getRank(Off, gUser.UserID),
-						Packet::Server::userStats, gUser.UserID, gUser.actionID, &gUser.ActionText, gUser.ActionMD5, gUser.actionMods, gUser.GameMode, gUser.BeatmapID, gUser.Stats[Off].rScore, *(int*)& gUser.Stats[Off].Acc,
+						Packet::Server::userStats, gUser.UserID, gUser.actionID, gUser.ActionText, gUser.ActionMD5, gUser.actionMods, gUser.GameMode, gUser.BeatmapID, gUser.Stats[Off].rScore, *(int*)& gUser.Stats[Off].Acc,
 						gUser.Stats[Off].pp > USHORT(-1) ? gUser.Stats[Off].pp : gUser.Stats[Off].PlayCount, gUser.Stats[Off].tScore, gUser.Stats[Off].getRank(Off, gUser.UserID), USHORT(gUser.Stats[Off].pp));
 					
 			}
@@ -4252,7 +4234,7 @@ void HandlePacket(_Con s){
 
 			using namespace PacketBuilder::CT;
 
-			constexpr auto b = HTTPBytes<200>(String_Packet(Packet::Server::notification, "An error occurred"), _STACK_("\r\n"));
+			constexpr auto b = HTTPBytes<200>(String_Packet(Packet::Server::notification, "An error occurred"), _STACK("\r\n"));
 
 			s.SendData(b);
 
@@ -4323,7 +4305,7 @@ void LazyThread(){
 
 				Que.clear();
 
-				MUTEX_LOCKGUARD(SQLExecQue.CommandLock);
+				std::scoped_lock L(SQLExecQue.CommandLock);
 
 				for(auto& Command : SQLExecQue.Commands)
 					Que.emplace_back(_M(Command));
@@ -4343,14 +4325,12 @@ void LazyThread(){
 	}
 }
 
+const std::string PPColNames[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
+
 void DoFillRank(DWORD I, bool TableName){
-
-	static const std::string PPColNames[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
-	static const std::string UserTableNames[] = { "users_stats","rx_stats" };
-
 	RankList[I].List.reserve(USHORT(-1));
 
-	if (sql::ResultSet * res = SQL_BanchoThread[I].ExecuteQuery("SELECT id, " + PPColNames[I] + " FROM " + UserTableNames[TableName] +
+	if (sql::ResultSet * res = SQL_BanchoThread[I].ExecuteQuery("SELECT id, " + PPColNames[I] + " FROM " + Stats_Table_Name[TableName] +
 																" WHERE " + PPColNames[I] + " > 0 ORDER BY " + PPColNames[I] + " DESC");
 		res){
 
@@ -4391,7 +4371,7 @@ void PushUsers() {
 				Data.push_back(u.country);
 				Data.push_back(u.GameMode);
 				Data.push_back(u.actionID);
-				AddString(Data, u.ActionText);
+				//AddString(Data, u.ActionText);
 
 				if (!u.CurrentlySpectating)
 					AddStream(Data, 0);
@@ -4550,6 +4530,7 @@ void receiveConnections(){
 	setsockopt(listening, SOL_SOCKET, SO_RCVTIMEO, (char*)&Time, 4);
 	setsockopt(listening, SOL_SOCKET, SO_SNDTIMEO, (char*)&Time, 4);
 	setsockopt(listening, SOL_SOCKET, SO_RCVBUF, (char*)&MPL, 4);
+
 #else
 
 	struct sockaddr_un serveraddr;
@@ -4571,7 +4552,7 @@ void receiveConnections(){
 		return;
 	}
 	chmod(RURI_UNIX_SOCKET, S_IRWXU | S_IRWXG | S_IRWXO);
-	
+
 #endif
 
 	std::printf(KGRN "Listening to socket\n" KRESET);
@@ -4598,8 +4579,6 @@ void receiveConnections(){
 
 	}
 }
-
-
 
 std::string ExtractConfigValue(const std::vector<byte> &Input){
 
@@ -4652,9 +4631,7 @@ int main(){
 			chan_General.ChannelName = V;
 			chan_General.NameSum = WeakStringToInt(chan_General.ChannelName);
 		}
-
 	}
-
 	#undef V
 
 	static_assert((BANCHO_THREAD_COUNT >= 4 && ARIA_THREAD_COUNT >= 4),

@@ -189,7 +189,7 @@ struct _SQLCon {
 struct _SQLKey{
 
 	const std::string Key;
-	const std::string Value;
+	std::string Value;
 	const bool Text;
 
 	template<typename T>
@@ -202,7 +202,7 @@ struct _SQLKey{
 
 
 
-const std::string SQL_INSERT(const std::string &&Table, const VEC(_SQLKey)&& Values) {
+const std::string SQL_INSERT(const std::string& Table, const VEC(_SQLKey)& Values) {
 	return "INSERT INTO " + Table + " (" + [&] {
 		std::string Return;
 		for (const _SQLKey& v : Values)
@@ -221,7 +221,7 @@ const std::string SQL_INSERT(const std::string &&Table, const VEC(_SQLKey)&& Val
 	}() + ");";
 }
 
-const std::string SQL_SETUPDATE(const std::string &&Table, const VEC(_SQLKey) && Values, const std::string& Condition) {
+const std::string SQL_SETUPDATE(const std::string& Table, const VEC(_SQLKey) && Values, const std::string& Condition) {
 	return "UPDATE " + Table + " SET " + [&]{
 		std::string Return;
 		for (const _SQLKey& v : Values)

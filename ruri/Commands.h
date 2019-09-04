@@ -365,7 +365,7 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 		SetID = res->getUInt(1);
 	else SQL->ExecuteUPDATE("UPDATE beatmaps SET ranked = " + StatusString + " WHERE beatmapset_id = " + std::to_string(SetID));
 
-	std::string Announcement = u->Username + " has " + [=](){
+	std::string Announcement = u->ProfileLink() + " has " + [=](){
 		if (NewStatus == RankStatus::RANKED)
 			return "ranked\n";
 		if (NewStatus == RankStatus::PENDING)
@@ -686,7 +686,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 		case _WeakStringToInt_("!roll"):
 			PrivateRes = 0;
-				return u->Username + " rolled " + std::to_string(BR::GetRand64(0, Split.size() > 1 ? StringToNum(uint64_t, Split[1]) : 100));
+				return u->ProfileLink() + " rolled " + std::to_string(BR::GetRand64(0, Split.size() > 1 ? StringToNum(uint64_t, Split[1]) : 100));
 		case _WeakStringToInt_("!priv"):
 			return std::to_string(Priv);
 		case _WeakStringToInt_("!reconnect"):
@@ -867,7 +867,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 		}
 		case _WeakStringToInt_("!fullrecalcpp"): {
 
-			chan_General.Bot_SendMessage("A full pp recalc has been started by " + u->Username);
+			chan_General.Bot_SendMessage("A full pp recalc has been started by " + u->ProfileLink());
 			{
 				std::thread t(FullRecalcPP,"0");
 				t.detach();

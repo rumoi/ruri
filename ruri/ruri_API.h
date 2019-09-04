@@ -169,7 +169,7 @@ void WorkAPI(_Con s, _SQLCon *SQL){
 				Res.push_back(Ref->GameMode);
 				AddStream(Res, Ref->actionMods);
 				AddStream(Res, Ref->BeatmapID);
-				AddString(Res, Ref->ActionText);
+				//AddString(Res, Ref->ActionText);
 				if (_User* Spec = Ref->CurrentlySpectating; Spec)
 					AddStream(Res, Spec->UserID);
 				else AddStream(Res, 0);

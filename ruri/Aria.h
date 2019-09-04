@@ -218,7 +218,7 @@ struct _LeaderBoardCache{
 		return s;
 	}
 
-	bool AddScore(_ScoreCache &s, const DWORD BID, const std::string &MapName, std::string MD5, _SQLCon *SQL = 0, std::string *Ret = 0) {
+	bool AddScore(_ScoreCache &s, const DWORD BID, const std::string &MapName, std::string MD5, _SQLCon *SQL = 0, std::string *Ret = 0) {//Should really clean this up.
 		
 		PlayCount++;
 		PassCount++;//dont really care about this getting malformed..
@@ -227,12 +227,8 @@ struct _LeaderBoardCache{
 		bool NewTop = 0;
 
 		MD5 = REMOVEQUOTES(MD5);
-		
-	#ifndef NO_RELAX
-		#define TableName std::string(s.Mods & Relax ? "scores_relax" : "scores")
-	#else
-		#define TableName std::string("scores")
-	#endif
+
+		const bool TableOffset = (RELAX_MODE && s.Mods & Relax);
 
 		if (MD5.size() != 32){
 			printf("AddScore Incorrect md5 length\n");//should never happen
@@ -266,6 +262,8 @@ struct _LeaderBoardCache{
 			_SQLKey("pp", (!s.Loved) ? std::to_string(s.pp) : "0.001")
 		};
 
+		auto& CompletedValue = ScoreInsert.emplace_back("completed", 3);
+
 		for (DWORD i = 0; i < ScoreCache.size(); i++){
 			if (ScoreCache[i].UserID == s.UserID){
 				LastScore = ScoreCache[i];
@@ -274,15 +272,13 @@ struct _LeaderBoardCache{
 
 					if (SQL){
 
-						ScoreInsert.push_back(_SQLKey("completed", 3));
-
 						SQL->Lock.lock();
 
-						SQL->ExecuteUPDATE("UPDATE " + TableName +  " SET completed = 2 WHERE id = " + std::to_string(ScoreCache[i].ScoreID) + " LIMIT 1",1);
+						SQL->ExecuteUPDATE("UPDATE " + Score_Table_Name[TableOffset] +  " SET completed = 2 WHERE id = " + std::to_string(ScoreCache[i].ScoreID) + " LIMIT 1",1);
 						
-						SQL->ExecuteUPDATE(SQL_INSERT(TableName,_M(ScoreInsert)),1);
+						SQL->ExecuteUPDATE(SQL_INSERT(Score_Table_Name[TableOffset], ScoreInsert),1);
 
-						auto res = SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + TableName,1);
+						auto res = SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + Score_Table_Name[TableOffset],1);
 
 						SQL->Lock.unlock();
 						
@@ -296,21 +292,19 @@ struct _LeaderBoardCache{
 					NewTop = 1;
 					LastRank = i + 1;
 				}else{
-					ScoreInsert.push_back(_SQLKey("completed", 2));
-					SQL->ExecuteUPDATE(SQL_INSERT(TableName, _M(ScoreInsert)));
+					CompletedValue.Value = "2";
+					SQL->ExecuteUPDATE(SQL_INSERT(Score_Table_Name[TableOffset], ScoreInsert));
 				}
 				break;
 			}
 		}
 		if (!Done){
 
-			ScoreInsert.push_back(_SQLKey("completed", 3));
-
 			SQL->Lock.lock();
 
-			SQL->ExecuteUPDATE(SQL_INSERT(TableName, _M(ScoreInsert)), 1);
+			SQL->ExecuteUPDATE(SQL_INSERT(Score_Table_Name[TableOffset], _M(ScoreInsert)), 1);
 
-			auto res = SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + TableName, 1);
+			auto res = SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + Score_Table_Name[TableOffset], 1);
 
 			SQL->Lock.unlock();
 
@@ -325,11 +319,7 @@ struct _LeaderBoardCache{
 		#undef TableName
 
 		if(NewTop)
-			std::sort(ScoreCache.begin(), ScoreCache.end() ,
-		#ifndef NO_RELAX
-			(s.Mods & Relax) ? SortScoreCacheByPP :
-			#endif				
-				SortScoreCacheByScore);//Could optimize this by bounding it. Will do it if this ever becomes a problem (doubt it)
+			std::sort(ScoreCache.begin(), ScoreCache.end(), (RELAX_MODE && (s.Mods & Relax)) ? SortScoreCacheByPP : SortScoreCacheByScore);//Could optimize this by bounding it. Will do it if this ever becomes a problem (doubt it)
 
 		const DWORD NewRank = (!NewTop) ? 0 : GetRankByUID<true>(s.UserID);
 		
@@ -412,24 +402,23 @@ struct _BeatmapData{
 		if (lBoard[Mode])
 			return lBoard[Mode];
 
-		if (SQL) {
+		if (SQL){
+			
+			const bool TableOffset = (RELAX_MODE && Mode >= 4);
 
-			const std::string TableName = (Mode >= 4) ? "scores_relax" : "scores"
-				,OrderBy = (Mode >= 4) ? "pp" : "score";
+			const std::string OrderBy = TableOffset ? "pp" : "score";
 
 			_LeaderBoardCache* L = new _LeaderBoardCache();
-
-			auto* res = SQL->ExecuteQuery("SELECT id,score,max_combo,50_count,100_count,300_count,misses_count,katus_count,gekis_count,full_combo,mods,userid,pp,time FROM " + TableName + " WHERE completed = 3 AND beatmap_md5 = '" + Hash + "' AND play_mode = " + std::to_string(Mode % 4) + " AND pp > 0 ORDER BY " + OrderBy + " DESC");
-			const DWORD GM = al_min(GM_MAX, Mode);
-
 			L->ScoreCache.reserve(64);
 
-			while (res && res->next())
-				L->ScoreCache.push_back(_ScoreCache(res, GM));
+			const DWORD GM = al_min(GM_MAX, Mode);
 
-			DeleteAndNull(res);
-
-			if (!lBoard[Mode])
+			if (auto * res = SQL->ExecuteQuery("SELECT id,score,max_combo,50_count,100_count,300_count,misses_count,katus_count,gekis_count,full_combo,mods,userid,pp,time FROM " + Score_Table_Name[TableOffset] + " WHERE completed = 3 AND beatmap_md5 = '" + Hash + "' AND play_mode = " + std::to_string(Mode % 4) + " AND pp > 0 ORDER BY " + OrderBy + " DESC");
+				res) {
+				while (res->next())
+					L->ScoreCache.emplace_back(res, GM);
+			}
+			if (likely(lBoard[Mode] == 0))
 				lBoard[Mode] = L;
 			else delete L;//Another request beat us to it.
 
@@ -1355,7 +1344,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			s.Dis();
 
 			if (const DWORD Off = u->GetStatsOffset(); !Loved && NewBest && UpdateUserStatsFromDB(&AriaSQL[s.ID], UserID, TrueGameMode, u.User->Stats[TrueGameMode]))
-				PacketBuilder::Build<Packet::Server::userStats, 'm','i','b','s','5','i','b','i','l','i','i','l','i','w'>(u->QueBytes,&u->qLock,u->UserID,u->actionID,&u->ActionText,u->ActionMD5,u->actionMods,u->GameMode,u->BeatmapID,
+				PacketBuilder::Build<Packet::Server::userStats, 'm','i','b','a','5','i','b','i','l','i','i','l','i','w'>(u->QueBytes,&u->qLock,u->UserID,u->actionID,u->ActionText,u->ActionMD5,u->actionMods,u->GameMode,u->BeatmapID,
 					u->Stats[Off].rScore,*(int*)&u->Stats[Off].Acc, u->Stats[Off].pp > USHORT(-1) ? u->Stats[Off].pp : u->Stats[Off].PlayCount, u->Stats[Off].tScore, u->Stats[Off].getRank(Off, u->UserID), USHORT(u->Stats[Off].pp));
 
 			if (NewBest && sc.ScoreID && ReplayFile.size())
@@ -1368,10 +1357,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		s.Dis();
 
 		AriaSQL[s.ID].ExecuteUPDATE(SQL_INSERT(
-		#ifndef NO_RELAX
-			sData.Mods & Relax ? "scores_relax" :
-		#endif
-			"scores",
+			Score_Table_Name[RELAX_MODE && (sData.Mods & Relax)],
 		{
 		_SQLKey("beatmap_md5",std::string(sData.BeatmapHash)),
 		_SQLKey("userid",UserID),
@@ -1433,7 +1419,7 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 	if (BeatmapMD5.size() != 32)
 		return SendAria404(s);
 
-	_UserRef u(GetUserFromName(urlDecode(std::string(Params.get(_WeakStringToInt_("us"))))), 1);//Might want to look into a new urldecode..
+	_UserRef u(GetUserFromName(urlDecode(std::string(Params.get(_WeakStringToInt_("us"))))), 1);
 
 	if (!u.User || !(_MD5(Params.get(_WeakStringToInt_("ha"))) == u.User->Password))
 		return SendAria404(s);
@@ -1445,8 +1431,6 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 
 #ifndef NO_RELAX
 
-	const std::string ScoreTableName = (Mods & Relax) ? "scores_relax" : "scores";
-
 	if ((u->actionMods & Relax) != (Mods & Relax)) {//actionMods is outdated.
 		u->actionMods = Mods;
 
@@ -1455,8 +1439,8 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 		const DWORD Off = tP->GetStatsOffset();
 		
 		PacketBuilder::Build<Packet::Server::userStats, 'm',
-			'i', 'b', 's', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(tP->QueBytes, &tP->qLock,
-				tP->UserID, tP->actionID, &tP->ActionText,tP->ActionMD5, tP->actionMods, tP->GameMode,
+			'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(tP->QueBytes, &tP->qLock,
+				tP->UserID, tP->actionID, tP->ActionText,tP->ActionMD5, tP->actionMods, tP->GameMode,
 				tP->BeatmapID, tP->Stats[Off].rScore, *(int*)& tP->Stats[Off].Acc,
 				tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
 				tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
@@ -1465,11 +1449,6 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 
 	if (Mods & Relax)Mode += 4;
 	if (Mode >= 8)Mode = 0;
-
-#else
-
-	const std::string ScoreTableName = "scores";
-
 #endif
 
 
@@ -1497,7 +1476,7 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 
 	_LeaderBoardCache* const LeaderBoard = BeatData->GetLeaderBoard(Mode, &AriaSQL[s.ID]);
 
-	const DWORD TotalScores = (LeaderBoard) ? LeaderBoard->ScoreCache.size() : 0;
+	const DWORD TotalScores = LeaderBoard ? LeaderBoard->ScoreCache.size() : 0;
 
 	const bool Loved = (BeatData->RankStatus == LOVED);
 
@@ -1542,11 +1521,11 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 
 		if (LeaderBoard->ScoreCache.size()) {
 
-			LeaderBoard->ScoreLock.lock_shared();
+			std::shared_lock L(LeaderBoard->ScoreLock);
 
 			DWORD Rank = 0;
 
-			for (DWORD i = 0; i < LeaderBoard->ScoreCache.size(); i++) {
+			for (size_t i = 0; i < LeaderBoard->ScoreCache.size(); i++) {
 
 				if (Rank >= 250)
 					break;//Not doing this for performance reasons of the server. Simply the client is not built to handle it.
@@ -1556,6 +1535,7 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 				if ((LType == RankingType::SelectedMod && lScore->Mods != Mods)
 					|| (LType == RankingType::Friends && !u.User->isFriend(lScore->UserID)))
 					continue;
+
 				const int Score = (!Loved && (Mode > 3 || LType == RankingType::Country)) ? int(lScore->pp + 0.5f) : lScore->Score;
 
 				if (Score < 0)
@@ -1584,7 +1564,6 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 					+ "|1";//online replay
 			}
 
-			LeaderBoard->ScoreLock.unlock_shared();
 		}
 	}
 
@@ -1621,7 +1600,7 @@ void osu_checkUpdates(const std::string &Req,_Con s){
 			}
 	}
 
-	S_MUTEX_LOCKGUARD(UpdateCache_Lock);
+	std::scoped_lock L(UpdateCache_Lock);
 
 	const std::string res = GET_WEB("old.ppy.sh", _M(Req));
 
@@ -1685,8 +1664,7 @@ static inline uint64_t UnixToDateTime(const int Unix){
 void Thread_WebReplay(const uint64_t ID, _Con s){
 
 	auto res = SQL_BanchoThread[clock() & 3].ExecuteQuery("SELECT userid,play_mode,beatmap_md5,300_count,100_count,50_count,gekis_count,katus_count,misses_count,score,max_combo,full_combo,mods,time"
-								 " FROM scores" + std::string(ID > 500000000u ? "" : "_relax")
-							   + " WHERE id=" + std::to_string(ID) + " LIMIT 1");
+								 " FROM "+ Score_Table_Name[!(ID > 500000000u)] + " WHERE id=" + std::to_string(ID) + " LIMIT 1");
 
 	if (const std::vector<byte>& Data = LOAD_FILE_RAW(ReplayPath + std::to_string(ID) + ".osr"); Data.size() && res && res->next())
 	{
@@ -1700,19 +1678,19 @@ void Thread_WebReplay(const uint64_t ID, _Con s){
 			AddString_SQL(Ret, res->getString(3));//beatmap md5
 			AddString(Ret, GetUsernameFromCache(res->getInt(1)));//Username
 			AddString_SQL(Ret, res->getString(3));//checksum
-			AddStream(Ret, USHORT(res->getInt(4)));//count300
-			AddStream(Ret, USHORT(res->getInt(5)));//count100
-			AddStream(Ret, USHORT(res->getInt(6)));//count50
-			AddStream(Ret, USHORT(res->getInt(7)));//countGeki
-			AddStream(Ret, USHORT(res->getInt(8)));//countKatu
-			AddStream(Ret, USHORT(res->getInt(9)));//countMiss
+			AddStream(Ret, u16(res->getInt(4)));//count300
+			AddStream(Ret, u16(res->getInt(5)));//count100
+			AddStream(Ret, u16(res->getInt(6)));//count50
+			AddStream(Ret, u16(res->getInt(7)));//countGeki
+			AddStream(Ret, u16(res->getInt(8)));//countKatu
+			AddStream(Ret, u16(res->getInt(9)));//countMiss
 			AddStream(Ret, res->getUInt(10));//totalScore
-			AddStream(Ret, USHORT(res->getInt(11)));//MaxCombo
+			AddStream(Ret, u16(res->getInt(11)));//MaxCombo
 			Ret.push_back(res->getBoolean(12));//Perfect
 			AddStream(Ret, res->getUInt(13));//Mods
 			AddString(Ret, "");//life
 			AddStream(Ret, UnixToDateTime(res->getUInt(14)));//Date
-			AddStream(Ret, DWORD(Data.size()));
+			AddStream(Ret, u32(Data.size()));
 			AddVector(Ret, _M(Data));
 			AddStream(Ret, ID);
 
@@ -1751,8 +1729,6 @@ std::string RandomString(const DWORD Count){
 	
 	return rString;
 }
-
-#define IT_ADD(s) size_t(&*s)
 
 void UploadScreenshot(const _HttpRes &res, _Con s){
 
@@ -2029,6 +2005,7 @@ void AriaWork(const DWORD ID, _ConQue<SOCKET> &Slot){
 
 }
 
+#include <fcntl.h>
 
 bool ARIALOADED = 0;
 void Aria_Main(){
@@ -2071,7 +2048,7 @@ void Aria_Main(){
 
 	sockaddr_in client;
 
-	DWORD Time = 2500;
+	DWORD Time = 5000;
 	DWORD MPL = MAX_PACKET_LENGTH;
 
 	setsockopt(listening, SOL_SOCKET, SO_RCVTIMEO, (char*)&Time, 4);

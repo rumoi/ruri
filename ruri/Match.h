@@ -382,9 +382,12 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string_view Command, 
 			if (!Target)
 				return "Coult not find user";
 
-			m->Lock.lock();
+			std::scoped_lock L(m->Lock);
 
-			for (auto& Slot : m->Slots) {
+			for (auto& Slot : m->Slots)
+				if (Slot.User == Target.User)return "They are already here.";
+
+			for (auto& Slot : m->Slots){
 				if (!Slot.User){
 					Slot.reset();
 					Slot.User = Target.User;
@@ -393,6 +396,8 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string_view Command, 
 					auto MatchData = bPacket::bMatch(m);
 
 					m->sendUpdateVector(MatchData, Target.User);
+
+					Target->CurrentMatchID = GetIndex(m->Slots, Slot);
 
 					*(USHORT*)MatchData.data() = (USHORT)Packet::Server::matchJoinSuccess;
 
@@ -403,8 +408,7 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string_view Command, 
 				}
 			}
 
-			m->Lock.unlock();
-			return Target->Username + " forced into match";
+			return Target->ProfileLink() + " forced into match";
 		}
 
 		if (Split[1] == "host"){
@@ -427,24 +431,19 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string_view Command, 
 
 			m->Lock.unlock();
 			PrivateRes = 0;
-			return u->Username + " has forced host upon them self.";
+			return u->ProfileLink() + " has forced host upon them self.";
 		}
 
 		if (Split[1] == "start") {
-			m->Lock.lock();//Could check the host before the lock.
 
-			if (m->HostID != u->UserID) {
-				m->Lock.unlock();
-				return "Only the host can force start the match.";
+			if (std::scoped_lock L(m->Lock);1){//Could check the host before the lock.
+
+				if (m->HostID != u->UserID)
+					return "Only the host can force start the match.";				
+
+				if (m->Settings.BeatmapID == -1)
+					return "Starting a match without a map being selected is hard.";
 			}
-
-			if (m->Settings.BeatmapID == -1){
-				m->Lock.unlock();
-				return "Starting a match without a map being selected is hard.";
-			}
-
-			m->Lock.unlock();
-
 			Event_client_matchStart(u);
 			PrivateRes = 0;
 			return "Host has forced the match to start.";

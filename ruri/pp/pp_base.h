@@ -110,18 +110,37 @@ struct _MapHeaders{
 	double SliderMultiplier, SliderTickRate;
 };
 
-struct _RawBeatmapObject {
-	short x, y;
-	int startTime,endTime;
-	byte Type, Sound, MultiType, repeatCount;//WARNING: Might want to change repeat count to a larger size if need be.
+enum class HitObjectType
+{
+	Normal = 1,
+	Slider = 2,
+	NewCombo = 4,
+	Spinner = 8,
+	Hold = 128
+};
+enum class SliderType
+{
+	Catmull,
+	Bezier,
+	Linear,
+	PerfectCurve
+};
+
+struct _RawBeatmapMultiData {
 	double Length;
-	std::vector<vec2_i> MultiData;
+	std::vector<std::pair<int, int>> Data;
+};
+
+struct _RawBeatmapObject {
+	u64 timeDelta : 19, repeatCount : 13, x : 10, y : 9,Type : 5, Sound : 4, MultiType : 4;
+	int startTime; u32 MultiOffset;//Having just an int would pad out to 8 bytes anyway
 };
 
 struct _RawBeatmap {
 	DWORD BID;
 	_MapHeaders Headers;
 	std::vector<_TimingBPM> TimingPoints;
+	std::vector<_RawBeatmapMultiData> MultiData;
 	std::vector<_RawBeatmapObject> Notes;
 
 	const inline DWORD Key()const noexcept {
@@ -129,20 +148,15 @@ struct _RawBeatmap {
 	}
 };
 
-enum HitObjectType
-{
-	Hit_Normal = 1,
-	Hit_Slider = 2,
-	Hit_NewCombo = 4,
-	Hit_Spinner = 8,
-	Hit_Hold = 128
-};
-
 
 #include "pp_osu.h"
 #include "pp_taiko.h"
 #include "pp_ctb.h"
 #include "pp_mania.h"
+
+
+
+
 /*
 namespace pp_base{
 

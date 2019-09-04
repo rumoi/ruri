@@ -61,12 +61,10 @@ struct _Con{
 
 		res.Raw.reserve(USHORT(-1));
 
-		do{
+		do {
 			res.Raw.resize(pSize + MAX_PACKET_LENGTH);
 
-			pLength = recv(s, (char*)&res.Raw[pSize], MAX_PACKET_LENGTH, 0);
-
-			if (pLength <= 0)break;
+			if ((pLength = recv(s, (char*)& res.Raw[pSize], MAX_PACKET_LENGTH, 0)) <= 0)break;
 
 			pSize += pLength;
 
@@ -90,7 +88,7 @@ struct _Con{
 		res.Headers.reserve(32);
 
 		//Headers
-		for (DWORD i = CurrentOffset; i < DATA.size(); i++){
+		for (int i = CurrentOffset; i < DATA.size(); i++){
 
 			if (CurrentOffset = i; DATA[i].size() <= 1)
 				break;
