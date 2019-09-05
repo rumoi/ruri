@@ -913,7 +913,7 @@ _inline void AddMem(std::vector<byte> &v, const void* Value, const DWORD Size) {
 	memcpy(&v[v.size() - Size], Value, Size);
 }
 
-void AddUleb(VEC(byte) &v, DWORD s){
+void AddUleb(VEC(byte) &v, size_t s){
 
 	if (s){
 
@@ -1249,20 +1249,23 @@ namespace PacketBuilder {
 					c.resize(c.size() + 2);
 					*(short*)&c[c.size() - 2] = A;
 					return 0;
-				}if constexpr (Format == 'a'){
+				}
+				if constexpr (Format == 'a') {
 
-					for (size_t i = 0; i < sizeof(T); i++){
-						if (!A[i]){
-							AddUleb(c, i);
-							if (i){
-								const size_t Start = c.size();
-								c.resize(Start + i);
-								memcpy(c.data() + Start, A, i);
-							}
-							return 0;
+					size_t Size = sizeof(T);
+
+					for (size_t i = 0; i < sizeof(T); i++) {
+						if (A[i] == 0) {
+							Size = i;
+							break;
 						}
 					}
-					c.push_back(0);//Default to nothing on a non null terminated array.
+
+					AddUleb(c, Size);
+					const size_t s = c.size();
+					c.resize(s + Size);
+					memcpy(&c[s], A.data(), Size);
+
 					return 0;
 				}
 
@@ -1555,7 +1558,7 @@ struct _MD5 {
 	}
 };
 
-#define WriteStringToArray(Array,String){const size_t sSize = al_min(sizeof(Array)-1,String.size());Array[sSize] = 0;memcpy(Array, String.data(), sSize);}
+#define WriteStringToArray(Array,String){const size_t sSize = al_min(sizeof(Array)-1,String.size());Array[sSize] = 0;memcpy(Array.data(), String.data(), sSize);}
 
 u32 LogoutOffset = 0;
 
@@ -1569,7 +1572,7 @@ struct _User{
 	std::string Username_Safe;
 	_MD5 Password;
 	char ActionMD5[32];
-	char ActionText[64];
+	std::array<byte, 64> ActionText;
 	DWORD actionMods;
 	int BeatmapID;
 	u32 LogOffset;
@@ -1713,8 +1716,8 @@ void reset() {
 		Username.clear();
 		Username_Safe.clear();
 		Password.Zero();
-		ZeroArray(ActionMD5);
-		ZeroArray(ActionText);
+		ZeroArray(ActionMD5);		
+		ZeroMemory(ActionText.data(), ActionText.size());
 		actionMods = 0;
 		BeatmapID = 0;
 		timeOffset = 0;
@@ -2150,7 +2153,7 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size;
 
-	const byte n_actionID = *(byte*)O; O++;
+	const byte n_actionID = *(byte*)O++;
 	const std::string n_ActionText = ReadUleb(O, End);
 	const std::string n_CheckSum = REMOVEQUOTES(ReadUleb(O, End));
 	if (O + 4 > End)return;
@@ -2161,8 +2164,8 @@ void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD 
 	const int n_BeatmapID = *(int*)O;	
 	tP->actionID = n_actionID;
 
-	WriteStringToArray(tP->ActionText, n_ActionText)
-	
+	WriteStringToArray(tP->ActionText, n_ActionText);
+
 	if (n_CheckSum.size() == 32)
 		memcpy(tP->ActionMD5, &n_CheckSum[0], 32);
 
@@ -2271,8 +2274,6 @@ bool DownloadMapFromOsu(const int ID) {
 #include "oppai.h"
 //#include "pp/pp_base.h"
 
-const std::string String_Space = " ";
-
 bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 
 	const std::string MapPath = BeatmapPath + std::to_string(BID) + ".osu";
@@ -2286,7 +2287,7 @@ bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 
 		if (!MapDownloaded){
 			printf(KRED "Failed to download %i.osu\n" KRESET, BID);
-			WriteAllBytes(MapPath, &String_Space[0], String_Space.size());//Stop it from trying it over and over again.
+			WriteAllBytes(MapPath, " ", 1);//Stop it from trying it over and over again.
 			return 0;
 		}
 	}

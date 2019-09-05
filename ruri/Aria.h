@@ -513,8 +513,8 @@ std::vector<std::vector<std::pair<int, std::string_view>>> JsonListSplit(const s
 			}
 			else if (BraceCount){
 				if (Input[i] == '\"'){
-					const int startIndex = ++i;
-					for (; i++ < iEnd;){
+					const int startIndex = i + 1;
+					for (; ++i < iEnd;){
 						if (Input[i] == '\"' && Input[i - 1] != '\\') {
 							if (!Body)
 								NameHash = WeakStringToInt(std::string_view((const char*)&Input[startIndex], i - startIndex));
@@ -1875,7 +1875,6 @@ void HandleAria(_Con s){
 		ScoreServerHandle(res, s);
 
 		printf("Score Done in %ims\n", clock_ms() - sTime);
-
 	}
 	else if (MEM_CMP_START(res.Host, "/web/check-updates.php")) {
 		osu_checkUpdates(std::string(res.Host.begin()+1,res.Host.end()), s);
@@ -2056,6 +2055,7 @@ void Aria_Main(){
 	setsockopt(listening, SOL_SOCKET, SO_RCVTIMEO, (char*)&Time, 4);
 	setsockopt(listening, SOL_SOCKET, SO_SNDTIMEO, (char*)&Time, 4);
 	setsockopt(listening, SOL_SOCKET, SO_RCVBUF, (char*)&MPL, 4);
+
 #else
 
 	struct sockaddr_un serveraddr;
