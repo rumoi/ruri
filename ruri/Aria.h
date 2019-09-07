@@ -1915,9 +1915,15 @@ void HandleAria(_Con s){
 
 		if (Start){
 			DontCloseConnection = 1;
-
+			std::string directQuery = std::string(res.Host.begin() + Start, res.Host.end());
+			for (int i = 0; i < directQuery.size(); i++) {
+				if (directQuery[i] == '+') {
+					directQuery[i] = '-';
+				}
+			}
+			
 			MIRROR::MirrorAPILock.lock();
-			MIRROR::MirrorAPIQue.emplace_back("api/search?" + std::string(res.Host.begin() + Start, res.Host.end()),s);
+			MIRROR::MirrorAPIQue.emplace_back("api/search?" + directQuery, s);
 			MIRROR::MirrorAPILock.unlock();
 		}
 	}
