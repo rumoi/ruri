@@ -133,12 +133,12 @@ enum RankStatus {
 #define _M(a) std::move(a)
 
 typedef unsigned long long u64;
-typedef unsigned short u32;
+typedef unsigned int u32;
 typedef unsigned short u16;
 typedef unsigned char u8;
 
 
-const int PING_TIMEOUT_OSU = 80000;//yes thanks peppy
+const int PING_TIMEOUT_OSU = 120000;//yes thanks peppy
 const int FREE_SLOT_TIME = 1800000;
 
 namespace Packet{
@@ -1310,7 +1310,7 @@ namespace PacketBuilder {
 					return 0;
 				}
 				if constexpr (Format == 'w') {
-					*(short*)& Ret[Off] = A;
+					*(short*)&Ret[Off] = A;
 					Off += 2;
 					return 0;
 				}
@@ -1513,7 +1513,6 @@ struct _Menu {
 
 void DisconnectUser(size_t Pointer);
 
-
 struct _MD5 {
 
 	char MD5[16];
@@ -1565,8 +1564,8 @@ u32 LogoutOffset = 0;
 struct _User{
 
 	uint64_t choToken;
-	DWORD UserID;
-	DWORD privileges;
+	u32 UserID;
+	u32 privileges;
 	int silence_end;
 	std::string Username;
 	std::string Username_Safe;
@@ -2128,7 +2127,7 @@ void Event_client_userStatsRequest(_User *u, const byte* const Packet, const DWO
 					_UserRef tP(GetUserFromID(uID), 1);
 
 					if (!tP || !tP->choToken || (!(tP->privileges & UserPublic) && u != tP.User)){
-						u->addQueArray<0>(PacketBuilder::Fixed_Build<Packet::Server::userLogout,'i'>(uID));
+						//u->addQueArray<0>(PacketBuilder::Fixed_Build<Packet::Server::userLogout,'i'>(uID));
 						continue;
 					}
 
@@ -2662,36 +2661,28 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 	_Channel *c = 0;
 	
 	if (Target == "#multiplayer"){
-		const USHORT MultiID = tP->CurrentMatchID;
-		if (MultiID){
-			_Match *const m = getMatchFromID(MultiID);
-			if (m){
-				DWORD notVisible = 0;
 
-				const std::string &s = ProcessCommandMultiPlayer(tP, Message, notVisible, m);
+		if (_Match * const m = getMatchFromID(tP->CurrentMatchID); m){
+
+			DWORD notVisible = 0;
+			const std::string &s = ProcessCommandMultiPlayer(tP, Message, notVisible, m);
 				
-				if (s.size() == 0){
+			if (VEC(byte) Pack; !s.size()){
 
-					VEC(byte) Pack;
-					PacketBuilder::Build<Packet::Server::sendMessage,'s','v','v','i'>(Pack, &tP->Username, &Message, &Target, tP->UserID);
+				PacketBuilder::Build<Packet::Server::sendMessage,'s','v','-','i'>(Pack, &tP->Username, &Message, STACK("#multiplayer"), tP->UserID);
 
-					m->Lock.lock();
-					m->sendUpdateVector(Pack, tP);
-					m->Lock.unlock();
-				}else{
+				std::scoped_lock L(m->Lock);
+				m->sendUpdateVector(Pack, tP);
 
-					VEC(byte) Pack;
-					PacketBuilder::Build<Packet::Server::sendMessage, '-', 's', '-', 'i'>(Pack, STACK(M_BOT_NAME), &s, STACK("#multiplayer"), USERID_START-1);
+			}else{
+				PacketBuilder::Build<Packet::Server::sendMessage, '-', 's', '-', 'i'>(Pack, STACK(M_BOT_NAME), &s, STACK("#multiplayer"), USERID_START-1);
 
-					if(notVisible)
-						tP->addQueVector(Pack);
-					else{
-						m->Lock.lock();
-						m->sendUpdateVector(Pack, 0);
-						m->Lock.unlock();
-					}
-				}
+				if (!notVisible){
+					std::scoped_lock L(m->Lock);
+					m->sendUpdateVector(Pack, 0);
+				}else tP->addQueVector(Pack);
 			}
+			
 		}
 		return;
 	}else if ((tP->CurrentlySpectating || tP->Spectators.size()) && Target == "#spectator"){
@@ -2699,7 +2690,6 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 		_User *const SpecHost = (tP->Spectators.size()) ? tP : tP->CurrentlySpectating;
 
 		if (SpecHost){
-
 
 			VEC(byte) b;
 			PacketBuilder::Build<Packet::Server::sendMessage,'s','v','v','i'>(b, &tP->Username, &Message, &Target, tP->UserID);
@@ -4068,7 +4058,25 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 			{
 				using namespace PacketBuilder::CT;
 
-				PacketBuilder::Build<Packet::Server::userID, 'i'>(u->QueBytes,UserID);
+				{
+					
+					PacketBuilder::Fixed_Build<Packet::Server::userID, 'i','!','w','i','i'>(u->QueBytes, UserID, Packet::Server::friendsList,2, USERID_START - 1, UserID);
+
+					size_t FriendCount = 0;
+
+					while (FriendCount < (sizeof(Users[0].Friends) >> 2) && u->Friends[FriendCount])FriendCount++;
+
+					if (FriendCount){
+
+						const size_t ByteSize = FriendCount << 2;
+
+						(u32&)u->QueBytes[u->QueBytes.size() - 14] += ByteSize;
+						(u16&)u->QueBytes[u->QueBytes.size() - 10] += FriendCount;
+						u->QueBytes.resize(u->QueBytes.size() + ByteSize);
+						memcpy(u->QueBytes.data() + u->QueBytes.size() - ByteSize, u->Friends, ByteSize);
+
+					}
+				}
 
 				constexpr auto constPacket =
 					Concate(
@@ -4111,31 +4119,6 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 						PacketBuilder::Build<Packet::Server::channelJoinSuccess, 's'>(u->QueBytes, &Chan.ChannelName);
 				}
 			}
-
-			/*{
-
-				constexpr u32 MaxFriend = sizeof(Users[0].Friends) >> 2;
-
-				u32 fList[2 + MaxFriend] = { USERID_START - 1, UserID };
-				size_t fSize = 2;
-
-				//for (u32 i(0); i < MaxFriend; i++)
-					//fList[fSize++] = (!u->Friends[i] && (i = MaxFriend)) ? 0 : u->Friends[i];
-				//fSize--;
-
-				size_t oSize = u->QueBytes.size();
-
-				const size_t ListSize = fSize << 2;
-
-				u->QueBytes.resize(7 + 2);
-
-				size_t fCur = (size_t)u->QueBytes.data() + oSize;
-				*(u16*)(fCur) = u16(Packet::Server::friendsList); fCur += 2;
-				*(u8*)(fCur) = 0; fCur++;
-				*(u32*)(fCur) = 2; fCur += 4;
-				*(u16*)(fCur) = 0; fCur += 2;
-				//memcpy((void*)(fCur), fList, ListSize);
-			}*/
 
 			for (auto& gUser : Users){
 

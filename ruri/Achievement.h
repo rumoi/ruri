@@ -45,7 +45,6 @@ struct _Achievement{
 
 };
 
-
 #define nAch(name, desc, icon) (std::string(icon + "+" + name + "+" + desc + "/"))
 
 
@@ -85,7 +84,7 @@ void Ach_General(const DWORD Diff, const DWORD GameMode, std::string *res){
 		}
 }
 
-
+#undef nAch
 
 void CalculateAchievement(_Achievement &New, const _Achievement Old, const DWORD GameMode, std::string *res) {
 	

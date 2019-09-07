@@ -148,14 +148,10 @@ struct _RawBeatmap {
 	}
 };
 
-
 #include "pp_osu.h"
 #include "pp_taiko.h"
 #include "pp_ctb.h"
 #include "pp_mania.h"
-
-
-
 
 /*
 namespace pp_base{
