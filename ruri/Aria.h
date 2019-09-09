@@ -272,20 +272,20 @@ struct _LeaderBoardCache{
 
 					if (SQL){
 
-						SQL->Lock.lock();
+						std::unique_ptr<sql::ResultSet> res{(sql::ResultSet*)0};
 
-						SQL->ExecuteUPDATE("UPDATE " + Score_Table_Name[TableOffset] +  " SET completed = 2 WHERE id = " + std::to_string(ScoreCache[i].ScoreID) + " LIMIT 1",1);
-						
-						SQL->ExecuteUPDATE(SQL_INSERT(Score_Table_Name[TableOffset], ScoreInsert),1);
+						if (std::scoped_lock L(SQL->Lock);1){
 
-						auto res = SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + Score_Table_Name[TableOffset],1);
+							SQL->ExecuteUPDATE("UPDATE " + Score_Table_Name[TableOffset] + " SET completed = 2 WHERE id = " + std::to_string(ScoreCache[i].ScoreID) + " LIMIT 1", 1);
 
-						SQL->Lock.unlock();
-						
+							SQL->ExecuteUPDATE(SQL_INSERT(Score_Table_Name[TableOffset], ScoreInsert), 1);
+
+							res.reset(SQL->ExecuteQuery("SELECT LAST_INSERT_ID() FROM " + Score_Table_Name[TableOffset], 1));
+
+						}
+
 						if (res && res->next())
 							s.ScoreID = res->getInt64(1);
-						
-						DeleteAndNull(res);
 
 					}
 					ScoreCache[i] = s;
@@ -1670,34 +1670,31 @@ void Thread_WebReplay(const uint64_t ID, _Con s){
 
 	if (const std::vector<byte>& Data = LOAD_FILE_RAW(ReplayPath + std::to_string(ID) + ".osr"); Data.size() && res && res->next())
 	{
-		const std::vector<byte> Total = [&]{
+		std::vector<byte> Total;
+		
+		Total.reserve(256 + Data.size());
 
-			std::vector<byte> Ret;
-			Ret.reserve(256 + Total.size());
+		Total.push_back(res->getInt(2));//PlayMode
+		AddStream(Total, 20190101);//osu version
+		AddString_SQL(Total, res->getString(3));//beatmap md5
+		AddString(Total, GetUsernameFromCache(res->getInt(1)));//Username
+		AddString_SQL(Total, res->getString(3));//checksum
+		AddStream(Total, u16(res->getInt(4)));//count300
+		AddStream(Total, u16(res->getInt(5)));//count100
+		AddStream(Total, u16(res->getInt(6)));//count50
+		AddStream(Total, u16(res->getInt(7)));//countGeki
+		AddStream(Total, u16(res->getInt(8)));//countKatu
+		AddStream(Total, u16(res->getInt(9)));//countMiss
+		AddStream(Total, res->getUInt(10));//totalScore
+		AddStream(Total, u16(res->getInt(11)));//MaxCombo
+		Total.push_back(res->getBoolean(12));//Perfect
+		AddStream(Total, res->getUInt(13));//Mods
+		AddString(Total, "");//life
+		AddStream(Total, UnixToDateTime(res->getUInt(14)));//Date
+		AddStream(Total, u32(Data.size()));
+		AddVector(Total, Data);
+		AddStream(Total, ID);		
 
-			Ret.push_back(res->getInt(2));//PlayMode
-			AddStream(Ret, 20190101);//osu version
-			AddString_SQL(Ret, res->getString(3));//beatmap md5
-			AddString(Ret, GetUsernameFromCache(res->getInt(1)));//Username
-			AddString_SQL(Ret, res->getString(3));//checksum
-			AddStream(Ret, u16(res->getInt(4)));//count300
-			AddStream(Ret, u16(res->getInt(5)));//count100
-			AddStream(Ret, u16(res->getInt(6)));//count50
-			AddStream(Ret, u16(res->getInt(7)));//countGeki
-			AddStream(Ret, u16(res->getInt(8)));//countKatu
-			AddStream(Ret, u16(res->getInt(9)));//countMiss
-			AddStream(Ret, res->getUInt(10));//totalScore
-			AddStream(Ret, u16(res->getInt(11)));//MaxCombo
-			Ret.push_back(res->getBoolean(12));//Perfect
-			AddStream(Ret, res->getUInt(13));//Mods
-			AddString(Ret, "");//life
-			AddStream(Ret, UnixToDateTime(res->getUInt(14)));//Date
-			AddStream(Ret, u32(Data.size()));
-			AddVector(Ret, _M(Data));
-			AddStream(Ret, ID);
-
-			return Ret;
-		}();
 		s.SendData(ConstructResponse(200, {
 			{"Content-type","application/octet-stream"},
 			{"Content-length",std::to_string(Total.size())},
@@ -1782,8 +1779,6 @@ namespace MIRROR {
 					for (DWORD i = 0; i < MirrorAPIQue.size(); i++)
 						QueCopy.emplace_back(_M(MirrorAPIQue[i].first), MirrorAPIQue[i].second);
 
-					auto QueCopy = MirrorAPIQue;
-
 					MirrorAPIQue.clear();
 				}
 
@@ -1820,10 +1815,9 @@ void LastFM(_GetParams&& Params, _Con s){
 
 		_UserRef u(GetUserFromNameSafe(USERNAMESAFE(std::string(Params.get(_WeakStringToInt_("us"))))), 1);
 
-		if (!!u && u->Password == _MD5(Params.get(_WeakStringToInt_("ha"))) && u->privileges & UserPublic){
-			
+		if (!!u && u->Password == _MD5(Params.get(_WeakStringToInt_("ha"))) && u->privileges & UserPublic){			
 
-			PacketBuilder::Fixed_Build<Packet::Server::RTX, '-'>(Flags == RelifeLoaded ? STACK("Disable osu-relife or get banned") : STACK("What did you think would happen?"));
+			u->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::RTX, '-'>(Flags == RelifeLoaded ? STACK("Disable osu-relife or get banned") : STACK("What did you think would happen?")));
 
 			const DWORD ID = u->UserID;
 
@@ -1916,9 +1910,14 @@ void HandleAria(_Con s){
 		if (Start){
 			DontCloseConnection = 1;
 
-			MIRROR::MirrorAPILock.lock();
-			MIRROR::MirrorAPIQue.emplace_back("api/search?" + std::string(res.Host.begin() + Start, res.Host.end()),s);
-			MIRROR::MirrorAPILock.unlock();
+			std::scoped_lock L(MIRROR::MirrorAPILock);
+
+			std::string u(res.Host.begin() + Start, res.Host.end());
+
+			for (char& a : u)
+				if (a == ' ')a = '+';
+
+			MIRROR::MirrorAPIQue.emplace_back("api/search?" + u,s);
 		}
 	}
 	else if (MEM_CMP_START(res.Host, "/web/osu-getreplay.php"))

@@ -490,9 +490,11 @@ void FixLoved() {
 
 	chan_General.Bot_SendMessage(std::to_string(LovedMaps.size()) + " Loved map leaderboards being updated");
 
-	for (auto& [ID,MD5] : LovedMaps){
+	for (const auto& [ID,MD5] : LovedMaps){
 
-		const auto UpdateTable = [=,&SQL](const std::string&& TableName, const std::string& MODE){
+		const u32 OkayClang = ID;
+
+		const auto UpdateTable = [OkayClang,&SQL](const std::string&& TableName, const std::string& MODE, const std::string &MD5){
 
 			SQL.ExecuteUPDATE("UPDATE " + TableName + " SET pp = 0.001, score = 0 WHERE beatmap_md5 = '" + MD5 + "'",1);
 
@@ -511,7 +513,7 @@ void FixLoved() {
 				ezpp_set_nmiss(ezpp, Score->getUInt(3));
 				ezpp_set_accuracy_percent(ezpp, Score->getDouble(4));
 
-				if (OppaiCheckMapDownload(ezpp, ID))
+				if (OppaiCheckMapDownload(ezpp, OkayClang))
 					SQL.ExecuteUPDATE("UPDATE " + TableName + " SET score = " + std::to_string(int(ezpp->pp + 0.5f)) + " WHERE id = " + Score->getString(5), 1);
 				//else { ezpp_free(ezpp); break; }
 				ezpp_free(ezpp);
@@ -519,9 +521,9 @@ void FixLoved() {
 			} while (Score->next());
 			DeleteAndNull(Score);
 		};
-		UpdateTable("scores", "0");
+		UpdateTable("scores", "0", MD5);
 #ifndef NO_RELAX
-		UpdateTable("scores_relax", "0");
+		UpdateTable("scores_relax", "0", MD5);
 #endif
 
 	}
@@ -915,6 +917,21 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 			return "Set";
 		}
+		case _WeakStringToInt_("!test"): {
+
+
+			using namespace PacketBuilder::CT;
+
+			u->addQueArray(
+				PopulateHeader(Concate(PacketHeader(Packet::Server::updateMatch),
+					Number<USHORT>(0), Number<USHORT>(0), Number<int>(0)
+					, Number<byte>(0xb), Number<byte>(255), Number<byte>(255), Number<byte>(255), Number<byte>(255), Number<byte>(255)
+					, Number<USHORT>((USHORT)Packet::Server::ping), Number<byte>(0), Number<int>(0)))
+			);
+
+			return "Done";
+		}
+
 		default:
 			break;
 		}

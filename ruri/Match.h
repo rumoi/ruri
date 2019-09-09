@@ -134,7 +134,7 @@ struct _Match{
 	template<size_t Size>
 		_inline void sendUpdate(const std::array<byte,Size> &Data, const _User*const Sender = 0){
 
-			if constexpr (Size)
+			if constexpr (Size > 0)
 				for (auto& S : Slots)
 					if (_User* const u = S.User;
 						u && u != Sender && u->choToken)
