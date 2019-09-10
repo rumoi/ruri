@@ -586,74 +586,66 @@ namespace JSON{
 
 		_JsonNode* Alpha = new _JsonNode();
 
-		std::vector<_JsonNode*> NodeTree; NodeTree.reserve(16);
-		bool NewArray = 0;
+		std::vector<_JsonNode*> NodeTree(16, Alpha); NodeTree.resize(1);
 
-		const auto Pop = [&NodeTree] {if (!NodeTree.size())return (_JsonNode*)0; auto r = NodeTree.back(); NodeTree.pop_back(); return r; };
-
-		const auto ExtractString = [&Input, &NewArray](size_t& i, const bool Second)->std::string_view {
-
-			for (; i < Input.size(); i++)//Scoot forwards to the actual start of the string/value
+		const auto SkipForward = [&Input](size_t& i) {
+			for (; i < Input.size(); i++)
 				if (const char c = Input[i]; c != ' ' && c != '\n' && c != '\r' && c != '	' && c != ':')
-					break;
+					return;
+		};
 
-			size_t StartI = i;
-
-			if (Input[i] == '\"') {//Normal string
-				StartI = ++i;
-				for (; i < Input.size(); i++)
-					if (Input[i] == '\"' && Input[i - 1] != '\\')
-						return std::string_view(Input.data() + StartI, (Second ? i : i++) - StartI);
-			}if (Input[i] == '[') {//An array
-				NewArray = 1;
-				i--;
-			}
-			else {
-				for (; i < Input.size(); i++) {
-
-					const bool Closing = (Input[i] == '}' || Input[i] == ']');
-
-					if (Closing || Input[i] == ',') {
-						const size_t End = Closing ? i-- : i;
-						return std::string_view(Input.data() + StartI, End - StartI);
-					}
-				}
-			}
-
-			return std::string_view();
+		const auto ExtractString = [&Input](size_t& i, const bool Second = 0)->std::string_view {
+			const size_t S = ++i;
+			for (; i < Input.size(); i++)
+				if (Input[i] == '\"' && Input[i - 1] != '\\')
+					return std::string_view(Input.data() + S, (Second ? i : i++) - S);
 		};
 
 		std::string_view ArrayName;
 
-		_JsonNode* CurrentNode = Alpha;
-
-		for (size_t i = 0; i < Input.size(); i++) {
+		for (size_t i = 1; i < Input.size(); i++) {
 
 			switch (Input[i]) {
 
-			case '{':case '[':
-				if (unlikely(i == 0))break;
-				NodeTree.push_back(CurrentNode);
-				CurrentNode->emplace_back(_JsonNode::JsonType::Object, ArrayName); ArrayName = std::string_view();
-				CurrentNode = CurrentNode->back().Value_List = new _JsonNode();
-				break;
+			case '{':case '[': {
 
+			AddArray:
+				auto& Node = NodeTree.back()->emplace_back(_JsonNode::JsonType::Object, ArrayName);
+				NodeTree.emplace_back(Node.Value_List = new _JsonNode());
+				ArrayName = std::string_view();
+				break;
+			}
 			case ']':case '}':
-				CurrentNode = Pop();
+				if (likely(NodeTree.size() > 1))
+					NodeTree.pop_back();
 				break;
 
 			case '"': {
 
-				auto Name = ExtractString(i, 0);
-				auto Value = ExtractString(i, 1);
+				ArrayName = ExtractString(i);
 
-				if (NewArray) {
-					NewArray = 0;
-					ArrayName = Name;
-					break;
-				}
+				SkipForward(i);
 
-				CurrentNode->emplace_back(_JsonNode::JsonType::String, Name).Value_String = Value;
+				if (Input[i] == '[')
+					goto AddArray;
+
+				std::string_view Value = Input[i] == '\"' ? ExtractString(i, 1) : [&Input, &i] {
+					const size_t S = i;
+					for (; i < Input.size(); i++) {
+
+						const bool Closing = (Input[i] == '}' || Input[i] == ']');
+
+						if (Closing || Input[i] == ',') {
+							const size_t End = Closing ? i-- : i;
+							return std::string_view(Input.data() + S, End - S);
+						}
+					}
+					return std::string_view();
+				}();
+
+				NodeTree.back()->emplace_back(_JsonNode::JsonType::String, ArrayName).Value_String = Value;
+
+				ArrayName = std::string_view();
 			}
 			default:break;
 			}
@@ -1118,7 +1110,7 @@ enum scoreOffset {
 
 _inline std::string GetParam(const std::string& s, const std::string&& param) {
 
-	DWORD Off = s.find(param);
+	size_t Off = s.find(param);
 	if (Off == std::string::npos)return "";
 	Off += param.size();
 
@@ -1150,7 +1142,7 @@ struct _GetParams {
 
 	_GetParams(const std::string_view URL) {
 
-		DWORD Start = URL.find('?');
+		size_t Start = URL.find('?');
 
 		if (Start != std::string::npos) {
 			Start++;
