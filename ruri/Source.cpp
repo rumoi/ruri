@@ -3513,13 +3513,16 @@ u32 LogoutLog[32] = {};
 
 void LogOutUser(_User* tP){
 
-	if (std::scoped_lock L(LogOutLock); 1)
-		LogoutLog[LogoutOffset++ & 0x1f] = tP->UserID;
+	/*if (std::scoped_lock L(LogOutLock); 1)
+		LogoutLog[LogoutOffset++ & 0x1f] = tP->UserID;*/
 
 	DisconnectUser(tP);
 }
 
 _inline void LogoutUpdates(_User* tP){
+
+	return;
+
 	if (tP->LogOffset != LogoutOffset){
 
 		u32 Arr[aSize(LogoutLog)];
@@ -4055,13 +4058,10 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 				PacketBuilder::Build<Packet::Server::sendMessage, '-', '-', 's', 'i'>(u->QueBytes, STACK(M_BOT_NAME),
 					STACK("This instance of ruri is out of date. (Consider updating.)[https://github.com/rumoi/ruri]"), &u->Username, USERID_START - 1);
 
-			{
-				using namespace PacketBuilder::CT;
+			{				
 
 				{
-					
-					PacketBuilder::Fixed_Build<Packet::Server::userID, 'i','!','w','i','i'>(u->QueBytes, UserID, Packet::Server::friendsList,2, USERID_START - 1, UserID);
-
+					u->addQueArray<0>(PacketBuilder::Fixed_Build<Packet::Server::userID, 'i', '!', 'w', 'i', 'i'>(UserID, Packet::Server::friendsList, 2, USERID_START - 1,UserID));
 					size_t FriendCount = 0;
 
 					while (FriendCount < (sizeof(Users[0].Friends) >> 2) && u->Friends[FriendCount])FriendCount++;
@@ -4077,6 +4077,8 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 
 					}
 				}
+
+				using namespace PacketBuilder::CT;
 
 				constexpr auto constPacket =
 					Concate(

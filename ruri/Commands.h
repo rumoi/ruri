@@ -917,20 +917,6 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 			return "Set";
 		}
-		case _WeakStringToInt_("!test"): {
-
-
-			using namespace PacketBuilder::CT;
-
-			u->addQueArray(
-				PopulateHeader(Concate(PacketHeader(Packet::Server::updateMatch),
-					Number<USHORT>(0), Number<USHORT>(0), Number<int>(0)
-					, Number<byte>(0xb), Number<byte>(255), Number<byte>(255), Number<byte>(255), Number<byte>(255), Number<byte>(255)
-					, Number<USHORT>((USHORT)Packet::Server::ping), Number<byte>(0), Number<int>(0)))
-			);
-
-			return "Done";
-		}
 
 		default:
 			break;

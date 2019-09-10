@@ -490,6 +490,181 @@ struct _BeatmapSet{
 
 _BeatmapSet* BeatmapSet_Cache[2097152] = {};
 
+namespace JSON{
+
+	struct _JsonNode {
+
+		enum class JsonType { Unknown, Int, Float, String,/* List, */Object, Continue };
+
+		struct _JsonValue {
+
+			union {
+				std::string_view Value_String;
+				_JsonNode* Value_List;
+			};
+			u32 Name;
+			JsonType Type;
+
+			~_JsonValue() {
+				if ((Type == JsonType::Object || Type == JsonType::Continue) && Value_List)
+				{
+					delete Value_List; Value_List = 0;
+				}
+
+				Type = JsonType::Unknown;
+				Name = 0;
+			}
+
+			_JsonValue() {
+				Name = 0;
+				Type = JsonType::Unknown;
+				Value_List = 0;
+			}
+			_JsonValue(JsonType Type, std::string_view Name) : Type(Type), Name(WeakStringToInt(Name)), Value_List((_JsonNode*)0) {}
+		};
+
+		_JsonValue Values[64] = {};
+
+		_JsonValue& emplace_back(JsonType Type, std::string_view Name) {
+
+			constexpr size_t Size = sizeof(Values) / sizeof(Values[0]);
+
+			auto& Back = Values[Size - 1];
+
+			if (Back.Type == JsonType::Continue)
+				return Back.Value_List->emplace_back(Type, Name);
+
+			for (size_t i = 0; i < Size - 1; i++)
+				if (Values[i].Type == JsonType::Unknown) {
+					Values[i].Type = Type;
+					Values[i].Name = WeakStringToInt(Name);
+					return Values[i];
+				}
+
+			Back.Type = JsonType::Continue;
+			Back.Value_List = new _JsonNode();
+
+			return Back.Value_List->emplace_back(Type, Name);
+		}
+
+		_JsonValue& back() {
+
+			constexpr size_t Size = sizeof(Values) / sizeof(Values[0]);
+
+			auto& Back = Values[Size - 1];
+
+			if (Back.Type == JsonType::Continue && Back.Value_List->Values[0].Type != JsonType::Unknown)
+				return Back.Value_List->back();
+
+			for (size_t i = 1; i < Size - 1; i++)
+				if (Values[i].Type == JsonType::Unknown)
+					return Values[i - 1];
+
+			return Values[Size - 1];
+		}
+
+		void operator =(const _JsonNode& v) = delete;
+
+		~_JsonNode() {
+
+			constexpr size_t Size = sizeof(Values) / sizeof(Values[0]);
+
+			if (Values[Size - 1].Type == JsonType::Continue)
+				delete Values[Size - 1].Value_List;
+
+			for (size_t i = 0; i < Size - 1; i++) {
+				if (Values[i].Type == JsonType::Unknown)break;
+				if (Values[i].Type == JsonType::Object && Values[i].Value_List) delete Values[i].Value_List;
+			}
+
+			ZeroMemory(this, sizeof(_JsonNode));
+		}
+
+	};
+
+	[[nodiscard]] _JsonNode* ReadJson(const std::string_view Input, const size_t ExpectedSize) {
+
+		_JsonNode* Alpha = new _JsonNode();
+
+		std::vector<_JsonNode*> NodeTree; NodeTree.reserve(16);
+		bool NewArray = 0;
+
+		const auto Pop = [&NodeTree] {if (!NodeTree.size())return (_JsonNode*)0; auto r = NodeTree.back(); NodeTree.pop_back(); return r; };
+
+		const auto ExtractString = [&Input, &NewArray](size_t& i, const bool Second)->std::string_view {
+
+			for (; i < Input.size(); i++)//Scoot forwards to the actual start of the string/value
+				if (const char c = Input[i]; c != ' ' && c != '\n' && c != '\r' && c != '	' && c != ':')
+					break;
+
+			size_t StartI = i;
+
+			if (Input[i] == '\"') {//Normal string
+				StartI = ++i;
+				for (; i < Input.size(); i++)
+					if (Input[i] == '\"' && Input[i - 1] != '\\')
+						return std::string_view(Input.data() + StartI, (Second ? i : i++) - StartI);
+			}if (Input[i] == '[') {//An array
+				NewArray = 1;
+				i--;
+			}
+			else {
+				for (; i < Input.size(); i++) {
+
+					const bool Closing = (Input[i] == '}' || Input[i] == ']');
+
+					if (Closing || Input[i] == ',') {
+						const size_t End = Closing ? i-- : i;
+						return std::string_view(Input.data() + StartI, End - StartI);
+					}
+				}
+			}
+
+			return std::string_view();
+		};
+
+		std::string_view ArrayName;
+
+		_JsonNode* CurrentNode = Alpha;
+
+		for (size_t i = 0; i < Input.size(); i++) {
+
+			switch (Input[i]) {
+
+			case '{':case '[':
+				if (unlikely(i == 0))break;
+				NodeTree.push_back(CurrentNode);
+				CurrentNode->emplace_back(_JsonNode::JsonType::Object, ArrayName); ArrayName = std::string_view();
+				CurrentNode = CurrentNode->back().Value_List = new _JsonNode();
+				break;
+
+			case ']':case '}':
+				CurrentNode = Pop();
+				break;
+
+			case '"': {
+
+				auto Name = ExtractString(i, 0);
+				auto Value = ExtractString(i, 1);
+
+				if (NewArray) {
+					NewArray = 0;
+					ArrayName = Name;
+					break;
+				}
+
+				CurrentNode->emplace_back(_JsonNode::JsonType::String, Name).Value_String = Value;
+			}
+			default:break;
+			}
+
+		}
+
+		return Alpha;
+	}
+
+};
+
 std::vector<std::vector<std::pair<int, std::string_view>>> JsonListSplit(const std::string_view Input, const size_t ExpectedSize) {
 
 	std::vector<std::vector<std::pair<int, std::string_view>>> Return;
