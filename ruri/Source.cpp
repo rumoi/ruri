@@ -482,6 +482,7 @@ size_t GetIndex(const T& Start, const T2& End) {
 }
 
 #include "SQL.h"
+#include "Json.h"
 
 #define BANCHO_THREAD_COUNT 4
 _SQLCon SQL_BanchoThread[BANCHO_THREAD_COUNT];
@@ -583,19 +584,6 @@ std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &&Pa
 	}
 
 	return p;
-}
-
-template<typename T>
-	_inline int WeakStringToInt(const T& s){
-		int Return = 0;
-
-		for (DWORD i = 0; i < s.size(); i++)
-			Return += (s[i] ^ i) << (((i << 4) % 32));
-		return Return;
-	}
-
-constexpr int _WeakStringToInt_(const char* c,DWORD O = 0, int CurrentValue = 0) noexcept{	
-	return (c[O]) ? _WeakStringToInt_(c,O+1, CurrentValue + ((c[O] ^ O) << (((O << 4) % 32)))) : CurrentValue;
 }
 
 struct _Timer{

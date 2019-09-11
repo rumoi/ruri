@@ -192,6 +192,7 @@
     <ClInclude Include="BCrypt\crypt.h" />
     <ClInclude Include="BCrypt\crypt_blowfish.h" />
     <ClInclude Include="BCrypt\crypt_gensalt.h" />
+    <ClInclude Include="Json.h" />
     <ClInclude Include="LZ4\lz4.h" />
     <ClInclude Include="ruri_API.h" />
     <ClInclude Include="Linux.h" />

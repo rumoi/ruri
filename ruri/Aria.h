@@ -490,224 +490,12 @@ struct _BeatmapSet{
 
 _BeatmapSet* BeatmapSet_Cache[2097152] = {};
 
-namespace JSON{
+template<u32 Key>
+_inline std::string_view JsonListGet(const std::vector<std::pair<int, std::string_view>> &List){
 
-	struct _JsonNode {
-
-		enum class JsonType { Unknown, Int, Float, String,/* List, */Object, Continue };
-
-		struct _JsonValue {
-
-			union {
-				std::string_view Value_String;
-				_JsonNode* Value_List;
-			};
-			u32 Name;
-			JsonType Type;
-
-			~_JsonValue() {
-				if ((Type == JsonType::Object || Type == JsonType::Continue) && Value_List)
-				{
-					delete Value_List; Value_List = 0;
-				}
-
-				Type = JsonType::Unknown;
-				Name = 0;
-			}
-
-			_JsonValue() {
-				Name = 0;
-				Type = JsonType::Unknown;
-				Value_List = 0;
-			}
-			_JsonValue(JsonType Type, std::string_view Name) : Type(Type), Name(WeakStringToInt(Name)), Value_List((_JsonNode*)0) {}
-		};
-
-		_JsonValue Values[64] = {};
-
-		_JsonValue& emplace_back(JsonType Type, std::string_view Name) {
-
-			constexpr size_t Size = sizeof(Values) / sizeof(Values[0]);
-
-			auto& Back = Values[Size - 1];
-
-			if (Back.Type == JsonType::Continue)
-				return Back.Value_List->emplace_back(Type, Name);
-
-			for (size_t i = 0; i < Size - 1; i++)
-				if (Values[i].Type == JsonType::Unknown) {
-					Values[i].Type = Type;
-					Values[i].Name = WeakStringToInt(Name);
-					return Values[i];
-				}
-
-			Back.Type = JsonType::Continue;
-			Back.Value_List = new _JsonNode();
-
-			return Back.Value_List->emplace_back(Type, Name);
-		}
-
-		_JsonValue& back() {
-
-			constexpr size_t Size = sizeof(Values) / sizeof(Values[0]);
-
-			auto& Back = Values[Size - 1];
-
-			if (Back.Type == JsonType::Continue && Back.Value_List->Values[0].Type != JsonType::Unknown)
-				return Back.Value_List->back();
-
-			for (size_t i = 1; i < Size - 1; i++)
-				if (Values[i].Type == JsonType::Unknown)
-					return Values[i - 1];
-
-			return Values[Size - 1];
-		}
-
-		void operator =(const _JsonNode& v) = delete;
-
-		~_JsonNode() {
-
-			constexpr size_t Size = sizeof(Values) / sizeof(Values[0]);
-
-			if (Values[Size - 1].Type == JsonType::Continue)
-				delete Values[Size - 1].Value_List;
-
-			for (size_t i = 0; i < Size - 1; i++) {
-				if (Values[i].Type == JsonType::Unknown)break;
-				if (Values[i].Type == JsonType::Object && Values[i].Value_List) delete Values[i].Value_List;
-			}
-
-			ZeroMemory(this, sizeof(_JsonNode));
-		}
-
-	};
-
-	[[nodiscard]] _JsonNode* ReadJson(const std::string_view Input, const size_t ExpectedSize) {
-
-		_JsonNode* Alpha = new _JsonNode();
-
-		std::vector<_JsonNode*> NodeTree(16, Alpha); NodeTree.resize(1);
-
-		const auto SkipForward = [&Input](size_t& i) {
-			for (; i < Input.size(); i++)
-				if (const char c = Input[i]; c != ' ' && c != '\n' && c != '\r' && c != '	' && c != ':')
-					return;
-		};
-
-		const auto ExtractString = [&Input](size_t& i, const bool Second = 0)->std::string_view {
-			const size_t S = ++i;
-			for (; i < Input.size(); i++)
-				if (Input[i] == '\"' && Input[i - 1] != '\\')
-					return std::string_view(Input.data() + S, (Second ? i : i++) - S);
-		};
-
-		std::string_view ArrayName;
-
-		for (size_t i = 1; i < Input.size(); i++) {
-
-			switch (Input[i]) {
-
-			case '{':case '[': {
-
-			AddArray:
-				auto& Node = NodeTree.back()->emplace_back(_JsonNode::JsonType::Object, ArrayName);
-				NodeTree.emplace_back(Node.Value_List = new _JsonNode());
-				ArrayName = std::string_view();
-				break;
-			}
-			case ']':case '}':
-				if (likely(NodeTree.size() > 1))
-					NodeTree.pop_back();
-				break;
-
-			case '"': {
-
-				ArrayName = ExtractString(i);
-
-				SkipForward(i);
-
-				if (Input[i] == '[')
-					goto AddArray;
-
-				std::string_view Value = Input[i] == '\"' ? ExtractString(i, 1) : [&Input, &i] {
-					const size_t S = i;
-					for (; i < Input.size(); i++) {
-
-						const bool Closing = (Input[i] == '}' || Input[i] == ']');
-
-						if (Closing || Input[i] == ',') {
-							const size_t End = Closing ? i-- : i;
-							return std::string_view(Input.data() + S, End - S);
-						}
-					}
-					return std::string_view();
-				}();
-
-				NodeTree.back()->emplace_back(_JsonNode::JsonType::String, ArrayName).Value_String = Value;
-
-				ArrayName = std::string_view();
-			}
-			default:break;
-			}
-
-		}
-
-		return Alpha;
-	}
-
-};
-
-std::vector<std::vector<std::pair<int, std::string_view>>> JsonListSplit(const std::string_view Input, const size_t ExpectedSize) {
-
-	std::vector<std::vector<std::pair<int, std::string_view>>> Return;
-	Return.reserve(16);
-
-	if (int BraceCount(0), NameHash(0); Input.size() > 2) {
-
-		bool Body(0);
-		const size_t iEnd = Input.size() - 1;
-		for (size_t i = 1; i < iEnd; i++) {
-
-			if (Input[i] == '{') {
-				if (!BraceCount) {
-					Body = 0;
-					Return.emplace_back().reserve(ExpectedSize);
-				}BraceCount++;
-			}
-			else if (Input[i] == '}') {
-				if (BraceCount > 0)
-					BraceCount--;
-			}
-			else if (BraceCount){
-				if (Input[i] == '\"'){
-					const int startIndex = i + 1;
-					for (; ++i < iEnd;){
-						if (Input[i] == '\"' && Input[i - 1] != '\\') {
-							if (!Body)
-								NameHash = WeakStringToInt(std::string_view((const char*)&Input[startIndex], i - startIndex));
-							else {
-								if (NameHash)
-									Return.back().emplace_back(NameHash, std::string_view((const char*)&Input[startIndex], i - startIndex));
-								NameHash = 0;
-							}
-							Body = !Body;
-							break;
-						}
-					}
-				}else if (Body && Input[i] == ','){
-					Body = 0;
-				}
-			}
-		}
-	}
-	return Return;
-}
-
-_inline std::string_view JsonListGet(const int Key, const std::vector<std::pair<int, std::string_view>> &List){
-
-	for (size_t i = 0; i < List.size(); i++)
-		if (List[i].first == Key)
-			return List[i].second;
+	for (const auto [K, V] : List)
+		if (K == Key)
+			return V;
 
 	return std::string_view();
 }
@@ -844,31 +632,31 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, bool For
 
 				for (auto& MapData : BeatmapData){
 
-					std::string MD5 = std::string(JsonListGet(_WeakStringToInt_("file_md5"),MapData));
+					std::string MD5 = std::string(JsonListGet<WSTI("file_md5")>(MapData));
 					{
 						for (char& c : MD5)
 							if (c == '\'')
 								c = ' ';
 					}
 
-					const DWORD beatmap_id = StringToNum(DWORD, JsonListGet(_WeakStringToInt_("beatmap_id"), MapData));
+					const DWORD beatmap_id = StringToNum(DWORD, JsonListGet<WSTI("beatmap_id")>(MapData));
 
 					if (beatmap_id && MD5.size() == 32){
 
-						float diff_size = StringToNum(float, JsonListGet(_WeakStringToInt_("diff_size"), MapData))
-							 ,diff_overall = StringToNum(float, JsonListGet(_WeakStringToInt_("diff_overall"), MapData))
-							 ,diff_approach = StringToNum(float, JsonListGet(_WeakStringToInt_("diff_approach"), MapData));
+						float diff_size = StringToNum(float, JsonListGet<WSTI("diff_size")>(MapData))
+							 ,diff_overall = StringToNum(float, JsonListGet<WSTI("diff_overall")>(MapData))
+							 ,diff_approach = StringToNum(float, JsonListGet<WSTI("diff_approach")>(MapData));
 
-						int Length = StringToNum(int, JsonListGet(_WeakStringToInt_("hit_length"), MapData))
-							,RankedStatus = StringToNum(int, JsonListGet(_WeakStringToInt_("approved"), MapData))
-							,MaxCombo = StringToNum(int, JsonListGet(_WeakStringToInt_("max_combo"), MapData))
-							,BPM = StringToNum(int, JsonListGet(_WeakStringToInt_("bpm"), MapData));
+						int Length = StringToNum(int, JsonListGet<WSTI("hit_length")>(MapData))
+							,RankedStatus = StringToNum(int, JsonListGet<WSTI("approved")>(MapData))
+							,MaxCombo = StringToNum(int, JsonListGet<WSTI("max_combo")>(MapData))
+							,BPM = StringToNum(int, JsonListGet<WSTI("bpm")>(MapData));
 
-						const byte mode = StringToNum(byte, JsonListGet(_WeakStringToInt_("mode"), MapData));
+						const byte mode = StringToNum(byte, JsonListGet<WSTI("mode")>(MapData));
 
-						std::string Title = std::string(JsonListGet(_WeakStringToInt_("artist"), MapData)) +
-							" - " + std::string(JsonListGet(_WeakStringToInt_("title"), MapData)) +
-							" [" + std::string(JsonListGet(_WeakStringToInt_("version"), MapData)) + "]";
+						std::string Title = std::string(JsonListGet<WSTI("artist")>(MapData)) +
+							" - " + std::string(JsonListGet<WSTI("title")>(MapData)) +
+							" [" + std::string(JsonListGet<WSTI("version")>(MapData)) + "]";
 
 						FileNameClean(Title);
 						ReplaceAll(Title, "'", "''");
@@ -1130,13 +918,14 @@ struct _GetParams {
 
 	std::vector<std::pair<int/*Key Hash*/, std::string_view/*Value*/>> Params;
 
-	std::string_view get(const int Key)const{
+
+	template<const u32 Key>
+	std::string_view get()const{
 
 		for (auto [K, Value] : Params){
 			if (K != Key)continue;
 			return Value;
 		}
-
 		return std::string_view();
 	}
 
@@ -1581,44 +1370,44 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 
 	const auto Params = _GetParams(http.Host);
 
-	const std::string_view BeatmapMD5 = Params.get(_WeakStringToInt_("c"));
+	const std::string_view BeatmapMD5 = Params.get<WSTI("c")>();
 
-	const DWORD SetID = StringToNum(DWORD,Params.get(_WeakStringToInt_("i")));
+	const DWORD SetID = StringToNum(DWORD,Params.get<WSTI("i")>());
 
 	if (BeatmapMD5.size() != 32)
 		return SendAria404(s);
 
-	_UserRef u(GetUserFromName(urlDecode(std::string(Params.get(_WeakStringToInt_("us"))))), 1);
+	_UserRef u(GetUserFromName(urlDecode(std::string(Params.get<WSTI("us")>()))), 1);
 
-	if (!u.User || !(_MD5(Params.get(_WeakStringToInt_("ha"))) == u.User->Password))
+	if (!u.User || !(_MD5(Params.get<WSTI("ha")>()) == u.User->Password))
 		return SendAria404(s);
 
-	const DWORD Mods = StringToNum(DWORD, Params.get(_WeakStringToInt_("mods")));
-	DWORD Mode = StringToNum(DWORD, Params.get(_WeakStringToInt_("m")));
-	const bool CustomClient = Params.get(_WeakStringToInt_("vv")) != "4";
-	const DWORD LType = StringToNum(DWORD, Params.get(_WeakStringToInt_("v")));
+	const DWORD Mods = StringToNum(DWORD, Params.get<WSTI("mods")>());
+	DWORD Mode = StringToNum(DWORD, Params.get<WSTI("m")>());
+	const bool CustomClient = Params.get<WSTI("vv")>() != "4";
+	const DWORD LType = StringToNum(DWORD, Params.get<WSTI("v")>());
 
-#ifndef NO_RELAX
+	if constexpr (RELAX_MODE){
 
-	if ((u->actionMods & Relax) != (Mods & Relax)) {//actionMods is outdated.
-		u->actionMods = Mods;
+		if ((u->actionMods & Relax) != (Mods & Relax)) {//actionMods is outdated.
+			u->actionMods = Mods;
 
-		_User* tP = u.User;
+			_User* tP = u.User;
 
-		const DWORD Off = tP->GetStatsOffset();
-		
-		PacketBuilder::Build<Packet::Server::userStats, 'm',
-			'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(tP->QueBytes, &tP->qLock,
-				tP->UserID, tP->actionID, tP->ActionText,tP->ActionMD5, tP->actionMods, tP->GameMode,
-				tP->BeatmapID, tP->Stats[Off].rScore, *(int*)& tP->Stats[Off].Acc,
-				tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
-				tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
-				);
+			const DWORD Off = tP->GetStatsOffset();
+
+			PacketBuilder::Build<Packet::Server::userStats, 'm',
+				'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(tP->QueBytes, &tP->qLock,
+					tP->UserID, tP->actionID, tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
+					tP->BeatmapID, tP->Stats[Off].rScore, *(int*)& tP->Stats[Off].Acc,
+					tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
+					tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
+					);
+		}
+
+		if (Mods & Relax)Mode += 4;
+		if (Mode >= 8)Mode = 0;
 	}
-
-	if (Mods & Relax)Mode += 4;
-	if (Mode >= 8)Mode = 0;
-#endif
 
 
 	if (u.User->actionID != bStatus::sPlaying && BeatmapMD5.size() == 32)
@@ -1627,7 +1416,7 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 	_BeatmapDataRef MapRef;
 
 	_BeatmapData* const BeatData = GetBeatmapCache(SetID, 0, BeatmapMD5,
-		std::string(Params.get(_WeakStringToInt_("f")))
+		std::string(Params.get<WSTI("f")>())
 		, &AriaSQL[s.ID],MapRef);
 
 
@@ -1808,7 +1597,7 @@ const std::string directToApiStatus(const std::string &directStatus) {//thank yo
 
 void GetReplay(const std::string_view URL, _Con s){
 
-	std::string ID = std::string(_GetParams{URL}.get(_WeakStringToInt_("c")));
+	std::string ID = std::string(_GetParams{URL}.get<WSTI("c")>());
 
 	for (auto& c : ID)
 		if (c == '.')
@@ -1973,16 +1762,16 @@ void LastFM(_GetParams&& Params, _Con s){
 
 	const int Flags = [&]{
 
-		auto B = Params.get(_WeakStringToInt_("b"));
+		auto B = Params.get<WSTI("b")>();
 		
 		return (B.size() && B[0] == 'a') ? StringToNum(int, B) : 0;
 	}();
 
 	if (Flags & (RelifeLoaded | Console | InvalidName | InvalidFile | RelifeLoaded)){
 
-		_UserRef u(GetUserFromNameSafe(USERNAMESAFE(std::string(Params.get(_WeakStringToInt_("us"))))), 1);
+		_UserRef u(GetUserFromNameSafe(USERNAMESAFE(std::string(Params.get<WSTI("us")>()))), 1);
 
-		if (!!u && u->Password == _MD5(Params.get(_WeakStringToInt_("ha"))) && u->privileges & UserPublic){			
+		if (!!u && u->Password == _MD5(Params.get<WSTI("ha")>()) && u->privileges & UserPublic){			
 
 			u->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::RTX, '-'>(Flags == RelifeLoaded ? STACK("Disable osu-relife or get banned") : STACK("What did you think would happen?")));
 

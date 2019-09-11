@@ -329,13 +329,13 @@ std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const
 	
 	const char NewStatus = [&]{
 		switch(RankStatus){
-			case _WeakStringToInt_("rank"):
+			case WSTI("rank"):
 				return RankStatus::RANKED;
-			case _WeakStringToInt_("unrank"):
+			case WSTI("unrank"):
 				return RankStatus::PENDING;
-			case _WeakStringToInt_("love"):
+			case WSTI("love"):
 				return RankStatus::LOVED;
-			case _WeakStringToInt_("lock"):
+			case WSTI("lock"):
 				if(u->privileges & Privileges::AdminDev)
 					return RankStatus::RANK_LOCKED;
 			default:
@@ -686,17 +686,17 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 	{
 		switch (CommandHash) {
 
-		case _WeakStringToInt_("!roll"):
+		case WSTI("!roll"):
 			PrivateRes = 0;
 				return u->ProfileLink() + " rolled " + std::to_string(BR::GetRand64(0, Split.size() > 1 ? StringToNum(uint64_t, Split[1]) : 100));
-		case _WeakStringToInt_("!priv"):
+		case WSTI("!priv"):
 			return std::to_string(Priv);
-		case _WeakStringToInt_("!reconnect"):
+		case WSTI("!reconnect"):
 			u->choToken = 0;
 			return "";
-		case _WeakStringToInt_("!block"):
+		case WSTI("!block"):
 			return Split.size() > 1 ? BlockUser(u, Split[1],0) : "!block <username>";
-		case _WeakStringToInt_("!unblock"):
+		case WSTI("!unblock"):
 			return Split.size() > 1 ? BlockUser(u, Split[1], 1) : "!unblock <username>";
 		default:
 			break;
@@ -705,7 +705,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 	if (u->privileges & Privileges::AdminManageBeatmaps) {
 		//BAT Commands
-		if (CommandHash == _WeakStringToInt_("!map"))
+		if (CommandHash == WSTI("!map"))
 			return Split.size() > 2 ? MapStatusUpdate(u, WeakStringToInt(Split[1]), StringToNum(DWORD, Split[2]), (Split.size() > 3) ? StringToNum(DWORD, Split[3]) : 0)
 			: "!map <rank/love/unrank> <setid> optional<beatmapid>";
 
@@ -717,8 +717,8 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 	{
 		switch (CommandHash) {
 
-		case _WeakStringToInt_("!restrict"):
-		case _WeakStringToInt_("!restrictid"):{
+		case WSTI("!restrict"):
+		case WSTI("!restrictid"):{
 			if (Split.size() < 3)
 				return "!restrict(id) <name / id> <reason>";
 
@@ -734,8 +734,8 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			return "";
 		}
 
-		case _WeakStringToInt_("!unrestrict"):
-		case _WeakStringToInt_("!unrestrictid"):{
+		case WSTI("!unrestrict"):
+		case WSTI("!unrestrictid"):{
 			if (Split.size() < 2)
 				return "!unrestrict(id) <name / id>";
 
@@ -752,7 +752,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 		}
 
-		case _WeakStringToInt_("!silence"):{
+		case WSTI("!silence"):{
 			if (Split.size() != 3)
 				return "!silence <username> <time>";
 
@@ -783,11 +783,11 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 	{
 		switch (CommandHash) {
 
-		case _WeakStringToInt_("!fetus"):
+		case WSTI("!fetus"):
 			return Fetus(USERNAMESAFE(CombineAllNextSplit(1, Split))) ? "deletus." : "Not completus. The name you should collatus.";
 
-		case _WeakStringToInt_("!alert"):
-		case _WeakStringToInt_("!alertuser"): {
+		case WSTI("!alert"):
+		case WSTI("!alertuser"): {
 
 			const bool SingleTarget = Split[0].size() == _strlen_("!alertuser");
 			VEC(byte) Packet;
@@ -810,7 +810,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			return (!SingleTarget) ? "Alerted all online users." : "User has been alerted";
 		}
 
-		case _WeakStringToInt_("!rtx"): {
+		case WSTI("!rtx"): {
 
 			if (Split.size() < 2)return "No target given";
 
@@ -826,14 +826,14 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			return "You monster.";
 		}
 
-		case _WeakStringToInt_("!b"):
+		case WSTI("!b"):
 			PrivateRes = 0;
 			return CombineAllNextSplit(1, Split);
 
 		//case _WeakStringToInt_("!fcfg"):
 			//return (Split.size() > 2) ? CFGExploit(USERNAMESQL(Split[1]), CombineAllNextSplit(2, Split)) : "!fcfg <username> <config lines>";
 
-		case _WeakStringToInt_("!cbomb"): {
+		case WSTI("!cbomb"): {
 
 			if (Split.size() != 3)
 				return "!cbomb <username> <count>";
@@ -854,11 +854,11 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			return "okay";
 		}
 
-		case _WeakStringToInt_("!sql"):{			
+		case WSTI("!sql"):{
 			SQL_BanchoThread[0].ExecuteUPDATE(CombineAllNextSplit(1,Split));
 			return "Executed";
 		}
-		case _WeakStringToInt_("!recalcusers"): {
+		case WSTI("!recalcusers"): {
 			
 			if(Split.size() == 2){
 				std::thread t(UpdateAllUserStatsinGM, u, StringToNum(DWORD, Split[1]));
@@ -867,7 +867,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 			return "running";
 		}
-		case _WeakStringToInt_("!fullrecalcpp"): {
+		case WSTI("!fullrecalcpp"): {
 
 			chan_General.Bot_SendMessage("A full pp recalc has been started by " + u->ProfileLink());
 			{
@@ -877,7 +877,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 			return "running";
 		}
-		case _WeakStringToInt_("!fixloved"): {
+		case WSTI("!fixloved"): {
 
 			chan_General.Bot_SendMessage(u->Username + " is fixing loved xd");
 			{
@@ -886,7 +886,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			}
 			return "yes";
 		}
-		case _WeakStringToInt_("!fixplaycount"): {
+		case WSTI("!fixplaycount"): {
 
 			{
 				std::thread t(reCalcScore_Playcount);
@@ -894,10 +894,10 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 			}
 			return "yes";
 		}
-		case _WeakStringToInt_("!rCount"):{
+		case WSTI("!rCount"):{
 			return std::to_string(u->ref) + "| Slot: " + std::to_string(GetIndex(Users,u)) + "| Name: " + u->Username;
 		}
-		case _WeakStringToInt_("!top100"):{
+		case WSTI("!top100"):{
 			return [&]()->std::string{
 
 				std::string Return;
@@ -908,7 +908,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 				return Return;
 			}();
 		}
-		case _WeakStringToInt_("!setpp"): {
+		case WSTI("!setpp"): {
 			if (Split.size() != 2)
 				return "!cbomb <pp>";
 
