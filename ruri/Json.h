@@ -2,8 +2,8 @@
 #ifndef _H_JSON
 #define _H_JSON
 
-template<typename T>
-_inline constexpr int WeakStringToInt(const T& s) {
+template<typename R = int, typename T>
+_inline constexpr R WeakStringToInt(const T& s) {
 
 	struct is_cString
 		: public std::disjunction<
@@ -11,15 +11,15 @@ _inline constexpr int WeakStringToInt(const T& s) {
 		std::is_same<const char*, typename std::decay<T>::type>
 		> {};
 
-	int Return = 0;
+	R Return = 0;
 
-#define H Return += (s[i] ^ i) << (((i << 4) % 32))
+	#define H Return += R(s[i] ^ i) << ((i & (sizeof(R)-1)) << 3)
 
 	if constexpr (is_cString::value)
 		for (size_t i = 0; i < sizeof(T) - 1; i++) H;
 	else for (size_t i = 0, Size(s.size()); i < Size; i++) H;
 
-#undef H
+	#undef H
 
 	return Return;
 }
@@ -270,7 +270,7 @@ namespace JSON{
 
 			}
 		}
-			   return std::string_view();
+			return std::string_view();
 		}
 
 		void Reset() { Current = Root; }
@@ -278,7 +278,6 @@ namespace JSON{
 	};
 
 };
-
 
 std::vector<std::vector<std::pair<int, std::string_view>>> JsonListSplit(const std::string_view Input, const size_t ExpectedSize) {
 
@@ -326,6 +325,5 @@ std::vector<std::vector<std::pair<int, std::string_view>>> JsonListSplit(const s
 	}
 	return Return;
 }
-
 
 #endif

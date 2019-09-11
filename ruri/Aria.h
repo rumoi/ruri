@@ -1808,7 +1808,7 @@ void LastFM(_GetParams&& Params, _Con s){
 
 void HandleAria(_Con s){
 
-	static char const*const mName = "Aria";
+	char const*const mName = "Aria";
 
 	_HttpRes res;
 
@@ -1817,107 +1817,111 @@ void HandleAria(_Con s){
 		return LogError("Connection Lost", mName);
 	}
 
-	bool DontCloseConnection = 0;
-	if (MEM_CMP_START(res.Host, "/web/osu-submit-modular-selector.php")) {
+	bool ThreadSpawned = 0;
 
-		const int sTime = clock_ms();
-
-		ScoreServerHandle(res, s);
-
-		printf("Score Done in %ims\n", clock_ms() - sTime);
-	}
-	else if (MEM_CMP_START(res.Host, "/web/check-updates.php")) {
-		osu_checkUpdates(std::string(res.Host.begin()+1,res.Host.end()), s);
-	}
-	else if (MEM_CMP_START(res.Host, "/web/osu-osz2-getscores.php"))
-		osu_getScores(res, s);
-	else if (MEM_CMP_START(res.Host, "/web/osu-search-set.php")){
-
-		std::string v;
-		v.reserve(8);
-
-		for (DWORD i = res.Host.size(); i-- > 0;) {
-			if (IS_NUM(res.Host[i]))
-				v.push_back(res.Host[i]);
-			else break;
-		}
-
-		std::reverse(begin(v), end(v));
-
-		if (const DWORD SetID = StringToNum(DWORD, v); SetID){
-			DontCloseConnection = 1;
-
-			MIRROR::MirrorAPILock.lock();
-			MIRROR::MirrorAPIQue.emplace_back("api/set?b=" + std::to_string(SetID), s);
-			MIRROR::MirrorAPILock.unlock();
-		}
-	}
-	else if (MEM_CMP_START(res.Host, "/web/osu-search.php")){
-
-		DWORD Start = 0;
-
-		for (DWORD i = _strlen_("/web/osu-search.php"); i < res.Host.size() - 2; i++){
-			if (*(USHORT*)&res.Host[i] == 0x7226){//&r
-				Start = i + 1;
-				break;
-			}
-		}
-
-		if (Start){
-			DontCloseConnection = 1;
-
-			std::scoped_lock L(MIRROR::MirrorAPILock);
-
-			std::string u(res.Host.begin() + Start, res.Host.end());
-
-			for (char& a : u)
-				if (a == ' ')a = '+';
-
-			MIRROR::MirrorAPIQue.emplace_back("api/search?" + u,s);
-		}
-	}
-	else if (MEM_CMP_START(res.Host, "/web/osu-getreplay.php"))
-		GetReplay(res.Host, s);
-	else if (MEM_CMP_START(res.Host, "/d/")) {
-
-		std::string v;
-		v.reserve(8);
-
-		for (DWORD i = 3; i < res.Host.size(); i++)
-			if (IS_NUM(res.Host[i]))
-				v.push_back(res.Host[i]);
-			else break;
-
-		const DWORD ID = StringToNum(DWORD,v);
-
-		if (ID){
-			DontCloseConnection = 1;
-			std::thread a(Thread_DownloadOSZ, ID, s);
-			a.detach();
-		}
-	}
-	else if (MEM_CMP_START(res.Host, "/web/maps/")) {//used when updating a single maps .osu
-		std::thread a(Thread_UpdateOSU, std::string(res.Host.begin() + 1, res.Host.end()), s);
-		a.detach();
-		DontCloseConnection = 1;
-	}
-	else if (MEM_CMP_START(res.Host, "/web/replays/")) {//used when updating a single maps .osu
-		std::thread a(Thread_WebReplay, MemToNum<uint64_t>(&res.Host[_strlen_("/web/replays/")], res.Host.size() - _strlen_("/web/replays/")), s);
-		a.detach();
-		DontCloseConnection = 1;
-	}
-	else if (MEM_CMP_START(res.Host, "/web/osu-screenshot.php"))
-		UploadScreenshot(res, s);
-	else if (MEM_CMP_START(res.Host, "/web/lastfm.php"))
-		LastFM(_GetParams(res.Host),s);
-	else SendAria404(s);
-
-	if (!DontCloseConnection){
-		s.Dis();
-		/*const unsigned long long Time = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - begin).count();
+	if (res.Host.size()){
 		
-		printf(KMAG"Aria> " KRESET "%fms\n", double(double(Time) / 1000000.0));*/
+		size_t Size = res.Host.size();
+
+		if (size_t Pos = res.Host.find(".php"); Pos != std::string::npos)
+			Size = Pos + 4;
+		else for (; Size-- > 0;)// For direct access pages ignore the top level path.
+			if (res.Host[Size] == '/' && ++Size)
+				break;
+
+		switch (WSTI<u64>(std::string_view(res.Host.data(),Size))){
+
+			case WSTI<u64>("/web/osu-submit-modular-selector.php") :
+				ScoreServerHandle(res, s);
+				break;
+
+			case WSTI<u64>("/web/check-updates.php") :
+				osu_checkUpdates(std::string(res.Host.begin() + 1, res.Host.end()), s);
+				break;
+
+			case WSTI<u64>("/web/osu-osz2-getscores.php") :
+				osu_getScores(res, s);
+				break;
+
+			case WSTI<u64>("/web/osu-search-set.php") :
+				if (const DWORD SetID = StringToNum(DWORD, std::string_view(res.Host.data() + Size,res.Host.size() - Size)); SetID){
+
+					ThreadSpawned = 1;
+
+					std::scoped_lock L(MIRROR::MirrorAPILock);
+					MIRROR::MirrorAPIQue.emplace_back("api/set?b=" + std::to_string(SetID), s);
+				}
+				break;
+
+			case WSTI<u64>("/web/osu-search.php") : {
+
+					DWORD Start = 0;
+
+					for (DWORD i = 22; i < res.Host.size() - 2; i++) {
+						if (*(USHORT*)& res.Host[i] == 0x7226) {//&r
+							Start = i + 1;
+							break;
+						}
+					}
+
+					if (Start) {
+						ThreadSpawned = 1;
+
+						std::string u(res.Host.begin() + Start, res.Host.end());
+
+						for (char& a : u)
+							if (a == ' ')a = '+';
+
+						std::scoped_lock L(MIRROR::MirrorAPILock);
+						MIRROR::MirrorAPIQue.emplace_back("api/search?" + u, s);
+					}
+				}
+				break;
+
+			case WSTI<u64>("/web/osu-getreplay.php") :
+				GetReplay(res.Host, s);
+				break;
+
+			case WSTI<u64>("/d/") :
+				if (const DWORD ID = StringToNum(DWORD, std::string_view(res.Host.data() + Size, res.Host.size() - Size)); ID) {
+					ThreadSpawned = 1;
+					std::thread a(Thread_DownloadOSZ, ID, s);
+					a.detach();
+				}
+				break;
+
+			case WSTI<u64>("/web/maps/") :
+				ThreadSpawned = 1;
+				{
+					std::thread a(Thread_UpdateOSU, std::string(res.Host.begin() + 1, res.Host.end()), s);
+					a.detach();
+				}
+				break;
+
+			case WSTI<u64>("/web/replays/") :
+				ThreadSpawned = 1;
+				{
+					std::thread a(Thread_WebReplay, MemToNum<uint64_t>(&res.Host[_strlen_("/web/replays/")], res.Host.size() - _strlen_("/web/replays/")), s);
+					a.detach();
+				}
+				break;
+
+			case WSTI<u64>("/web/osu-screenshot.php") :
+				UploadScreenshot(res, s);
+				break;
+
+			case WSTI<u64>("/web/lastfm.php") :
+				LastFM(_GetParams(res.Host), s);
+				break;
+
+			default:
+				SendAria404(s);
+				break;
+		}
 	}
+
+	if (!ThreadSpawned) { s.Dis(); }
+
 }
 
 template<typename T>
