@@ -198,9 +198,11 @@ namespace JSON{
 		_JsonNode* Root = 0;
 		_JsonNode* Current = 0;
 
-		_Json(const std::string_view Input) {
-			Current = Root = ReadJson(Input);
+		template<typename T>
+		_Json(const T& Input) {
+			Current = Root = ReadJson(std::string_view((const char*)Input.data(),Input.size()));
 		}
+
 		_Json(_JsonNode* NewHead) {
 			Current = Root = NewHead;
 		}
@@ -211,7 +213,7 @@ namespace JSON{
 			Current = Root = 0;
 		}
 
-		template<int Name>
+		template<u32 Name>
 		_JsonNode* GetArray() {
 
 			_JsonNode* Temp = Current;
@@ -243,7 +245,7 @@ namespace JSON{
 			return 0;
 		}
 
-		template<int Name>
+		template<u32 Name>
 		std::string_view GetString() {
 
 			_JsonNode* Temp = Current;

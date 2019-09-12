@@ -1855,10 +1855,10 @@ void HandleAria(_Con s){
 
 			case WSTI<u64>("/web/osu-search.php") : {
 
-					DWORD Start = 0;
+					size_t Start = 0;
 
-					for (DWORD i = 22; i < res.Host.size() - 2; i++) {
-						if (*(USHORT*)& res.Host[i] == 0x7226) {//&r
+					for (size_t i = 22; i < res.Host.size() - 2; i++) {
+						if (*(USHORT*)&res.Host[i] == 0x7226) {//&r
 							Start = i + 1;
 							break;
 						}

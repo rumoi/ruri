@@ -4578,35 +4578,33 @@ std::string ExtractConfigValue(const std::vector<byte> &Input){
 
 int main(){
 
-	const std::vector<byte> ConfigBytes = LOAD_FILE("config.ini");
+	const std::vector<byte> ConfigBytes = LOAD_FILE("config.json");
 
 	if (!ConfigBytes.size()) {
-		printf("\nconfig.ini missing.\n");
+		printf("\nconfig.json missing.\n");
 		return 0;
 	}
 
-	#define V ExtractConfigValue(std::vector<byte>(Config.cbegin(),Config.cend()))
+	{
+		JSON::_Json Config(ConfigBytes);
 
-	for (const auto& Config : Explode_View(ConfigBytes, '\n', 1)) {
+		#define ReadConfig(s) s = Config.GetString<WSTI(#s)>()
 
-		if (MEM_CMP_START(Config, "osu_API_Key"))
-			osu_API_KEY = V;
-		else if (MEM_CMP_START(Config, "SQL_Password"))
-			SQL_Password = V;
-		else if (MEM_CMP_START(Config, "SQL_Username"))
-			SQL_Username = V;
-		else if (MEM_CMP_START(Config, "SQL_Schema"))
-			SQL_Schema = V;
-		else if (MEM_CMP_START(Config, "BeatmapPath"))
-			BeatmapPath = V;
-		else if (MEM_CMP_START(Config, "ReplayPath"))
-			ReplayPath = V;
-		else if (MEM_CMP_START(Config, "GeneralName")){
-			chan_General.ChannelName = V;
-			chan_General.NameSum = WeakStringToInt(chan_General.ChannelName);
+		ReadConfig(osu_API_KEY);
+		ReadConfig(SQL_Password);
+		ReadConfig(SQL_Username);
+		ReadConfig(SQL_Schema);
+		ReadConfig(BeatmapPath);
+		ReadConfig(ReplayPath);
+
+		#undef ReadConfig
+
+		if (const auto& GeneralName = Config.GetString<WSTI("GeneralName")>(); GeneralName.size()) {
+			chan_General.ChannelName = GeneralName;
+			chan_General.NameSum = WSTI(chan_General.ChannelName);
 		}
+
 	}
-	#undef V
 
 	static_assert((BANCHO_THREAD_COUNT >= 4 && ARIA_THREAD_COUNT >= 4),
 		"BANCHO_THREAD_COUNT or ARIA_THREAD_COUNT can not be below 4");
