@@ -2,8 +2,10 @@
 #ifndef _H_JSON
 #define _H_JSON
 
-template<typename R = int, typename T>
+template<typename R = u32, typename T>
 _inline constexpr R WeakStringToInt(const T& s) {
+
+	static_assert(std::is_unsigned<R>::value,"WeakStringToInt is only allowed with unsigned types.");
 
 	struct is_cString
 		: public std::disjunction<
@@ -257,7 +259,7 @@ namespace JSON{
 
 				case _JsonNode::JsonType::String:
 					if (Value.Name == Name)
-						return Current = Temp->Values[i].Value_String;
+						return Temp->Values[i].Value_String;
 					break;
 
 				case _JsonNode::JsonType::Continue:
@@ -284,7 +286,7 @@ std::vector<std::vector<std::pair<int, std::string_view>>> JsonListSplit(const s
 	std::vector<std::vector<std::pair<int, std::string_view>>> Return;
 	Return.reserve(16);
 
-	if (int BraceCount(0), NameHash(0); Input.size() > 2) {
+	if (u32 BraceCount(0), NameHash(0); Input.size() > 2) {
 
 		bool Body(0);
 		const size_t iEnd = Input.size() - 1;

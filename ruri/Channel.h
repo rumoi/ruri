@@ -28,7 +28,7 @@ struct _Channel{
 	std::mutex Lock;
 	std::array<_User*, MAX_USER_COUNT> IRCUsers;
 
-	int NameSum;
+	u32 NameSum;
 
 	u8 ViewLevel:3, WriteLevel:3, AutoJoin:1, Hidden:1;
 	u16 ChannelCount;
@@ -201,7 +201,7 @@ _Channel& chan_Lobby{ChannelTable[5]};
 
 _inline _Channel* GetChannelByName(std::string_view Name){
 
-	const int Sum = WeakStringToInt(Name);
+	const u32 Sum = WeakStringToInt(Name);
 
 	for (auto& Chan : ChannelTable)
 		if (Chan.NameSum == Sum)

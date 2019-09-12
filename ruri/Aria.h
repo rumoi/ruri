@@ -938,7 +938,7 @@ struct _GetParams {
 
 			bool Name = 1;
 
-			int TempNameHash = 0;
+			u32 TempNameHash = 0;
 
 			for (DWORD i = Start; i < URL.size(); i++) {
 
@@ -1543,7 +1543,7 @@ void osu_checkUpdates(const std::string &Req,_Con s){
 	
 	bool AlreadyIn = 0;
 
-	const int reqStream = WeakStringToInt(GetParam(Req, "stream="));
+	const u32 reqStream = WeakStringToInt(GetParam(Req, "stream="));
 
 	if(std::shared_lock<std::shared_mutex> L(UpdateCache_Lock); 1){
 

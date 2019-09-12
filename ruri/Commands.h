@@ -322,7 +322,7 @@ std::string CombineAllNextSplit(DWORD INDEX, const VEC(std::string_view) &SPLIT)
 	return comString;
 }
 
-std::string MapStatusUpdate(_User* u, const DWORD RankStatus, DWORD SetID, const DWORD BeatmapID){
+std::string MapStatusUpdate(_User* u, const u32 RankStatus, DWORD SetID, const DWORD BeatmapID){
 
 	if (!SetID && !BeatmapID)
 		return "No BID or SID were given.";
@@ -681,7 +681,7 @@ const std::string ProcessCommand(_User* u,const std::string_view Command, DWORD 
 
 	const auto Split = Explode_View(Command, ' ', 8);
 
-	const int CommandHash = WeakStringToInt(Split[0]);
+	const u32 CommandHash = WeakStringToInt(Split[0]);
 	//User Commands
 	{
 		switch (CommandHash) {
