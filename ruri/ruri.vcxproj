@@ -154,7 +154,7 @@
       <SDLCheck>false</SDLCheck>
       <DebugInformationFormat>None</DebugInformationFormat>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <StringPooling>true</StringPooling>
       <ExceptionHandling>Sync</ExceptionHandling>
       <BufferSecurityCheck>false</BufferSecurityCheck>
@@ -200,7 +200,7 @@
     <ClInclude Include="oppai.h" />
     <ClInclude Include="BCrypt\ow-crypt.h" />
     <ClInclude Include="pp\osuRandom.h" />
-    <ClInclude Include="pp\pp_base.h" />
+    <ClInclude Include="pp\Beatmap.h" />
     <ClInclude Include="pp\pp_ctb.h" />
     <ClInclude Include="pp\pp_mania.h" />
     <ClInclude Include="pp\pp_osu.h" />

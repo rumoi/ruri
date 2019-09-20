@@ -28,7 +28,7 @@ _inline constexpr R WeakStringToInt(const T& s) {
 
 #define WSTI WeakStringToInt
 
-namespace JSON{
+namespace JSON {
 
 	struct _JsonNode {
 
@@ -56,12 +56,12 @@ namespace JSON{
 				Type = JsonType::Unknown;
 				Value_List = 0;
 			}
-			_JsonValue(JsonType Type, std::string_view Name) : Type(Type), Name(WeakStringToInt(Name)), Value_List((_JsonNode*)0) {}
+			_JsonValue(JsonType Type, u32 Name) : Type(Type), Name(Name), Value_List((_JsonNode*)0) {}
 		};
 
 		_JsonValue Values[64] = {};
 
-		_JsonValue& emplace_back(JsonType Type, std::string_view Name) {
+		_JsonValue& emplace_back(JsonType Type, const u32 Name) {
 
 			constexpr size_t Size = sizeof(Values) / sizeof(Values[0]);
 
@@ -73,7 +73,7 @@ namespace JSON{
 			for (size_t i = 0; i < Size - 1; i++)
 				if (Values[i].Type == JsonType::Unknown) {
 					Values[i].Type = Type;
-					Values[i].Name = WeakStringToInt(Name);
+					Values[i].Name = Name;
 					return Values[i];
 				}
 
@@ -147,7 +147,7 @@ namespace JSON{
 
 			case '{':case '[': {
 			AddArray:
-				auto& Node = NodeTree.back()->emplace_back(_JsonNode::JsonType::Object, ArrayName);
+				auto& Node = NodeTree.back()->emplace_back(_JsonNode::JsonType::Object, WSTI<u32>(ArrayName));
 				NodeTree.emplace_back(Node.Value_List = new _JsonNode());
 				ArrayName = std::string_view();
 				break;
@@ -180,7 +180,7 @@ namespace JSON{
 					return std::string_view();
 				}(i);
 
-				NodeTree.back()->emplace_back(_JsonNode::JsonType::String, ArrayName).Value_String = Value;
+				NodeTree.back()->emplace_back(_JsonNode::JsonType::String, WSTI<u32>(ArrayName)).Value_String = Value;
 
 				ArrayName = std::string_view();
 
@@ -200,7 +200,7 @@ namespace JSON{
 
 		template<typename T>
 		_Json(const T& Input) {
-			Current = Root = ReadJson(std::string_view((const char*)Input.data(),Input.size()));
+			Current = Root = ReadJson(std::string_view((const char*)Input.data(), Input.size()));
 		}
 
 		_Json(_JsonNode* NewHead) {
@@ -274,7 +274,7 @@ namespace JSON{
 
 			}
 		}
-			return std::string_view();
+			   return std::string_view();
 		}
 
 		void Reset() { Current = Root; }

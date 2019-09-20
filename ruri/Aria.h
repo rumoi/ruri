@@ -6,6 +6,8 @@
 void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::string Reason);
 
 #define ARIA_THREAD_COUNT 8
+#define ModuleName "Aria"
+
 
 struct _Score {
 
@@ -549,8 +551,6 @@ void FileNameClean(std::string &S){
 //Calling GetBeatmapSetFromSetID can collect setID information from the osu API if it misses in the database
 _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, bool ForceUpdate = 0){
 
-	const char* mName = "Aria";
-
 	if ((!SetID || SetID >= aSize(BeatmapSet_Cache)))
 		return 0;
 
@@ -617,7 +617,7 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, bool For
 
 	if (SQLCon){//Failed - Or requesting an updated version.
 
-		LogMessage("Getting beatmap data from the osu!API", mName);
+		LogMessage("Getting beatmap data from the osu!API", ModuleName);
 
 		const std::string ApiRes = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "s=" + std::to_string(SetID));
 
@@ -633,6 +633,7 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, bool For
 				for (auto& MapData : BeatmapData){
 
 					std::string MD5 = std::string(JsonListGet<WSTI("file_md5")>(MapData));
+
 					{
 						for (char& c : MD5)
 							if (c == '\'')
@@ -731,16 +732,17 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, bool For
 
 
 				const std::string CountString = std::to_string(DeletedDiffs) + " diffs removed.";
-				LogMessage(CountString.c_str(), mName);
+				LogMessage(CountString.c_str(), ModuleName);
 
-				LogMessage("Got data. Attempting grab again.", mName);
+				LogMessage("Got data. Attempting grab again.", ModuleName);
 
-				if (GetMapData(SQLCon)) LogMessage("Grab success.", mName);
-				else     LogMessage("Grab fail.", mName);
+				if (GetMapData(SQLCon)) LogMessage("Grab success.", ModuleName);
+				else     LogMessage("Grab fail.", ModuleName);
 
 			}else{
-				LogMessage("SetID has been removed from the osu server\n", mName);
 
+				printf("SetID %i has been removed from the osu server\n", SetID);
+				
 				Set->Deleted = 1;
 
 				/*
@@ -826,7 +828,7 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 		if (BS->LastUpdate + 14400000 < cTime) {//Rate limit to every 4 hours
 			BS->LastUpdate = cTime;
 
-			LogMessage("Possible update to beatmap set.", "Aria");
+			LogMessage("Possible update to beatmap set.", ModuleName);
 
 			BS = GetBeatmapSetFromSetID(SetID, SQL,1);
 			if (!BS)
@@ -1365,8 +1367,7 @@ std::string urlDecode(const std::string_view SRC){
 	return ret;
 }
 
-void osu_getScores(const _HttpRes& http, _Con s) {
-	const char* mName = "Aria";
+void osu_getScores(const _HttpRes& http, _Con s){
 
 	const auto Params = _GetParams(http.Host);
 
@@ -1404,11 +1405,11 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 					tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
 					);
 		}
-
-		if (Mods & Relax)Mode += 4;
-		if (Mode >= 8)Mode = 0;
+		Mode = (Mods & Relax) ? Mode + 4 : Mode;
 	}
 
+	if (Mode > GM_MAX)
+		Mode = 0;
 
 	if (u.User->actionID != bStatus::sPlaying && BeatmapMD5.size() == 32)
 		memcpy(&u.User->ActionMD5[0], &BeatmapMD5[0], 32);
@@ -1418,7 +1419,6 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 	_BeatmapData* const BeatData = GetBeatmapCache(SetID, 0, BeatmapMD5,
 		std::string(Params.get<WSTI("f")>())
 		, &AriaSQL[s.ID],MapRef);
-
 
 	if (!BeatData || !BeatData->BeatmapID){
 		s.SendData(ConstructResponse(200, Empty_Headers, STACK("-1|0")));
@@ -1447,7 +1447,8 @@ void osu_getScores(const _HttpRes& http, _Con s) {
 		"\n" + BeatData->DisplayTitle//song name
 		+ "\n" + std::to_string(BeatData->Rating) + "\n";//rating
 //Personal best
-	if (!NeedUpdate && BeatData->RankStatus >= RANKED && LeaderBoard) {
+	if (!NeedUpdate && BeatData->RankStatus >= RANKED && LeaderBoard){
+
 		DWORD Rank = LeaderBoard->GetRankByUID(u.User->UserID);
 
 		if (Rank) {
@@ -1808,13 +1809,11 @@ void LastFM(_GetParams&& Params, _Con s){
 
 void HandleAria(_Con s){
 
-	char const*const mName = "Aria";
-
 	_HttpRes res;
 
 	if (!s.RecvData(res)){
 		s.Dis();
-		return LogError("Connection Lost", mName);
+		return LogError("Connection Lost", ModuleName);
 	}
 
 	bool ThreadSpawned = 0;
@@ -1972,9 +1971,7 @@ void Aria_Main(){
 	
 	UpdateCache.reserve(16);//Really should only be a few anyway.
 
-	const char * mName = "Aria";
-
-	LogMessage("Starting", mName);
+	LogMessage("Starting", ModuleName);
 
 	_ConQue<SOCKET> Slots[ARIA_THREAD_COUNT] = {};
 
@@ -1995,7 +1992,7 @@ void Aria_Main(){
 	SOCKET listening = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
 	if (listening == INVALID_SOCKET)
-		return LogError("Failed to load socket", mName);
+		return LogError("Failed to load socket", ModuleName);
 
 	sockaddr_in hint; 
 	ZeroMemory(&hint.sin_addr, sizeof(hint.sin_addr));
@@ -2061,3 +2058,5 @@ void Aria_Main(){
 		//ID = ++ID >= ARIA_THREAD_COUNT ? 0 : ID;	
 	}
 }
+
+#undef ModuleName

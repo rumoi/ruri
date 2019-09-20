@@ -89,9 +89,6 @@
     <ClInclude Include="Achievement.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="pp\pp_base.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="pp\pp_mania.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -120,6 +117,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Json.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="pp\Beatmap.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

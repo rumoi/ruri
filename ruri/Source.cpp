@@ -2,6 +2,8 @@
 #define M_BOT_NAME "Chloe"
 #define BOT_LOCATION 111
 
+constexpr bool UsingRawMirror = 1;
+
 enum Privileges{
 	UserBanned = 0,
 	UserPublic = 1,
@@ -136,7 +138,6 @@ typedef unsigned long long u64;
 typedef unsigned int u32;
 typedef unsigned short u16;
 typedef unsigned char u8;
-
 
 const int PING_TIMEOUT_OSU = 120000;//yes thanks peppy
 const int FREE_SLOT_TIME = 1800000;
@@ -343,7 +344,9 @@ const std::string PP_Col_Name[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
 
 
 constexpr size_t _strlen_(const char* s)noexcept{
-	return *s ? 1 + _strlen_(s + 1) : 0;
+	size_t V = 0;
+	while (s[V++]);
+	return V--;
 }
 template<typename T, size_t size>
 	constexpr size_t aSize(const T(&)[size]) noexcept{ return size; }
@@ -588,22 +591,15 @@ std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &&Pa
 
 struct _Timer{
 
-	const char*const Name;
-	DWORD Count;
-	std::chrono::steady_clock::time_point sTime;
+	const std::chrono::steady_clock::time_point sTime;
 	
-	_Timer(const char*const Name) :Name(Name) { Count = 0; };
+	_Timer(): sTime(std::chrono::steady_clock::now()){};
 
-	void Start(){
-		sTime = std::chrono::steady_clock::now();
-	}
-	void Stop(const DWORD Num = 0){
-		const unsigned long long TTime = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - sTime).count();
-		printf(KYEL "%s%i> " KRESET "%fms\n",Name, (!Num) ? Count : Num, double(double(TTime) / 1000000.0));
-		if(!Num)Count++;
-		Start();
-	}
+	~_Timer() {
 
+		printf("%fms\n",double(double(u64(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - sTime).count())) / 1000000.0));
+
+	}
 };
 
 std::vector<std::string> UsernameCache;
@@ -668,7 +664,7 @@ void UsernameCacheUpdateName(const DWORD UID, const std::string &s, _SQLCon *SQL
 
 std::string BeatmapPath;
 std::string ReplayPath;
-std::string osu_API_KEY;
+std::string osu_API_Key;
 std::string osu_API_BEATMAP;
 
 struct _RankList {
@@ -2259,7 +2255,6 @@ bool DownloadMapFromOsu(const int ID) {
 }
 
 #include "oppai.h"
-//#include "pp/pp_base.h"
 
 bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 
@@ -4588,9 +4583,9 @@ int main(){
 	{
 		JSON::_Json Config(ConfigBytes);
 
-		#define ReadConfig(s) s = Config.GetString<WSTI(#s)>()
+		#define ReadConfig(s) s = std::string(Config.GetString<WSTI(#s)>())
 
-		ReadConfig(osu_API_KEY);
+		ReadConfig(osu_API_Key);
 		ReadConfig(SQL_Password);
 		ReadConfig(SQL_Username);
 		ReadConfig(SQL_Schema);
@@ -4609,9 +4604,9 @@ int main(){
 	static_assert((BANCHO_THREAD_COUNT >= 4 && ARIA_THREAD_COUNT >= 4),
 		"BANCHO_THREAD_COUNT or ARIA_THREAD_COUNT can not be below 4");
 
-	if (osu_API_KEY.size() == 0)
+	if (osu_API_Key.size() == 0)
 		printf("No api key was given. Some features will not work.\n");
-	else osu_API_BEATMAP = "api/get_beatmaps?k=" + osu_API_KEY + "&";
+	else osu_API_BEATMAP = "api/get_beatmaps?k=" + osu_API_Key + "&";
 
 	if (WSAStartup(MAKEWORD(2, 2), &wsData)) {
 		printf("Failed to load WSA.\n");
