@@ -3,8 +3,6 @@
 #include "aes.h"
 #include "Base64.h"
 
-void RestrictUser(_User* Caller, const std::string UserName, DWORD ID, std::string Reason);
-
 #define ARIA_THREAD_COUNT 8
 #define ModuleName "Aria"
 
@@ -1254,9 +1252,10 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 					PP = ezpp_pp(ez);
 
 					if (!Loved && PP < 30000.f){
-						if (((sData.Mods & Relax) && PP > 1400.f) || (!(sData.Mods & Relax) && PP > 700.f)) {
-							std::thread t(RestrictUser, (_User*)0, "", UserID, "Restricted due too high pp gain in a single play: " + std::to_string(PP));
-							t.detach();
+						if (((sData.Mods & Relax) && PP > 1400.f) || (!(sData.Mods & Relax) && PP > 700.f)){
+
+							UpdateQue.emplace_back(UserID, (u32)0, _UserUpdate::Restrict, (size_t)new std::string("Restricted for too much pp in a single play: " + std::to_string(PP)));
+
 						}
 					}
 
@@ -1530,24 +1529,20 @@ void osu_getScores(const _HttpRes& http, _Con s){
 	s.Dis();
 }
 
-std::vector<std::tuple<const int,DWORD,std::string>> UpdateCache;std::shared_mutex UpdateCache_Lock;
+std::vector<std::tuple<const u32,u32,std::string>> UpdateCache;std::shared_mutex UpdateCache_Lock;
 
-void osu_checkUpdates(const std::string &Req,_Con s){
+void osu_checkUpdates(_GetParams&& Params,_Con s){
 
-	#define CheckURL(Text) MEM_CMP_OFF(Req,Text,_strlen_("web/check-updates.php?action="))
+	const std::string_view action = Params.get<WSTI("action")>();
 
-	if (!CheckURL("check")
-	 && !CheckURL("path"))
+	if(action != "check" && action != "path")
 		return SendAria404(s);
 
-	#undef CheckURL
-	
 	bool AlreadyIn = 0;
 
-	const u32 reqStream = WeakStringToInt(GetParam(Req, "stream="));
+	const u32 reqStream = WSTI<u32>(Params.get<WSTI("stream")>());
 
-	if(std::shared_lock<std::shared_mutex> L(UpdateCache_Lock); 1){
-
+	if(std::shared_lock L(UpdateCache_Lock); 1)
 		for (auto& [Stream,LastTime,Cache] : UpdateCache)
 			if (reqStream == Stream){
 				if (LastTime + 3600000 > clock_ms()){
@@ -1557,16 +1552,17 @@ void osu_checkUpdates(const std::string &Req,_Con s){
 				AlreadyIn = 1;
 				break;
 			}
-	}
 
-	std::scoped_lock L(UpdateCache_Lock);
-
-	const std::string res = GET_WEB("old.ppy.sh", _M(Req));
+	const std::string res = GET_WEB("old.ppy.sh", "web/check-updates.php?action=" + std::string(action)
+												+ "&stream=" + std::string(Params.get<WSTI("stream")>())
+												+ "&time=" + std::string(Params.get<WSTI("time")>()));
 
 	s.SendData(res);
 	s.Dis();
-	
-	if (AlreadyIn) {
+
+	std::scoped_lock L(UpdateCache_Lock);
+
+	if (likely(AlreadyIn)){
 		for (auto& [Stream, LastTime, Cache] : UpdateCache)
 			if (reqStream == Stream) {
 				LastTime = clock_ms();
@@ -1776,7 +1772,7 @@ void LastFM(_GetParams&& Params, _Con s){
 
 			u->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::RTX, '-'>(Flags == RelifeLoaded ? STACK("Disable osu-relife or get banned") : STACK("What did you think would happen?")));
 
-			const DWORD ID = u->UserID;
+			const u32 ID = u->UserID;
 
 			std::string FlagString;
 
@@ -1791,8 +1787,8 @@ void LastFM(_GetParams&& Params, _Con s){
 			printf(KYEL "%i> Flags: %s\n" KRESET, ID, FlagString.c_str());
 
 			if (!(u->privileges & AdminDev) && Flags != RelifeLoaded){
-				std::thread t(RestrictUser, (_User*)0, "", ID, "Restricted for flags: " + FlagString);
-				t.detach();
+
+				UpdateQue.emplace_back(ID,(u32)0, _UserUpdate::Restrict, (size_t)new std::string("Restricted for flags: " + FlagString));
 			}
 		}
 	}
@@ -1806,6 +1802,8 @@ void LastFM(_GetParams&& Params, _Con s){
 }
 
 #define IS_NUM(s)!(s < '0' || s > '9')
+
+#include "Admin.h"
 
 void HandleAria(_Con s){
 
@@ -1835,7 +1833,7 @@ void HandleAria(_Con s){
 				break;
 
 			case WSTI<u64>("/web/check-updates.php") :
-				osu_checkUpdates(std::string(res.Host.begin() + 1, res.Host.end()), s);
+				osu_checkUpdates(_GetParams(res.Host), s);
 				break;
 
 			case WSTI<u64>("/web/osu-osz2-getscores.php") :
@@ -1852,7 +1850,7 @@ void HandleAria(_Con s){
 				}
 				break;
 
-			case WSTI<u64>("/web/osu-search.php") : {
+			case WSTI<u64>("/web/osu-search.php"):{
 
 					size_t Start = 0;
 
@@ -1912,7 +1910,10 @@ void HandleAria(_Con s){
 			case WSTI<u64>("/web/lastfm.php") :
 				LastFM(_GetParams(res.Host), s);
 				break;
-
+			case WSTI<u64>("/web/admin.php") :
+				HandleAdmin(_GetParams(res.Host), s);
+				break;
+				
 			default:
 				SendAria404(s);
 				break;
@@ -1933,13 +1934,13 @@ template<typename T>
 		std::mutex Lock;
 
 		_inline void notify() {
-			std::lock_guard<std::mutex> L(Lock);
+			std::lock_guard L(Lock);
 			Count++;
 			cv.notify_one();
 		}
 
 		_inline void wait() {
-			std::unique_lock<std::mutex> L(Lock);
+			std::unique_lock L(Lock);
 			while (!Count)
 				cv.wait(L);
 
@@ -1948,11 +1949,100 @@ template<typename T>
 
 	};
 
+template<size_t Thread_Count>
+struct _SocketWorker{
+
+	_ConQue<SOCKET> Slots[Thread_Count] = {};
+
+	template<typename F>
+	void work(const char* Socket, F WorkFunction, u16 PORT = 0){
+
+		for (size_t i = 0; i < Thread_Count; i++){
+			std::thread t(WorkFunction,i, std::ref(Slots[i]));
+			t.detach();
+		}
+
+	#ifndef LINUX
+
+		SOCKET listening = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+		sockaddr_in hint;
+		ZeroMemory(&hint.sin_addr, sizeof(hint.sin_addr));
+		hint.sin_family = AF_INET;
+		hint.sin_port = htons(PORT);
+
+		::bind(listening, (sockaddr*)& hint, sizeof(hint));
+
+		listen(listening, SOMAXCONN);// Sets the socket to listen
+
+		sockaddr_in client;
+
+		DWORD Time = 5000;
+		DWORD MPL = MAX_PACKET_LENGTH;
+
+		setsockopt(listening, SOL_SOCKET, SO_RCVTIMEO, (char*)& Time, 4);
+		setsockopt(listening, SOL_SOCKET, SO_SNDTIMEO, (char*)& Time, 4);
+		setsockopt(listening, SOL_SOCKET, SO_RCVBUF, (char*)& MPL, 4);
+
+	#else
+
+		SOCKET listening = socket(AF_UNIX, SOCK_STREAM, 0);
+
+		struct sockaddr_un serveraddr;
+		ZeroMemory(&serveraddr, sizeof(serveraddr));
+
+		serveraddr.sun_family = AF_UNIX;
+		strcpy(serveraddr.sun_path, Socket);
+
+		unlink(Socket);
+
+		if (bind(listening, (struct sockaddr*) & serveraddr, SUN_LEN(&serveraddr)) < 0) {
+			perror("bind() failed");
+			return;
+		}
+		if (listen(listening, SOMAXCONN) < 0) {
+			perror("listen() failed");
+			return;
+		}
+		chmod(Socket, S_IRWXU | S_IRWXG | S_IRWXO);
+
+	#endif
+
+		u32 ID = 0;
+
+		for (;;){
+
+		#ifndef LINUX
+			sockaddr_in client;
+			ZeroMemory(&client, sizeof(client));
+			int clientSize = sizeof(client);
+			SOCKET s = accept(listening, (sockaddr*)&client, &clientSize);
+		#else
+			SOCKET s = accept(listening, 0, 0);
+		#endif
+
+			if (s == INVALID_SOCKET)
+				continue;
+
+			while (Slots[ID].S)
+				ID = ++ID >= Thread_Count ? 0 : ID;
+
+			Slots[ID].S = s;
+			Slots[ID].notify();
+
+			++COUNT_REQUESTS;
+
+		}
+
+	}
+
+};
+
 void AriaWork(const DWORD ID, _ConQue<SOCKET> &Slot){
 
 	SOCKET conSocket = 0;
 
-	while (1){
+	for(;;){
 
 		while (!(conSocket = Slot.S))
 			Slot.wait();
@@ -1971,92 +2061,19 @@ void Aria_Main(){
 	
 	UpdateCache.reserve(16);//Really should only be a few anyway.
 
-	LogMessage("Starting", ModuleName);
-
-	_ConQue<SOCKET> Slots[ARIA_THREAD_COUNT] = {};
+	for (size_t i = 0; i < ARIA_THREAD_COUNT; i++)
+		AriaSQL[i].Connect();
 
 	{
-		for (DWORD i = 0; i < ARIA_THREAD_COUNT; i++){
-			printf("	Aria%i: %i\n", i, int(AriaSQL[i].Connect()));
-			std::thread t(AriaWork, i, std::ref(Slots[i]));
-			t.detach();
-		}
-		{
-			std::thread a(MIRROR::HandleMirrorAPI);
-			a.detach();
-		}
+		std::thread a(MIRROR::HandleMirrorAPI);
+		a.detach();
 	}
+	
 	ARIALOADED = 1;
 
-#ifndef LINUX
-	SOCKET listening = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	_SocketWorker<ARIA_THREAD_COUNT> Worker;
 
-	if (listening == INVALID_SOCKET)
-		return LogError("Failed to load socket", ModuleName);
-
-	sockaddr_in hint; 
-	ZeroMemory(&hint.sin_addr, sizeof(hint.sin_addr));
-	hint.sin_family = AF_INET;
-	hint.sin_port = htons(ARIAPORT);
-	
-	::bind(listening, (sockaddr*)&hint, sizeof(hint));
-
-	listen(listening, SOMAXCONN);// Sets the socket to listen
-
-	sockaddr_in client;
-
-	DWORD Time = 5000;
-	DWORD MPL = MAX_PACKET_LENGTH;
-
-	setsockopt(listening, SOL_SOCKET, SO_RCVTIMEO, (char*)&Time, 4);
-	setsockopt(listening, SOL_SOCKET, SO_SNDTIMEO, (char*)&Time, 4);
-	setsockopt(listening, SOL_SOCKET, SO_RCVBUF, (char*)&MPL, 4);
-
-#else
-
-	struct sockaddr_un serveraddr;
-
-	SOCKET listening = socket(AF_UNIX, SOCK_STREAM, 0);
-
-	memset(&serveraddr, 0, sizeof(serveraddr));
-	serveraddr.sun_family = AF_UNIX;
-	strcpy(serveraddr.sun_path, ARIA_UNIX_SOCKET);
-
-	unlink(ARIA_UNIX_SOCKET);
-
-	if (bind(listening, (struct sockaddr *)&serveraddr, SUN_LEN(&serveraddr)) < 0) {
-		perror("bind() failed");
-		return;
-	}
-	if (listen(listening, SOMAXCONN) < 0) {
-		perror("listen() failed");
-		return;
-	}
-	chmod(ARIA_UNIX_SOCKET, S_IRWXU | S_IRWXG | S_IRWXO);
-
-#endif
-
-	DWORD ID = 0;
-
-	while(1){
-		
-#ifndef LINUX
-		int clientSize = sizeof(client);
-		ZeroMemory(&client, clientSize);
-		SOCKET s = accept(listening, (sockaddr*)&client, &clientSize);
-#else
-		SOCKET s = accept(listening, 0, 0);
-#endif
-		if (s == INVALID_SOCKET)continue;
-
-		while (Slots[ID].S)
-			ID = ++ID >= ARIA_THREAD_COUNT ? 0 : ID;
-
-		Slots[ID].S = s;
-		Slots[ID].notify();
-
-		//ID = ++ID >= ARIA_THREAD_COUNT ? 0 : ID;	
-	}
+	Worker.work(ARIA_UNIX_SOCKET, AriaWork, ARIAPORT);
 }
 
 #undef ModuleName

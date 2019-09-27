@@ -200,8 +200,6 @@ struct _SQLKey{
 
 };
 
-
-
 const std::string SQL_INSERT(const std::string& Table, const VEC(_SQLKey)& Values) {
 	return "INSERT INTO " + Table + " (" + [&] {
 		std::string Return;

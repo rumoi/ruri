@@ -188,7 +188,7 @@ std::array ChannelTable = { _Channel("#General","General Chat.", IRC_Public,IRC_
 							_Channel("#supporter", "Supporter only chat.", IRC_Supporter, IRC_Supporter,1),
 							_Channel("#admin", "Command dumpster.", IRC_Admin, IRC_Admin,1),
 							_Channel("#devlog", "Log all the things.", IRC_Dev, IRC_Dev, 1),
-							_Channel("#lobby", "Chat with others browsing for a lobby.", IRC_Public, IRC_Public,0,1)
+							_Channel("#lobby", "", IRC_Public, IRC_Public,0,1)
 						};
 VEC(byte) PublicChannelCache;
 
@@ -199,12 +199,10 @@ _Channel& chan_Admin{ChannelTable[3]};
 _Channel& chan_DevLog{ChannelTable[4]};
 _Channel& chan_Lobby{ChannelTable[5]};
 
-_inline _Channel* GetChannelByName(std::string_view Name){
-
-	const u32 Sum = WeakStringToInt(Name);
+_inline _Channel* GetChannelByName(u32 Name){
 
 	for (auto& Chan : ChannelTable)
-		if (Chan.NameSum == Sum)
+		if (Chan.NameSum == Name)
 			return &Chan;
 
 	return 0;

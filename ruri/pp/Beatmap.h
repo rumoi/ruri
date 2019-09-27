@@ -162,8 +162,6 @@ namespace BEATMAP {
 		return V--;
 	}
 
-	template<typename T, T V> struct CONSTX { constexpr static T value = V; };
-
 	template<typename T>
 	const u8* ReadLines(const u8* Start, const u8* End, T Lamb) {
 

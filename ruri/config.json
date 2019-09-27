@@ -1,8 +1,8 @@
 {
-	"osu_API_Key": "",
-	"SQL_Username": "root",
-	"SQL_Password": "",
-	"SQL_Schema": "ripple",
-	"BeatmapPath": "/home/user/lets/.data/beatmaps/",
-	"ReplayPath": "/home/user/lets/.data/replays/replay_"
+  "BeatmapPath": "/home/user/lets/.data/beatmaps/",
+  "osu_API_Key": "",
+  "ReplayPath": "/home/user/lets/.data/replays/replay_",
+  "SQL_Password": "",
+  "SQL_Schema": "ripple",
+  "SQL_Username": "root"
 }

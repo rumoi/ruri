@@ -27,6 +27,8 @@ _inline constexpr R WeakStringToInt(const T& s) {
 }
 
 #define WSTI WeakStringToInt
+//#define CWSTI(type, s) CONSTX<type,WSTI<type>(s)>::value Why clang
+
 
 namespace JSON {
 

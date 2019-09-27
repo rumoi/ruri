@@ -127,9 +127,6 @@ struct _Match{
 	DWORD PlayerCount;
 	std::array<_Slot, MULTI_MAXSIZE> Slots;
 	int Seed;
-	int LastUpdate = 0;
-
-
 
 	template<size_t Size>
 		_inline void sendUpdate(const std::array<byte,Size> &Data, const _User*const Sender = 0){
@@ -270,7 +267,7 @@ struct _Match{
 
 std::array<_Match, MAX_MULTI_COUNT> Match;
 
-std::tuple<std::shared_mutex,int, VEC(byte)> LobbyCache[MAX_MULTI_COUNT];
+//std::tuple<std::shared_mutex,int, VEC(byte)> LobbyCache[MAX_MULTI_COUNT];
 
 _inline _Match* getMatchFromID(const USHORT ID){
 	return ID && ID < MAX_MULTI_COUNT && Match[ID - 1].PlayerCount ? &Match[ID - 1] : 0;
@@ -342,9 +339,6 @@ namespace bPacket{
 				AddMem(Res, Mods, 64);
 			}
 			AddStream(Res, m->Seed);
-
-			if (SendPassword)
-				m->LastUpdate = clock();
 
 			*(DWORD*)&Res[3] = Res.size() - 7;
 
