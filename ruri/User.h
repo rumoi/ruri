@@ -49,7 +49,7 @@ namespace User {
 			Banned->privileges = Priv;
 			Banned->choToken = 0;
 		}
-		//We need to clean up leaderboards brough into memory. This is very expensive; luckily restricting people should be relatively rare.
+		//We need to clean up leaderboards brought into memory. This is very expensive; luckily restricting people should be relatively rare.
 
 		for (size_t i = 0; i < ARRAY_SIZE(BeatmapSet_Cache); i++)
 			if (auto* Set = BeatmapSet_Cache[i]; Set) {

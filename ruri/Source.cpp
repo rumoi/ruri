@@ -1,6 +1,13 @@
 #define USERID_START 1000
 #define M_BOT_NAME "ruri"
 #define BOT_LOCATION 0
+/*#define USERID_START 10
+#define M_BOT_NAME "Chloe"
+#define BOT_LOCATION 111*/
+
+#define BANCHO_THREAD_COUNT 4
+#define ARIA_THREAD_COUNT 8
+
 
 constexpr bool UsingRawMirror = 1;
 enum Privileges{
@@ -387,6 +394,7 @@ template<typename T, size_t size>
 	}*/
 
 #define ZeroArray(s) memset(s,0,sizeof(s))
+#define SafeRead(Var)if(O + sizeof(Var) > End)return;Var = *(decltype(Var)*)O;O += sizeof(Var)
 
 template<const size_t nSize>
 	_inline const auto STACK(const char(&String)[nSize]) {
@@ -519,7 +527,6 @@ template<typename T, T V> struct CONSTX { constexpr static T value = V; };
 #include "SQL.h"
 #include "Json.h"
 
-#define BANCHO_THREAD_COUNT 4
 _SQLCon SQL_BanchoThread[BANCHO_THREAD_COUNT];
 
 #include "BCrypt/BCrypt.hpp"
@@ -952,19 +959,6 @@ _inline void AddString_SQL(std::vector<byte>& v, const sql::SQLString &&Value) {
 		memcpy(&v[v.size() - Size], &Value[0], Size);
 	}
 }
-/*
-struct _DelayedBanchoPacket{
-	int Time;
-	_BanchoPacket b;
-
-	_DelayedBanchoPacket() {
-		Time = 0;
-	}
-	_DelayedBanchoPacket(const int t, const _BanchoPacket a) {
-		Time = t;
-		b = a;
-	}
-};*/
 
 struct _UserStats {
 
@@ -2082,7 +2076,7 @@ void debug_SendOnlineToAll(_User *u){
 
 void Event_client_stopSpectating(_User *u){
 
-	auto specLeave = PacketBuilder::Fixed_Build<Packet::Server::channelKicked, '-'>(STACK("#spectator"));
+	constexpr auto specLeave = PacketBuilder::CT::String_Packet(Packet::Server::channelKicked, "#spectator");
 
 	u->addQueArray(specLeave);
 
@@ -2198,7 +2192,6 @@ void Event_client_channelJoin(_User *tP,const byte* const Packet, const DWORD Si
 		const std::string_view ChannelName = ReadUleb_View(O, O + Size);
 
 		_Channel* c = GetChannelByName(WSTI(ChannelName));
-
 		
 		if (c) {
 			c->JoinChannel(tP);
@@ -2953,31 +2946,27 @@ void Event_client_spectateFrames(_User *tP, const byte* const Packet, const DWOR
 
 }
 
-void ReadMatchData(_Match *m, const byte* const Packet,const DWORD Size, bool Safe = 0){//todo make better
+void ReadMatchData(_Match &m, const byte* const Packet,const DWORD Size, bool Safe = 0){//todo make better
 
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size;
 
-	/*m->MatchId = *(USHORT*)O; O += 2;*/
-	/*m->inProgress = *(byte*)O; O++;*/
+	O += 3;//Skip MatchId and inProgress.
 
-	O += 3;
+	SafeRead(m.Settings.MatchType);
+	SafeRead(m.Settings.Mods);
+	m.Settings.Name = ReadUleb(O,End);
 
-	if (O + 1 > End)return;
-	m->Settings.MatchType = *(byte*)O; O++;
-	if (O + 4 > End)return;
-	m->Settings.Mods = *(DWORD*)O; O += 4;
-	m->Settings.Name = ReadUleb(O,End);
 	if (!Safe){
-		m->Settings.Password = ReadUleb(O,End);
-		ReplaceAll(m->Settings.Password," ","_");
-		ReplaceAll(m->Settings.Password, "//private", "");
+		m.Settings.Password = ReadUleb(O,End);
+		ReplaceAll(m.Settings.Password," ","_");
+		ReplaceAll(m.Settings.Password, "//private", "");
 	}
 	else SkipUleb(O,End);
-	m->Settings.BeatmapName = ReadUleb(O,End);
-	if (O + 4 > End)return;
-	m->Settings.BeatmapID = *(DWORD*)O; O += 4;
-	m->Settings.BeatmapChecksum = ReadUleb(O,End);
+
+	m.Settings.BeatmapName = ReadUleb(O,End);
+	SafeRead(m.Settings.BeatmapID);
+	m.Settings.BeatmapChecksum = ReadUleb(O,End);
 
 	byte tSlotStatus[NORMALMATCH_MAX_COUNT];
 	byte tSlotTeam[NORMALMATCH_MAX_COUNT];
@@ -2985,38 +2974,37 @@ void ReadMatchData(_Match *m, const byte* const Packet,const DWORD Size, bool Sa
 	if (!Safe)memcpy(tSlotStatus, (void*)O, NORMALMATCH_MAX_COUNT); O += NORMALMATCH_MAX_COUNT;
 	if (O + NORMALMATCH_MAX_COUNT > End)return;
 	if (!Safe)memcpy(tSlotTeam, (void*)O, NORMALMATCH_MAX_COUNT); O += NORMALMATCH_MAX_COUNT;
-	if (!Safe)m->HostID = *(DWORD*)O; O += 4;
+	if (!Safe)m.HostID = *(DWORD*)O; O += 4;
 	
 	if (!Safe){
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++) {
-			m->Slots[i].SlotStatus = tSlotStatus[i];
-			m->Slots[i].SlotTeam = tSlotTeam[i];
+			m.Slots[i].SlotStatus = tSlotStatus[i];
+			m.Slots[i].SlotTeam = tSlotTeam[i];
 		}
 	}
 
 	for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++)
-		if (m->Slots[i].SlotStatus & SlotStatus::HasPlayer)
+		if (m.Slots[i].SlotStatus & SlotStatus::HasPlayer)
 			O += 4;
 	
 	if (O + 4 > End)return;
 
-	m->Settings.PlayMode = *(byte*)O; O++;
-	m->Settings.ScoringType = *(byte*)O; O++;
-	m->Settings.TeamType = *(byte*)O; O++;
-	m->Settings.FreeMod = *(byte*)O; O++;
+	m.Settings.PlayMode = *(byte*)O; O++;
+	m.Settings.ScoringType = *(byte*)O; O++;
+	m.Settings.TeamType = *(byte*)O; O++;
+	m.Settings.FreeMod = *(byte*)O; O++;
 
-	if (m->Settings.FreeMod){
+	if (m.Settings.FreeMod){
 		if (O + (NORMALMATCH_MAX_COUNT * 4) > End)return;
 		int tCurrentMods[NORMALMATCH_MAX_COUNT];
 		memcpy(tCurrentMods, (void*)O, NORMALMATCH_MAX_COUNT * 4);
 
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++)
-			m->Slots[i].CurrentMods = tCurrentMods[i];		
+			m.Slots[i].CurrentMods = tCurrentMods[i];		
 
 		O += NORMALMATCH_MAX_COUNT * 4;
 	}
-	if (O + 4 > End)return;
-	m->Seed = *(DWORD*)O;
+	SafeRead(m.Seed);
 }
 
 void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD Size){
@@ -3025,7 +3013,6 @@ void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD S
 
 	if (tP->CurrentMatchID || !(tP->privileges & UserPublic))//already in a match? Might want to kick them from the old one.
 		return tP->addQueArray(Failed);
-
 
 	_Match *const m = getEmptyMatch();
 
@@ -3037,7 +3024,7 @@ void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD S
 		tP->inLobby = 0;
 	}
 
-	ReadMatchData(m, Packet,Size);
+	ReadMatchData(*m, Packet,Size);
 
 	m->HostID = tP->UserID;
 	m->inProgress = 0;
@@ -3147,7 +3134,7 @@ void Event_client_matchChangeSettings(_User *tP, const byte* const Packet, const
 
 	const auto OldFlags = m->Settings.StatusFlags();
 
-	ReadMatchData(m, Packet,Size, 1);
+	ReadMatchData(*m, Packet,Size, 1);
 
 	const bool unReadyUsers = (OldFlags.Total != m->Settings.StatusFlags().Total);
 
@@ -3249,6 +3236,7 @@ void Event_client_joinMatch(_User *tP, const byte* const Packet, const DWORD Siz
 	if (O + 4 > End)return;
 
 	const USHORT MatchID = USHORT(*(DWORD*)O); O += 4;
+
 	const std::string_view Password = ReadUleb_View(O,End);
 
 	if (_Match* m = getMatchFromID(tP->CurrentMatchID); m){
@@ -4324,29 +4312,29 @@ void DisconnectUser(_User *u){
 		u->inLobby = 0;
 	}
 	if (u->CurrentMatchID){
+		if (_Match * m = getMatchFromID(u->CurrentMatchID); m){
+			std::scoped_lock L(m->Lock);
 
-		_Match *m = getMatchFromID(u->CurrentMatchID);
-
-		if (m) {
-			m->Lock.lock();
 			m->removeUser(u, 0);
 			m->sendUpdateVector(bPacket::bMatch(m));
-			m->Lock.unlock();
 		}
 		u->CurrentMatchID = 0;
 	}
 
-	Event_client_stopSpectating(u);
+	if(u->CurrentlySpectating)
+		Event_client_stopSpectating(u);
 
-	for (byte i = 0; i <= GM_MAX; i++)
+	for (size_t i = 0; i <= GM_MAX; i++)
 		u->Stats[i].reset();
 
-	u->Spectators.clear();
-
-	u->qLock.lock();
-	u->QueBytes.clear();
-	//u->dQue.clear();
-	u->qLock.unlock();
+	{
+		std::scoped_lock L(u->SpecLock);
+		u->Spectators.clear();
+	}
+	{
+		std::scoped_lock L(u->qLock);
+		u->QueBytes.clear();
+	}
 }
 
 void HandlePacket(_Con s){
@@ -4681,7 +4669,7 @@ void receiveConnections(){
 
 #if defined(LINUX) && defined(API)
 	{
-		std::thread a(ruri_API);
+		std::thread a(API_Main);
 		a.detach();
 	}
 #endif

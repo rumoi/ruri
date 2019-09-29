@@ -2,8 +2,6 @@
 
 #include "aes.h"
 #include "Base64.h"
-
-#define ARIA_THREAD_COUNT 8
 #define ModuleName "Aria"
 
 
@@ -453,14 +451,14 @@ struct _BeatmapDataRef {
 
 struct _BeatmapSet{
 
-	DWORD ID;
-	DWORD LastUpdate;
+	u32 ID;
+	u32 LastUpdate;
 	std::vector<_BeatmapData> Maps;
 	std::shared_mutex MapUpdateLock;
 	bool Deleted;
 
 	_BeatmapSet(){
-		LastUpdate = INT_MIN;
+		LastUpdate = 0;
 		ID = 0;
 		Deleted = 0;
 		Maps.reserve(16);
@@ -468,14 +466,14 @@ struct _BeatmapSet{
 
 	_BeatmapSet(const DWORD SetID){
 		ID = SetID;
-		LastUpdate = INT_MIN;
+		LastUpdate = 0;
 		Deleted = 0;
 		Maps.reserve(16);
 	}
 
 	_BeatmapSet(const DWORD SetID, const bool Del) {
 		ID = SetID;
-		LastUpdate = INT_MIN;
+		LastUpdate = 0;
 		Deleted = Del;
 		Maps.reserve(16);
 	}
@@ -811,7 +809,7 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 		if (!BS->ID)
 			return &BeatmapNotSubmitted;
 
-		if (std::shared_lock<std::shared_mutex> L(BS->MapUpdateLock);1){
+		if (std::shared_lock L(BS->MapUpdateLock);1){
 
 			for (auto& Map : BS->Maps){
 				if ((ValidMD5 && Map.Hash == MD5) || (BID && Map.BeatmapID == BID) ||
@@ -822,7 +820,9 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 				}				
 			}
 		}
-		const DWORD cTime = clock_ms();
+
+		const u32 cTime = clock_ms();
+
 		if (BS->LastUpdate + 14400000 < cTime) {//Rate limit to every 4 hours
 			BS->LastUpdate = cTime;
 
