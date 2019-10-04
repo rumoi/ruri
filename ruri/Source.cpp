@@ -6,11 +6,13 @@
 #define BOT_LOCATION 111*/
 
 #define BANCHO_THREAD_COUNT 4
-#define ARIA_THREAD_COUNT 8
+#define ARIA_THREAD_COUNT 4
 
 
 constexpr bool UsingRawMirror = 1;
-enum Privileges{
+
+/*
+enum Privileges {
 	UserBanned = 0,
 	UserPublic = 1,
 	UserNormal = 2 << 0,
@@ -37,7 +39,39 @@ enum Privileges{
 	AdminDev = 2 << 21,
 	Premium = 2 << 22,
 	AdminQAT = 2 << 23
+};*/
+
+enum class Privileges : unsigned int {
+
+	Visible = 1 << 0,
+	Verified = 1 << 1,
+	Tournament_Manager = 1 << 2,
+
+	Donor = 1 << 6,
+	Premium = 1 << 7,
+	Alumni = 1 << 8,
+
+	Mod_General = 1 << 12,//Can silence people
+	Mod_Nominator = 1 << 13,//Can rank or love a map
+	Mod_MapManager = 1 << 14,//Can rank/unrank/love or change the locked status of a map
+
+	Admin_General = 1 << 21,//Can restrict people and read reports.
+	Admin_ManageUsers = 1 << 22,//Can manage users name/email and other personal data.
+	Admin_Alert = 1 << 23,
+	Admin_Wipe = 1 << 24,//Basically allows the user to evoke/invoke scores for accounts
+
+	SuperAdmin = 1 << 30,//Highest permission. Manages users and admins alike.
+
+	Banned = 0,
+
+	CanRankMaps = Mod_Nominator | Mod_MapManager,
+
+	Name_Yellow = Donor | Premium | Alumni,
+	Name_Orange = Mod_General | Mod_Nominator | Mod_MapManager,
+	Name_Periwinkle = Admin_General | Admin_ManageUsers | Admin_Alert | Admin_Wipe,
+	Name_Blue = SuperAdmin
 };
+
 enum UserType
 {
 	None = 0,
@@ -522,7 +556,7 @@ size_t GetIndex(const T& Start, const T2& End) {
 	return (size_t(&End) - size_t(&Start[0])) / sizeof(Start[0]);
 }
 
-template<typename T, T V> struct CONSTX { constexpr static T value = V; };
+template<typename T, T V> struct CONSTX { constexpr static T value = V;};
 
 #include "SQL.h"
 #include "Json.h"
@@ -718,7 +752,7 @@ struct _RankList {
 		ID = I;
 		PP = P;
 	}
-	bool operator ==(const _RankList A)const{return ID == A.ID;}
+	bool operator ==(const _RankList A)const noexcept{return ID == A.ID;}
 
 };
 struct _rList{
@@ -928,15 +962,13 @@ void AddUleb(VEC(byte) &v, size_t s){
 
 	if (s){
 
-		uint64_t ret = 2ull + (0x0b << 8) + ((s & 0x7f) << 16);
+		u64 ret = 0x0b02ull + ((s & 0x7f) << 16);
 
-		while(unlikely(*&s >>= 7)){
-			ret += (uint64_t(0x80) << ((ret & 0xff) << 3)) + 1;
-			ret += (uint64_t(s & 0x7f) << ((ret & 0xff) << 3));
-		}
+		while(unlikely(s = (s >> 7)))
+			ret += (u64(0x80) << ((ret++ & 0xff) << 3)) + (u64(s & 0x7f) << ((ret & 0xff) << 3));
 
 		v.resize(v.size() + 8);
-		*(uint64_t*)(&v[v.size() - 8]) = ret >> 8;
+		*(u64*)(&v[v.size() - 8]) = ret >> 8;
 		v.resize(v.size() - (8 - (ret & 0xff)));
 	}
 	else v.push_back(0);
@@ -1531,7 +1563,7 @@ struct _MD5 {
 			MD5[i] = CharHexToDecimal(Input[i]) + (CharHexToDecimal(Input[16 + i]) << 4);//It does not really matter if the data is rearranged.
 	}
 
-	const bool operator==(const _MD5& x) const {
+	const bool operator==(const _MD5& x) const noexcept{
 		if (*(uint64_t*)&x.MD5[0] != *(uint64_t*)& this->MD5[0]
 			|| *(uint64_t*)&x.MD5[8] != *(uint64_t*)& this->MD5[8])
 			return 0;
@@ -1842,7 +1874,7 @@ template<typename T, size_t Size>
 			}
 		}
 
-		T& operator [](const size_t Index) {
+		T& operator [](const size_t Index)noexcept {
 			return Data[Index];
 		}
 	};
@@ -1939,11 +1971,11 @@ struct _UserRef {
 			User->addRef();
 	}
 
-	_User* operator->() {
+	_User* operator->()const noexcept {
 		return User;
 	}
 
-	const bool operator!() {
+	const bool operator!()const noexcept {
 		return !(User);
 	}
 
@@ -2022,16 +2054,18 @@ _User* GetUserFromNameSafe(const std::string &Name, const bool Force = 0){
 
 #undef UserDoubleCheck
 
-_inline byte GetUserType(const DWORD p){
-	return  p & Privileges::AdminDev
-			?		UserType::Peppy
-		:	p & Privileges::AdminBanUsers
-			?		UserType::Friend
-		:	p & (Privileges::AdminChatMod | Privileges::AdminManageBeatmaps | Privileges::AdminQAT)
-			?		UserType::BAT
-		:	p & (Privileges::Premium | Privileges::UserDonor)
-			?		UserType::Supporter
-		:	UserType::Normal;
+_inline byte GetUserType(const u32 p){
+
+	if (p & (u32)Privileges::Name_Blue)
+		return UserType::Peppy;
+	if (p & (u32)Privileges::Name_Periwinkle)
+		return UserType::Friend;
+	if (p & (u32)Privileges::Name_Orange)
+		return UserType::BAT;
+	if (p & (u32)Privileges::Name_Yellow)
+		return UserType::Supporter;
+
+	return UserType::Normal;
 }
 
 #include "Channel.h"
@@ -2056,7 +2090,7 @@ namespace PacketBuilder::CT::BotInfo {
 
 void debug_SendOnlineToAll(_User *u){
 
-	if (u->privileges & UserPublic){
+	if (u->privileges & (u32)Privileges::Visible){
 
 		VEC(byte) b;
 
@@ -2229,7 +2263,7 @@ void Event_client_userStatsRequest(_User *u, const byte* const Packet, const DWO
 
 					_UserRef tP(GetUserFromID(uID), 1);
 
-					if (!tP || !tP->choToken || (!(tP->privileges & UserPublic) && u != tP.User)){
+					if (!tP || !tP->choToken || (!(tP->privileges & (u32)Privileges::Visible) && u != tP.User)){
 						//u->addQueArray<0>(PacketBuilder::Fixed_Build<Packet::Server::userLogout,'i'>(uID));
 						continue;
 					}
@@ -2579,30 +2613,34 @@ void BotMessaged(_User *tP, const std::string_view Message){
 
 		if (mapID){
 
-			#define MODREAD(s) if(MEM_CMP_OFF(BotMessage[i],#s,1)){ Mods |= s;continue; }
+			#define READ(s) case WSTI(#s): Mods |= s;break;
 
-			for (DWORD i = BotMessage.size() - 1; i > 5; i--){
+			for (size_t i = 3; i < BotMessage.size(); i++){
 
-				if (BotMessage[i].size() <= 1)continue;
+				if (BotMessage[i].size() < 6)
+					continue;
 
-				MODREAD(DoubleTime);
-				MODREAD(Nightcore);
-				MODREAD(Hidden);
-				MODREAD(HardRock);
-				MODREAD(Flashlight);
-				MODREAD(SpunOut);
-				MODREAD(Easy);
-				MODREAD(NoFail);
-				MODREAD(HalfTime);
-				MODREAD(Relax);
+				switch (WSTI(std::string_view(BotMessage[i].data() + 1, BotMessage.size() - 1))){
+
+					READ(DoubleTime)
+					READ(Nightcore)
+					READ(Hidden)
+					READ(HardRock)
+					READ(Flashlight)
+					READ(SpunOut)
+					READ(Easy)
+					READ(NoFail)
+					READ(HalfTime)
+					READ(Relax)
+
+					default:break;
+				}
 
 			}
 
-			if (Mods & Nightcore)
-				Mods |= DoubleTime;
+			Mods |= (Mods & Nightcore) ? DoubleTime : 0;
 
-
-			#undef MODREAD
+			#undef READ
 		}
 
 	}
@@ -2614,57 +2652,41 @@ void BotMessaged(_User *tP, const std::string_view Message){
 				return PacketBuilder::Build<Packet::Server::sendMessage,'m','-','-','s','i'>(tP->QueBytes,&tP->qLock,STACK(M_BOT_NAME),
 					STACK("This is now in !with. Here are some examples of the usage.\n!with HDDT 95\n!with 98.5 HD HR"),&tP->Username, USERID_START-1);
 
-			if (BotMessage[0] == "!with"){
+			if (BotMessage[0] == "!with" && (mapID = tP->LastSentBeatmap)){
 
-				Mods = 0;
-				std::string AllMods;
-				for (DWORD i = 1; i < BotMessage.size(); i++){
-					AllMods += BotMessage[i];
+				std::string Combined;
+
+				for (DWORD i = 1; i < BotMessage.size(); i++) {
+					Combined += BotMessage[i];
+
 					if (Acc == 0.f || Combo == 0){
 						byte Com = 0;
 						std::string tNum;
 
-						for (const char C : BotMessage[i]){
+						for (const char C : BotMessage[i]) {
 							if ((C >= '0' && C <= '9'))
 								tNum.push_back(C);
-							else if (C == '.' && tNum.size() != 0 && Com != 2){
+							else if (C == '.' && tNum.size() != 0 && Com != 2) {
 								Com = 2;
 								tNum.push_back(C);
-							}else if ((C == 'x' || C == 'X') && Com != 2)
+							}
+							else if ((C == 'x' || C == 'X') && Com != 2)
 								Com = 1;
 						}
 
-						if (tNum.size()){
+						if (tNum.size()) {
 							if (Com == 1)Combo = std::stoi(tNum);
 							else Acc = std::stof(tNum);
 						}
 					}
 				}
 
-				for (char& C :  AllMods)
-					if (C >= 'A' && C <= 'Z')
-						C += 'a' - 'A';
+				std::transform(begin(Combined), end(Combined), begin(Combined), [](u8 c){return std::tolower(c);});
 
-				if (AllMods.find("hd") != std::string::npos)
-					Mods += Hidden;
-				if (AllMods.find("dt") != std::string::npos || BotMessage[1].find("nc") != std::string::npos)
-					Mods += DoubleTime;
-				if (AllMods.find("fl") != std::string::npos)
-					Mods += Flashlight;
-				if (AllMods.find("ez") != std::string::npos)
-					Mods += Easy;
-				if (AllMods.find("ht") != std::string::npos)
-					Mods += HalfTime;
-				if (AllMods.find("rx") != std::string::npos)
-					Mods += Relax;
-				if (AllMods.find("so") != std::string::npos)
-					Mods += SpunOut;
-				if (AllMods.find("hr") != std::string::npos)
-					Mods += HardRock;
+				constexpr std::pair<const char*, u32> ModValues[] = { {"hd",Hidden},{"dt",DoubleTime}, {"fl",Flashlight},{"ez",Easy} ,{"ht",HalfTime} ,{"rx",Relax} ,{"so",SpunOut}, {"hr", HardRock} };
 
-				mapID = tP->LastSentBeatmap;
-
-				if (!mapID)return;
+				for(size_t i = 0; i < ARRAY_SIZE(ModValues);i++)
+						Mods |= Combined.find(ModValues[i].first) != std::string::npos ? ModValues[i].second : 0;
 
 				goto WITHMODS;
 			}
@@ -2722,7 +2744,7 @@ WITHMODS:
 
 void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const DWORD Size){
 
-	if (Size < 7 || tP->isSilenced() || !(tP->privileges & Privileges::UserPublic))
+	if (Size < 7 || tP->isSilenced() || !(tP->privileges & (u32)Privileges::Visible))
 		return;
 
 	size_t O = (size_t)&Packet[0];
@@ -2837,7 +2859,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 		DWORD notVisible = 0;
 		const std::string& Res = ProcessCommand(tP, Message, notVisible);
 
-		if (!(tP->privileges & Privileges::UserPublic))
+		if (!(tP->privileges & (u32)Privileges::Visible))
 			notVisible = 1;
 
 		if (Res.size()){
@@ -2850,7 +2872,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 		return;
 	}
 
-	if (tP->privileges & Privileges::UserPublic) {
+	if (tP->privileges & (u32)Privileges::Visible) {
 		VEC(byte) Pack;
 		PacketBuilder::Build<Packet::Server::sendMessage, 's', 'v', 'v', 'i'>(Pack,&tP->Username,&Message,&TargetString,tP->UserID);
 
@@ -3011,7 +3033,7 @@ void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD S
 
 	constexpr auto Failed = PacketBuilder::CT::PacketHeader(Packet::Server::matchJoinFail);
 
-	if (tP->CurrentMatchID || !(tP->privileges & UserPublic))//already in a match? Might want to kick them from the old one.
+	if (tP->CurrentMatchID || !(tP->privileges & (u32)Privileges::Visible))//already in a match? Might want to kick them from the old one.
 		return tP->addQueArray(Failed);
 
 	_Match *const m = getEmptyMatch();
@@ -3225,11 +3247,11 @@ void Event_client_matchChangeMods(_User *tP, const byte* const Packet, const DWO
 
 void Event_client_joinMatch(_User *tP, const byte* const Packet, const DWORD Size) {
 
-
-	if (!(tP->privileges & UserPublic)){
+	if (!(tP->privileges & (u32)Privileges::Visible)){
 		constexpr auto b = PacketBuilder::CT::PacketHeader(Packet::Server::matchJoinFail);
 		return tP->addQueArray(b);
 	}
+
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size;
 	
@@ -3646,15 +3668,13 @@ u32 LogoutLog[32] = {};
 
 void LogOutUser(_User* tP){
 
-	/*if (std::scoped_lock L(LogOutLock); 1)
-		LogoutLog[LogoutOffset++ & 0x1f] = tP->UserID;*/
+	if (std::scoped_lock L(LogOutLock); 1)
+		LogoutLog[LogoutOffset++ & 0x1f] = tP->UserID;
 
 	DisconnectUser(tP);
 }
 
 _inline void LogoutUpdates(_User* tP){
-
-	return;
 
 	if (tP->LogOffset != LogoutOffset){
 
@@ -3663,9 +3683,8 @@ _inline void LogoutUpdates(_User* tP){
 
 		if (std::shared_lock L(LogOutLock);1){
 			memcpy(Arr, LogoutLog, sizeof(Arr));
-			tP->LogOffset = End = LogoutOffset & 0x1f;
+			End = (tP->LogOffset = LogoutOffset) & 0x1f;
 		}
-
 		do tP->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::userLogout, 'i'>(Arr[Start]));
 		while ((++Start & 0x1f) != End);
 
@@ -3916,7 +3935,7 @@ _inline u8 getCountryNum(const u16 isoCode) {
 
 		u32 res = _mm_movemask_epi8(_mm_cmpeq_epi16(Mask, _mm_load_si128((__m128i*)(countryCodes + i))));
 
-		if (unlikely(res)) {
+		if (unlikely(res)){
 			res = ~res;
 			while (res & 3) { res >>= 2; ++i; }
 			return i;
@@ -4034,7 +4053,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 			Username = res->getString(3);//get the database captialization for consistencies sake
 			Priv = res->getInt(4);
 
-			if (Priv & Privileges::UserPendingVerification){
+			if ((Priv & (u32)Privileges::Visible) && (~Priv & (u32)Privileges::Verified)){
 
 				DWORD NewPerms = 0;
 
@@ -4046,18 +4065,18 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 					const std::string UID = std::string(HWID[3]);
 					const std::string DID = std::string(HWID[4]);
 
-					NewPerms = Privileges::UserPublic | Privileges::UserNormal;
+					NewPerms = (u32)Privileges::Visible | (u32)Privileges::Verified;
 
-					sql::ResultSet* match = 0;
+					std::unique_ptr<sql::ResultSet> match {(sql::ResultSet*)0};
 
 					//Check if the person is using wine. If they are only use the UID.
 					if (unlikely(HWID[2] == "b4ec3c4334a0249dae95c284ec5983df" || HWID[4] == "ffae06fb022871fe9beb58b005c5e21d"))
-						match = con->ExecuteQuery("SELECT userid from hw_user WHERE unique_id='" + UID +
-												  "'&&userid!=" + std::to_string(UserID) + " LIMIT 1;");
+						match.reset(con->ExecuteQuery("SELECT userid from hw_user WHERE unique_id='" + UID +
+												  "'&&userid!=" + std::to_string(UserID) + " LIMIT 1;"));
 					else
-						match = con->ExecuteQuery("SELECT userid from hw_user WHERE mac='"+ MAC +
+						match.reset(con->ExecuteQuery("SELECT userid from hw_user WHERE mac='"+ MAC +
 												  "'&&unique_id='" + UID +
-												  "'&&disk_id='"+ DID + "'&&userid!=" + std::to_string(UserID) + " LIMIT 1;");
+												  "'&&disk_id='"+ DID + "'&&userid!=" + std::to_string(UserID) + " LIMIT 1;"));
 
 					if (!match || !match->next())
 						con->ExecuteUPDATE(SQL_INSERT("hw_user",
@@ -4186,11 +4205,11 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 
 			u->qLock.lock();
 
-			if (!(Priv & Privileges::UserPublic)){
+			if (~Priv & (u32)Privileges::Visible){
 				constexpr auto b = PacketBuilder::CT::String_Packet(Packet::Server::notification, "Your account is currently restricted.");
 				u->addQueArray<0>(b);
 			}
-			if (Outdated && (Priv & Privileges::AdminDev))
+			if (Outdated && Priv > (u32)Privileges::SuperAdmin)
 				PacketBuilder::Build<Packet::Server::sendMessage, '-', '-', 's', 'i'>(u->QueBytes, STACK(M_BOT_NAME),
 					STACK("This instance of ruri is out of date. (Consider updating.)[https://github.com/rumoi/ruri]"), &u->Username, USERID_START - 1);
 
@@ -4245,22 +4264,26 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 
 			}
 
-			const byte IRC_LEVEL = GetMaxPerm(u->privileges);			
+			;
 
 			u->addQueVector<0>(PublicChannelCache);
 
-			if (IRC_LEVEL > IRC_Public){
+			if (const byte IRC_LEVEL = GetMaxPerm(u->privileges); IRC_LEVEL > IRC_Public){
 				for (auto& Chan : ChannelTable){
-					if (Chan.ViewLevel >= IRC_LEVEL && !Chan.Hidden)
-						PacketBuilder::Build<Packet::Server::channelInfo, 's', 's', 'w'>(u->QueBytes,&Chan.ChannelName, &Chan.ChannelDesc, USHORT(Chan.ChannelCount));					
-					if (Chan.ViewLevel >= IRC_Public && !Chan.Hidden && Chan.AutoJoin)
-						PacketBuilder::Build<Packet::Server::channelJoinSuccess, 's'>(u->QueBytes, &Chan.ChannelName);
+					if (Chan.ViewLevel == IRC_Public)
+						continue;
+
+					if (Chan.ViewLevel <= IRC_LEVEL && !Chan.Hidden) {
+						PacketBuilder::Build<Packet::Server::channelInfo, 's', 's', 'w'>(u->QueBytes, &Chan.ChannelName, &Chan.ChannelDesc, USHORT(Chan.ChannelCount));
+						if (Chan.AutoJoin)
+							PacketBuilder::Build<Packet::Server::channelJoinSuccess, 's'>(u->QueBytes, &Chan.ChannelName);
+					}
 				}
 			}
 
 			for (auto& gUser : Users){
 
-				if (!gUser.choToken || !(gUser.privileges & Privileges::UserPublic) || &gUser == u.User || u->isBlocked(gUser.UserID))
+				if (!gUser.choToken || !(gUser.privileges & (u32)Privileges::Visible) || &gUser == u.User || u->isBlocked(gUser.UserID))
 					continue;
 
 				const DWORD Off = gUser.GetStatsOffset();
@@ -4446,7 +4469,6 @@ void LazyThread(){
 		}
 
 		UpdateQue.pop_for_each([&lThreadSQL](const _UserUpdate& Update){
-
 			switch (Update.Action){
 
 			case _UserUpdate::UnRestrict:
@@ -4462,8 +4484,7 @@ void LazyThread(){
 			default:
 				break;
 			}
-
-			});
+		});
 
 	}
 }
@@ -4571,7 +4592,7 @@ void FillRankCache(){
 			Threads.clear();
 		}
 
-		void operator += (std::thread&& t){
+		void operator += (std::thread&& t) noexcept{
 			Threads.emplace_back(_M(t));
 		}
 
@@ -4729,6 +4750,21 @@ int main(){
 			chan_General.NameSum = WSTI(chan_General.ChannelName);
 		}
 
+
+		if (WSTI(Config.GetString<WSTI("New_Perms")>()) != WSTI("True")){
+
+			printf( KRED"\n\nWarning:\n" KRESET
+						"          ruri is now using a permission schema that differs from ripples.\n"
+						"          Unless you want random users to have insane permission clearance you will want to sort this out before continuing.\n"
+						"          Once all the permissions are cleaned up all you have to do is set \"New_Perms\" to \"True\" in the config.\n"
+						"          Do not forget to remove newly registered accounts from obtaining the ripple UserPendingVerification flag.\n"
+						"          Unless you want all users to pass the mod check.\n"
+						"\n\n");
+
+
+			return 0;
+		}
+
 	}
 
 	static_assert((BANCHO_THREAD_COUNT >= 1 && ARIA_THREAD_COUNT >= 1),
@@ -4744,14 +4780,14 @@ int main(){
 	}
 
 	for (auto& Chan : ChannelTable) {
-		if (Chan.ViewLevel <= IRC_Public && !Chan.Hidden) {
+		if (Chan.ViewLevel == IRC_Public && !Chan.Hidden) {
 			PacketBuilder::Build<Packet::Server::channelInfo, 's', 's', 'w'>(PublicChannelCache,
 				&Chan.ChannelName, &Chan.ChannelDesc, USHORT(Chan.ChannelCount));
 		}
 	}
 
 	for (auto& Chan : ChannelTable)
-		if (Chan.ViewLevel <= IRC_Public && !Chan.Hidden && Chan.AutoJoin)
+		if (Chan.ViewLevel == IRC_Public && !Chan.Hidden && Chan.AutoJoin)
 			PacketBuilder::Build<Packet::Server::channelJoinSuccess, 's'>(PublicChannelCache, &Chan.ChannelName);
 
 	FillRankCache();

@@ -10,7 +10,7 @@ namespace User {
 
 		std::unique_ptr<std::string> Reason{ ReasonRaw };
 
-		if ((TargetID < USERID_START) || !Invoker || !(Invoker->privileges & Privileges::AdminManageUsers))
+		if ((TargetID < USERID_START) || !Invoker || ~Invoker->privileges & (u32)Privileges::Admin_General)
 			return;
 
 		const std::string ID_String = std::to_string(TargetID);
@@ -22,12 +22,12 @@ namespace User {
 
 		u32 Priv = res->getInt(1);
 
-		if(!(Priv & Privileges::UserPublic))
+		if(!(Priv & (u32)Privileges::Visible))
 			Respond("They already appear to be restricted.");
-		if ((Priv & Privileges::AdminManageUsers) && !(Invoker->privileges & Privileges::AdminDev))
+		if ((Priv & (u32)Privileges::Admin_General) && !(Invoker->privileges & (u32)Privileges::SuperAdmin))
 			Respond("Insufficient permission to restrict that user.");
 
-		Priv &= Privileges::UserNormal | Privileges::UserDonor | Privileges::Premium;//Evict them of any special standing, except donor perks.
+		Priv &= (u32)Privileges::Verified | (u32)Privileges::Name_Yellow;//Evict them of any special standing except lowly user perks.
 
 		//These could be done in one. But it's better to do multiple smaller commands than one large one.
 
@@ -74,7 +74,6 @@ namespace User {
 					}
 				}
 			}
-
 		
 		if (Reason) {
 
@@ -93,7 +92,7 @@ namespace User {
 		if (ReasonRaw)
 			delete ReasonRaw;
 
-		if (!Invoker || !(Invoker->privileges & Privileges::AdminManageUsers))
+		if (!Invoker || !(Invoker->privileges & (u32)Privileges::Admin_General))
 			return;
 
 		const std::string ID_String = std::to_string(TargetID);
@@ -105,10 +104,10 @@ namespace User {
 
 		u32 Priv = res->getInt(1);
 
-		if (Priv & Privileges::UserPublic)
+		if (Priv & (u32)Privileges::Visible)
 			Respond("User is already not restricted.");
 
-		Priv |= Privileges::UserPublic;
+		Priv |= (u32)Privileges::Visible;
 
 		SQL.ExecuteUPDATE("UPDATE users SET privileges = " + std::to_string(Priv) + " WHERE id = " + ID_String);
 

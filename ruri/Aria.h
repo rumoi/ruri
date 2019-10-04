@@ -1023,6 +1023,13 @@ _Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
 
 void ScoreServerHandle(const _HttpRes &res, _Con s){
 
+	if (unlikely(res.GetHeaderValue("Host") != " osu.ppy.sh")){
+
+		s.SendData(ConstructResponse(200, Empty_Headers, STACK("error: no")));
+		s.Dis();
+		return;
+	}
+
 	const char* mName = "Aria";
 
 	int FailTime = -1;
@@ -1204,13 +1211,12 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				" = total_score_" + Mode + "+" + std::to_string(sData.Score) + " WHERE id = " + std::to_string(UserID) + " LIMIT 1");
 		}
 
-
 		if (const byte TrueGameMode =
 		#ifndef NO_RELAX
 			(sData.Mods & Relax) ? sData.GameMode + 4 :
 		#endif			
 			sData.GameMode;
-			(u.User->privileges & UserPublic) && !FailTime && !Quit && ReplayFile.size() > 250){
+			(u.User->privileges & (u32)Privileges::Visible) && !FailTime && !Quit && ReplayFile.size() > 250){
 
 			_BeatmapDataRef MapRef;
 
@@ -1374,7 +1380,7 @@ void osu_getScores(const _HttpRes& http, _Con s){
 
 	const DWORD SetID = StringToNum(DWORD,Params.get<WSTI("i")>());
 
-	if (BeatmapMD5.size() != 32)
+	if (unlikely(BeatmapMD5.size() != 32 || http.GetHeaderValue("Host") != " osu.ppy.sh"))
 		return SendAria404(s);
 
 	_UserRef u(GetUserFromName(urlDecode(std::string(Params.get<WSTI("us")>()))), 1);
@@ -1668,17 +1674,17 @@ void Thread_UpdateOSU(const std::string URL, _Con s){
 	return s.Dis();
 }
 
-std::string RandomString(const DWORD Count){
-
-	const char CharList[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-									 'A', 'B', 'C', 'D', 'E', 'F', '_', 'a', 'b', 'c',
-									 'd', 'e', 'f', '-', 'r', 'u', 'm', 'o', 'i', 'l', 'g', 'n' };
+std::string RandomString(const size_t Count){
 
 	std::string rString(Count,'\0');
 
-	for (char& c : rString)
+	constexpr char CharList[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+								 'A', 'B', 'C', 'D', 'E', 'F', '_', 'a', 'b', 'c',
+								 'd', 'e', 'f', '-', 'r', 'u', 'm', 'o', 'i', 'l', 'g', 'n'};
+
+	for (auto& c : rString)
 		c = CharList[BR::GetRand(0, 31)];
-	
+
 	return rString;
 }
 
@@ -1690,7 +1696,7 @@ void UploadScreenshot(const _HttpRes &res, _Con s){
 	#define SCREENSHOT_START "Content-Disposition: form-data; name=\"ss\"; filename=\"ss\"\r\nContent-Type: application/octet-stream\r\n\r\n"
 	#define SCREENSHOT_END "\r\n-------------------------------28947758029299--"
 	
-	const std::string Start = SCREENSHOT_START;
+	const static std::string Start = SCREENSHOT_START;
 
 	auto it = std::search(
 		res.Body.begin(), res.Body.end(),
@@ -1699,17 +1705,20 @@ void UploadScreenshot(const _HttpRes &res, _Con s){
 	if (it == end(res.Body))
 		return s.Dis();
 
-	it += _strlen_(SCREENSHOT_START);
+	it += CONSTX<size_t,_strlen_(SCREENSHOT_START)>::value;
 
-	const auto end = res.Body.end() - _strlen_(SCREENSHOT_END);
+	const auto end = res.Body.end() - CONSTX<size_t, _strlen_(SCREENSHOT_END)>::value;
 
 	if (end > it){
-		const std::string& Filename = RandomString(8) + ".png";
+		const std::string Filename = RandomString(8) + ".png";
 		WriteAllBytes("/home/ss/" + Filename, &*it, end - it);
 		s.SendData(ConstructResponse(200, {}, Filename));
 	}
 
-	return s.Dis();
+	#undef SCREENSHOT_START
+	#undef SCREENSHOT_END
+
+	return s.Dis();	
 }
 
 namespace MIRROR {
@@ -1768,7 +1777,7 @@ void LastFM(_GetParams&& Params, _Con s){
 
 		_UserRef u(GetUserFromNameSafe(USERNAMESAFE(std::string(Params.get<WSTI("us")>()))), 1);
 
-		if (!!u && u->Password == _MD5(Params.get<WSTI("ha")>()) && u->privileges & UserPublic){			
+		if (!!u && u->Password == _MD5(Params.get<WSTI("ha")>()) && u->privileges & (u32)Privileges::Visible){
 
 			u->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::RTX, '-'>(Flags == RelifeLoaded ? STACK("Disable osu-relife or get banned") : STACK("What did you think would happen?")));
 
@@ -1786,7 +1795,7 @@ void LastFM(_GetParams&& Params, _Con s){
 
 			printf(KYEL "%i> Flags: %s\n" KRESET, ID, FlagString.c_str());
 
-			if (!(u->privileges & AdminDev) && Flags != RelifeLoaded){
+			if (!(u->privileges & (u32)Privileges::SuperAdmin) && Flags != RelifeLoaded){
 
 				UpdateQue.emplace_back(ID,(u32)0, _UserUpdate::Restrict, (size_t)new std::string("Restricted for flags: " + FlagString));
 			}

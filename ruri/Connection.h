@@ -11,7 +11,7 @@ struct _HttpRes{
 
 	std::vector<std::pair<std::string_view,std::string_view>> Headers;
 
-	__inline const std::string_view GetHeaderValue(const std::string &&Name)const{
+	__inline const std::string_view GetHeaderValue(const std::string& Name)const{
 
 		for (const auto& [Text, Value] : Headers)
 			if (Text == Name)

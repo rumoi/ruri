@@ -359,13 +359,15 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string_view Command, 
 
 	const auto Split = Explode_View(Command, ' ',8);
 
+	//Plan on adding a proper tournament webpage where tournament managers can access it.
+
 	if (Split[0] == "!mp"){
 
 		if (Split.size() < 2)return "";
 
 
 		if (Split[1] == "here") {
-			if (!(Priv & (Privileges::AdminDev | Privileges::UserTournamentStaff)))
+			if (~Priv & ((u32)Privileges::SuperAdmin | (u32)Privileges::Tournament_Manager))
 				goto INSUFFICIENTPRIV;
 
 			if (Split.size() != 3)
@@ -406,7 +408,7 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string_view Command, 
 		}
 
 		if (Split[1] == "host"){
-			if (!(Priv & (Privileges::AdminDev | Privileges::UserTournamentStaff)))
+			if (~Priv & ((u32)Privileges::SuperAdmin | (u32)Privileges::Tournament_Manager))
 				goto INSUFFICIENTPRIV;
 
 			m->Lock.lock();

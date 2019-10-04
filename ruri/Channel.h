@@ -9,13 +9,13 @@ enum IRC_Perm {
 	IRC_Admin = 4,
 	IRC_Dev = 5
 };
-_inline byte GetMaxPerm(const DWORD Priv) {
+_inline byte GetMaxPerm(const u32 Priv){
 
-	if (Priv & Privileges::AdminDev)return IRC_Dev;
-	if (Priv & Privileges::AdminBanUsers)return IRC_Admin;
-	if (Priv & Privileges::AdminChatMod)return IRC_Mod;
-	if (Priv & Privileges::Premium)return IRC_Premium;
-	if (Priv & Privileges::UserDonor)return IRC_Supporter;
+	if (Priv > (u32)Privileges::SuperAdmin)return IRC_Dev;
+	if (Priv > (u32)Privileges::Admin_General)return IRC_Admin;
+	if (Priv > (u32)Privileges::Mod_General)return IRC_Mod;
+	if (Priv & (u32)Privileges::Premium)return IRC_Premium;
+	if (Priv & (u32)Privileges::Donor)return IRC_Supporter;
 
 	return IRC_Public;
 }
@@ -30,8 +30,7 @@ struct _Channel{
 
 	u32 NameSum;
 
-	u8 ViewLevel:3, WriteLevel:3, AutoJoin:1, Hidden:1;
-	u16 ChannelCount;
+	u32 ViewLevel:4, WriteLevel:4, AutoJoin:1, Hidden:1, ChannelCount:16;
 
 	_Channel(const std::string& ChannelName, const std::string &ChannelDesc, const int viewlevel, const int writeLevel, const bool AJ, const bool Hidden = 0):
 			ChannelName(ChannelName),
@@ -70,9 +69,10 @@ struct _Channel{
 
 	void JoinChannel(_User* u){
 
-		if (ViewLevel > GetMaxPerm(u->privileges))return;
+		if (ViewLevel > GetMaxPerm(u->privileges))
+			return;
 
-		Lock.lock();
+		std::scoped_lock L(Lock);
 
 		bool NeedToAdd = 1;
 
@@ -99,8 +99,7 @@ struct _Channel{
 			}
 
 		} while (NeedToAdd && CleanChannel());
-		
-		Lock.unlock();
+
 	}
 
 	void PartChannel(_User* u, const DWORD Offset = 0){

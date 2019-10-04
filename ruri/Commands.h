@@ -155,7 +155,7 @@
 				case WSTI("love"):
 					return RankStatus::LOVED;
 				case WSTI("lock"):
-					if(u->privileges & Privileges::AdminDev)
+					if(u->privileges & (u32)Privileges::SuperAdmin)
 						return RankStatus::RANK_LOCKED;
 				default:
 					return RankStatus::UNKNOWN;
@@ -172,8 +172,8 @@
 		sql::ResultSet *res = 0;
 	
 		if(!BeatmapID)
-			 res = SQL->ExecuteQuery("SELECT beatmap_id, song_name FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID) + ((u->privileges & Privileges::AdminDev) ? "" : " AND ranked != -3"));
-		else res = SQL->ExecuteQuery("SELECT beatmapset_id, song_name FROM beatmaps WHERE beatmap_id = " + std::to_string(BeatmapID) + ((u->privileges & Privileges::AdminDev) ? "" : " AND ranked != -3") + " LIMIT 1");
+			 res = SQL->ExecuteQuery("SELECT beatmap_id, song_name FROM beatmaps WHERE beatmapset_id = " + std::to_string(SetID) + ((u->privileges & (u32)Privileges::SuperAdmin) ? "" : " AND ranked != -3"));
+		else res = SQL->ExecuteQuery("SELECT beatmapset_id, song_name FROM beatmaps WHERE beatmap_id = " + std::to_string(BeatmapID) + ((u->privileges & (u32)Privileges::SuperAdmin) ? "" : " AND ranked != -3") + " LIMIT 1");
 	
 		if (!res || !res->next()){
 			DeleteAndNull(res);
@@ -522,14 +522,37 @@
 			}
 		}
 
-		if (u->privileges & Privileges::AdminManageBeatmaps) {
-			//BAT Commands
-			if (CommandHash == WSTI("!map"))
+		if(Priv < (u32)Privileges::Mod_General)
+			return "That is not a command.";
+
+		if ((Priv & (u32)Privileges::Mod_General || Priv >= (u32)Privileges::Admin_General)
+			&& CommandHash == CONSTX<u32,WSTI("!silence")>::value){
+
+				if (Split.size() != 3)
+					return "!silence <username> <seconds>";
+
+				_UserRef t(GetUserFromNameSafe(USERNAMESQL(Split[1])), 1);
+
+				if (!t)
+					return "User not found.";
+
+				const int Length = StringToNum(int, Split[2]);
+
+				t->silence_end = time(0) + Length;
+				t->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::silenceEnd, 'i'>(Length));
+
+				SQLExecQue.AddQue("UPDATE users SET silence_end = " + std::to_string(t.User->silence_end) + " WHERE id = " + std::to_string(t->UserID));
+
+			return "User has been silenced";
+		}
+
+		if (((Priv & (u32)Privileges::CanRankMaps) || Priv >= (u32)Privileges::Admin_General)
+			&& CommandHash == CONSTX<u32, WSTI("!map")>::value)
 				return Split.size() > 2 ? MapStatusUpdate(u, WeakStringToInt(Split[1]), StringToNum(DWORD, Split[2]), (Split.size() > 3) ? StringToNum(DWORD, Split[3]) : 0)
 				: "!map <rank/love/unrank> <setid> optional<beatmapid>";
 
-		}
-		if (!(u->privileges & Privileges::AdminManageUsers))
+
+		if(Priv < (u32)Privileges::Admin_General)
 			return "That is not a command.";
 
 		//Admin Commands
@@ -544,8 +567,8 @@
 				if (Split.size() < 2)
 					return "!restrict(id) <name / id> <reason>";
 
-				const bool ID = (CommandHash == CONSTX<u32, WSTI<u32>("!restrictid")>::value | CommandHash == CONSTX<u32, WSTI<u32>("!unrestrictid")>::value);
-				const bool Restrict = (CommandHash == CONSTX<u32, WSTI<u32>("!restrictid")>::value | CommandHash == CONSTX<u32, WSTI<u32>("!restrict")>::value);
+				const bool ID = (CommandHash == CONSTX<u32, WSTI<u32>("!restrictid")>::value || CommandHash == CONSTX<u32, WSTI<u32>("!unrestrictid")>::value);
+				const bool Restrict = (CommandHash == CONSTX<u32, WSTI<u32>("!restrictid")>::value || CommandHash == CONSTX<u32, WSTI<u32>("!restrict")>::value);
 
 				const u32 TargetID = ID ? StringToNum(u32, Split[1]) : User::ResolveID(USERNAMESQL(Split[1]), SQL_BanchoThread[0]);
 
@@ -555,31 +578,12 @@
 				return "Added command to que.";
 			}
 
-			case WSTI("!silence"):{
-				if (Split.size() != 3)
-					return "!silence <username> <time>";
-
-				_UserRef t(GetUserFromNameSafe(USERNAMESQL(Split[1])),1);
-
-				if (!t)
-					return "User not found.";
-
-				const int Length = StringToNum(int, Split[2]);
-
-				t->silence_end = time(0) + Length;
-				t->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::silenceEnd,'i'>(Length));
-
-				SQLExecQue.AddQue("UPDATE users SET silence_end = " + std::to_string(t.User->silence_end) + " WHERE id = " + std::to_string(t->UserID));
-
-				return "User has been silenced";
-			}
-
 			default:
 				break;
 			}
 		}
 
-		if (!(u->privileges & Privileges::AdminDev))
+		if ((Priv & (u32)Privileges::SuperAdmin) == 0)
 			return "That is not a command.";
 
 		//Dev Commands
@@ -633,9 +637,6 @@
 				PrivateRes = 0;
 				return CombineAllNextSplit(1, Split);
 
-			//case _WeakStringToInt_("!fcfg"):
-				//return (Split.size() > 2) ? CFGExploit(USERNAMESQL(Split[1]), CombineAllNextSplit(2, Split)) : "!fcfg <username> <config lines>";
-
 			case WSTI("!cbomb"): {
 
 				if (Split.size() != 3)
@@ -646,12 +647,14 @@
 				if (t.User) {
 					const USHORT Count = StringToNum(USHORT, Split[2]);
 
-					t.User->qLock.lock();
+					std::string Num(2,'\0');
 
-					//for (USHORT i = 0; i < Count; i++)
-						//t.User->addQueNonLocking(bPacket::GenericString(OPac::server_channelJoinSuccess, "#" + std::to_string(i)));
+					std::scoped_lock L(t.User->qLock);
 
-					t.User->qLock.unlock();
+					for (USHORT i = 0; i < Count; i++){
+						*(u16*)Num.data() = i;
+						PacketBuilder::Build<Packet::Server::channelJoinSuccess, 's'>(t->QueBytes,&Num);
+					}
 				}
 
 				return "okay";

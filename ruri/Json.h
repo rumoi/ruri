@@ -29,7 +29,6 @@ _inline constexpr R WeakStringToInt(const T& s) {
 #define WSTI WeakStringToInt
 //#define CWSTI(type, s) CONSTX<type,WSTI<type>(s)>::value Why clang
 
-
 namespace JSON {
 
 	struct _JsonNode {
@@ -102,8 +101,17 @@ namespace JSON {
 		}
 
 		void operator =(const _JsonNode& v) = delete;
+		_JsonNode(const _JsonNode& v) = delete;
+		_JsonNode(_JsonNode&& v) noexcept{
+			memcpy(Values, v.Values, sizeof(Values));
+			ZeroMemory(v.Values, sizeof(Values));
+		};
 
-		~_JsonNode() {
+		_JsonNode() {
+
+		}
+
+		~_JsonNode() noexcept{
 
 			constexpr size_t Size = sizeof(Values) / sizeof(Values[0]);
 
@@ -159,7 +167,7 @@ namespace JSON {
 					NodeTree.pop_back();
 				break;
 
-			case '"': {
+			case '"':{
 
 				ArrayName = ExtractString(i);
 
@@ -185,7 +193,6 @@ namespace JSON {
 				NodeTree.back()->emplace_back(_JsonNode::JsonType::String, WSTI<u32>(ArrayName)).Value_String = Value;
 
 				ArrayName = std::string_view();
-
 			}
 			default:break;
 			}
