@@ -138,7 +138,7 @@ namespace r_API {
 
 			while (Count < p.size()) {
 
-				const byte PacketID = *(byte*)& p[Count]; Count++;
+				const byte PacketID = *(byte*)&p[Count]; Count++;
 
 				switch (API_ID(PacketID)){
 

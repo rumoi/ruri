@@ -13,52 +13,6 @@ enum SlotStatus
 	Quit = 128
 };
 
-struct _MatchSettings{
-
-	std::string Name;
-	std::string Password;
-	u32 Mods;
-	int BeatmapID;
-	std::string BeatmapName;
-	std::string BeatmapChecksum;
-
-	byte MatchType;
-	byte PlayMode;
-	byte ScoringType;
-	byte TeamType;
-	byte FreeMod;
-
-	_MatchSettings() {
-		Mods = 0;
-		BeatmapID = 0;
-		MatchType = 0;
-		PlayMode = 0;
-		ScoringType = 0;
-		TeamType = 0;
-		FreeMod = 0;
-	}
-
-	struct StatusChange {
-		union {
-			struct { u64 MB : 32, TeamType : 2, MatchType : 2, ScoringType : 2, FreeMod : 1; };
-			u64 Total;
-		};
-	};
-
-	StatusChange StatusFlags(){
-
-		StatusChange Ret; Ret.Total = 0;
-
-		Ret.MB = Mods ^ u32(BeatmapID);
-		Ret.TeamType = TeamType;
-		Ret.MatchType = MatchType;
-		Ret.ScoringType = ScoringType;
-		Ret.FreeMod = FreeMod;
-
-		return Ret;
-	}
-
-};
 
 struct _Slot{
 
@@ -66,19 +20,15 @@ struct _Slot{
 
 	DWORD CurrentMods;
 	byte SlotStatus;
-	byte SlotTeam;
-
-	byte Loaded : 1, Completed : 1, Failed : 1, Skipped : 1;
+	union {
+		struct { byte SlotTeam : 1, Loaded : 1, Completed : 1, Failed : 1, Skipped : 1; };
+		byte Total;
+	};
 
 	_Slot(){
 		User = 0;
 		SlotStatus = SlotStatus::Open;
-		SlotTeam = 0;
-		Loaded = 0;
-		Completed = 0;
-		Failed = 0;
-		Skipped = 0;
-		CurrentMods = 0;
+		Total = 0;
 	}
 	
 	_inline void resetPlaying() {
@@ -96,7 +46,6 @@ struct _Slot{
 		Failed = 0;
 		Skipped = 0;
 		CurrentMods = 0;
-
 	}
 
 	_Slot(_User* u) {
@@ -122,7 +71,42 @@ struct _Match{
 
 	USHORT MatchId;
 	DWORD HostID;
-	_MatchSettings Settings;
+	struct {
+
+		byte MatchType = 0;
+		byte PlayMode = 0;
+		byte ScoringType = 0;
+		byte TeamType = 0;
+		byte FreeMod = 0;
+		u32 Mods = 0;
+		int BeatmapID = 0;
+
+		std::string Name;
+		std::string Password;
+		std::string BeatmapName;
+		std::string BeatmapChecksum;
+
+		struct StatusChange {
+			union {
+				struct { u64 MB : 32, TeamType : 2, MatchType : 2, ScoringType : 2, FreeMod : 1; };
+				u64 Total;
+			};
+		};
+
+		StatusChange StatusFlags() {
+
+			StatusChange Ret; Ret.Total = 0;
+
+			Ret.MB = Mods ^ u32(BeatmapID);
+			Ret.TeamType = TeamType;
+			Ret.MatchType = MatchType;
+			Ret.ScoringType = ScoringType;
+			Ret.FreeMod = FreeMod;
+
+			return Ret;
+		}
+
+	} Settings;
 	
 	DWORD PlayerCount;
 	std::array<_Slot, MULTI_MAXSIZE> Slots;
@@ -254,7 +238,7 @@ struct _Match{
 		inProgress = 0;
 		PlayersLoading = 0;
 		Seed = 0;
-		Settings = _MatchSettings();
+		Settings = decltype(Settings)();
 	}
 
 	_Match(){
@@ -432,7 +416,7 @@ std::string ProcessCommandMultiPlayer(_User* u, const std::string_view Command, 
 
 		if (Split[1] == "start") {
 
-			if (std::scoped_lock L(m->Lock);1){//Could check the host before the lock.
+			mlock (m->Lock){//Could check the host before the lock.
 
 				if (m->HostID != u->UserID)
 					return "Only the host can force start the match.";				

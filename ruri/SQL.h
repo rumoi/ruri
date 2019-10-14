@@ -8,10 +8,10 @@
 #include <jdbc/cppconn/resultset.h>
 #include <jdbc/cppconn/statement.h>
 
-_inline void PrepareSQLString(char* s){
+_inline void PrepareSQLString(char* s) {
 
 	DWORD O = 0;
-	while(s[O] != 0){
+	while (s[O] != 0) {
 		if (s[O] == '\"' || s[O] == '\'')
 			s[O] = '_';
 		O++;
@@ -28,23 +28,23 @@ _inline void PrepareSQLString(char* s){
 			c += 'a' - 'A';\
 	}
 
-_inline std::string USERNAMESQL(std::string s){
+_inline std::string USERNAMESQL(std::string s) {
 	DO_REMOVEQUOTES(s);
 	DO_USERNAMESAFE(s)
-	return s;
+		return s;
 }
 
 _inline std::string USERNAMESQL_Ref(std::string&& s) {
 	DO_REMOVEQUOTES(s);
 	DO_USERNAMESAFE(s)
-	return s;
+		return s;
 }
 
-_inline std::string USERNAMESQL(std::string_view s){
+_inline std::string USERNAMESQL(std::string_view s) {
 	return USERNAMESQL_Ref(std::string(IT_COPY(s)));
 }
 
-_inline std::string REMOVEQUOTES(std::string s){
+_inline std::string REMOVEQUOTES(std::string s) {
 	DO_REMOVEQUOTES(s);
 	return s;
 }
@@ -69,7 +69,7 @@ struct _SQLCon {
 	int LastMessage;
 	std::mutex Lock;
 
-	void CheckIsValid(){
+	void CheckIsValid() {
 		if (!con || !driver || (!con->isValid() && !con->reconnect())) {
 
 			printf("SQL has done the death.\n");
@@ -82,12 +82,12 @@ struct _SQLCon {
 		}
 	}
 
-	sql::ResultSet *ExecuteQuery(const std::string& Query, const bool DontLock = 0){
+	sql::ResultSet* ExecuteQuery(const std::string& Query, const bool DontLock = 0) {
 
 
 		if (!DontLock)Lock.lock();
 
-		sql::ResultSet *ret = 0;
+		sql::ResultSet* ret = 0;
 		sql::Statement* s = 0;
 
 		try {
@@ -102,10 +102,11 @@ struct _SQLCon {
 			}
 			ret = s->executeQuery(_M(Query));
 
-		}catch (sql::SQLException &e) {
+		}
+		catch (sql::SQLException & e) {
 			printf("SQLERROR:%i\n", e.getErrorCode());
 		}
-		if(s)delete s;
+		if (s)delete s;
 
 
 		if (!DontLock)Lock.unlock();
@@ -113,8 +114,8 @@ struct _SQLCon {
 		return ret;
 	}
 
-	int ExecuteUPDATE(const std::string &Query, const bool DontLock = 0) {
-		if(!DontLock)Lock.lock();
+	int ExecuteUPDATE(const std::string& Query, const bool DontLock = 0) {
+		if (!DontLock)Lock.lock();
 
 		int ret = 0;
 		sql::Statement* s = 0;
@@ -133,7 +134,7 @@ struct _SQLCon {
 			ret = s->executeUpdate(Query);
 
 		}
-		catch (sql::SQLException &e) {
+		catch (sql::SQLException & e) {
 			printf("SQLERROR:%i (%s)\n", e.getErrorCode(), Query.c_str());
 		}
 		delete s;
@@ -144,7 +145,7 @@ struct _SQLCon {
 		return ret;
 	}
 
-	bool Connect(){
+	bool Connect() {
 
 		std::scoped_lock<std::mutex> L(Lock);
 
@@ -153,14 +154,15 @@ struct _SQLCon {
 		try {
 			driver = get_driver_instance();
 
-			if (!driver){
+			if (!driver) {
 				return 0;
 			}
 			con = driver->connect("localhost", SQL_Username, SQL_Password);
 			if (!con)
 				return 0;
 			con->setSchema(SQL_Schema);
-		}catch (...) {
+		}
+		catch (...) {
 			Suc = 0;
 		}
 		LastMessage = clock_ms();
@@ -169,7 +171,7 @@ struct _SQLCon {
 
 	void Disconnect() {
 		Lock.lock();
-		if (con){
+		if (con) {
 			con->close();
 			delete con;
 			con = 0;
@@ -186,7 +188,7 @@ struct _SQLCon {
 
 };
 
-struct _SQLKey{
+struct _SQLKey {
 
 	const std::string Key;
 	std::string Value;
@@ -200,6 +202,8 @@ struct _SQLKey{
 
 };
 
+
+
 const std::string SQL_INSERT(const std::string& Table, const VEC(_SQLKey)& Values) {
 	return "INSERT INTO " + Table + " (" + [&] {
 		std::string Return;
@@ -211,7 +215,7 @@ const std::string SQL_INSERT(const std::string& Table, const VEC(_SQLKey)& Value
 	}() + ")VALUES(" + [&] {
 		std::string Return;
 		for (const _SQLKey& v : Values)
-			if(v.Text)Return += "'" + v.Value + "',";
+			if (v.Text)Return += "'" + v.Value + "',";
 			else Return += v.Value + ",";
 		if (Return.size())
 			Return.pop_back();
@@ -220,11 +224,11 @@ const std::string SQL_INSERT(const std::string& Table, const VEC(_SQLKey)& Value
 }
 
 const std::string SQL_SETUPDATE(const std::string& Table, const VEC(_SQLKey) && Values, const std::string& Condition) {
-	return "UPDATE " + Table + " SET " + [&]{
+	return "UPDATE " + Table + " SET " + [&] {
 		std::string Return;
 		for (const _SQLKey& v : Values)
 			if (v.Text)Return += v.Key + "='" + v.Value + "',";
-			else Return += v.Key + "=" + v.Value+ ",";
+			else Return += v.Key + "=" + v.Value + ",";
 		if (Return.size())
 			Return.pop_back();
 		return Return;

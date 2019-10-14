@@ -506,8 +506,10 @@
 			switch (CommandHash) {
 
 			case WSTI("!roll"):
-				PrivateRes = 0;
-					return u->ProfileLink() + " rolled " + std::to_string(BR::GetRand64(0, Split.size() > 1 ? StringToNum(uint64_t, Split[1]) : 100));
+				PrivateRes = 0;{
+					const uint64_t Number = Split.size() > 1 ? (StringToNum(uint64_t, Split[1])) : 0;
+					return u->ProfileLink() + " rolled " + std::to_string(BR::GetRand64(0, Number ? Number : 100));
+				}
 			case WSTI("!priv"):
 				return std::to_string(Priv);
 			case WSTI("!reconnect"):

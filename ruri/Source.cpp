@@ -1,9 +1,9 @@
-#define USERID_START 1000
+/*#define USERID_START 1000
 #define M_BOT_NAME "ruri"
-#define BOT_LOCATION 0
-/*#define USERID_START 10
+#define BOT_LOCATION 0*/
+#define USERID_START 10
 #define M_BOT_NAME "Chloe"
-#define BOT_LOCATION 111*/
+#define BOT_LOCATION 111
 
 #define BANCHO_THREAD_COUNT 4
 #define ARIA_THREAD_COUNT 4
@@ -365,6 +365,30 @@ _inline T al_clamp(const T v, const T minv, const T maxv) {
 	return v;
 }
 
+#define R_L(s)[]{return s;}
+
+template<typename... T>
+struct r_struct {
+
+	u8* Data;
+	r_struct(void* P) noexcept : Data((u8*)P) {}
+	~r_struct() { Data = 0; }
+
+	template<typename Lamb>
+	[[nodiscard]] constexpr auto& operator /(Lamb f)const noexcept {
+
+		constexpr size_t i(f()), Offset = [i] {
+			size_t c(0);
+			return (((c++ < i) ? sizeof(T) : 0) + ...);
+		}();
+
+		static_assert(Offset < ([] {return ((sizeof(T)) + ...); }()) - 1, "r_struct::get called out of bounds");
+
+		return (decltype(std::tuple_element<i, std::tuple<T...>>::type{})&)Data[Offset];
+	}
+
+};
+
 #include <thread>
 
 typedef unsigned char byte;
@@ -497,6 +521,9 @@ template<typename T>
 #define StringToNum(TYPE, STRING) [](const std::string_view S){return MemToNum<TYPE>(S.data(), S.size());}(STRING)
 
 #define DeleteAndNull(s)if(s)delete s;s=0
+
+#define mlock(s) if constexpr(std::scoped_lock L(s);1 == 1)
+#define s_mlock(s) if constexpr(std::shared_lock L(s);1)
 
 template<typename T, const size_t Size>
 	_inline bool MEM_CMP_START(const T& VECT, const char (&STR)[Size]){
@@ -636,11 +663,11 @@ std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &&Pa
 		return "";
 
 	std::string p; p.reserve(rp.size());
-	DWORD Start = rp.find("\r\n\r\n");
+	size_t Start = rp.find("\r\n\r\n");
 	if (Start == std::string::npos)
 		return "";
 
-	for (DWORD i = Start + 4; i < rp.size(); i++){
+	for (size_t i = Start + 4; i < rp.size(); i++){
 		Start = i;
 		while (*(USHORT*)&rp[i] != 0x0a0d)i++;//\r\n
 		DWORD ChunkSize = 0;
@@ -683,7 +710,8 @@ std::shared_mutex UsernameCacheLock;
 void UpdateUsernameCache(_SQLCon *SQL){
 
 	u32 Count = 0;
-	if (std::scoped_lock<std::shared_mutex> L(UsernameCacheLock);1){
+	
+	mlock (UsernameCacheLock){
 
 		std::unique_ptr<sql::ResultSet> res{SQL->ExecuteQuery("SELECT id,username FROM users WHERE id >= " + std::to_string(UsernameCache.size() + USERID_START) + " ORDER BY id DESC")};
 
@@ -715,7 +743,7 @@ std::string GetUsernameFromCache(const DWORD UID){
 	const int ID = int(UID) - USERID_START;
 
 	if (ID >= 0)
-		if (std::shared_lock<std::shared_mutex> L(UsernameCacheLock);  ID < UsernameCache.size())
+		if (std::shared_lock L(UsernameCacheLock);  ID < UsernameCache.size())
 			return UsernameCache[ID];
 	
 	return "";
@@ -908,6 +936,23 @@ namespace BR {
 	uint64_t GetRand64(uint64_t min = 0, uint64_t max = uint64_t(-1)) {
 		return std::uniform_int_distribution<uint64_t>{min, max}(mersenneTwister);
 	}
+
+	void random_bytes(void* dest, const size_t Size){
+
+		union{
+			size_t t;
+			u8 b[sizeof(t)];
+		} Bytes{(size_t)std::uniform_int_distribution<size_t>{ 0, size_t(-1)}(mersenneTwister)};
+
+		for (size_t i = 0; i < Size; i++){
+
+			*(u8*)((size_t)dest + i) = Bytes.b[0];
+
+			if (unlikely((Bytes.t >>= 8) == 0))
+				Bytes.t = (size_t)std::uniform_int_distribution<size_t>{ 0, size_t(-1)}(mersenneTwister);
+		}
+	}
+
 };
 
 
@@ -1455,7 +1500,7 @@ namespace PacketBuilder {
 
 				std::array<byte, TotalBytes> Ret = {0};
 				size_t Offset = 0;
-				((Offset = Offset + Write(Ret, Arr, Offset)) | ...);
+				((Offset = (Offset + Write(Ret, Arr, Offset))) | ...);
 
 				return Ret;
 			}
@@ -1820,7 +1865,7 @@ void reset() {
 
 		if (QueBytes.size()){
 
-			if (std::scoped_lock<std::mutex> L(qLock); 1){
+			mlock (qLock){
 
 				if (unlikely(SendToken)) {
 					SendToken = 0;
@@ -1851,13 +1896,6 @@ template<typename T, size_t Size>
 		std::array<T, Size> Data;//clang hates this as an inheritance :(
 
 		std::shared_mutex Lock;
-		
-		/*
-		template<typename F>
-			void for_each(F Fun){
-				//std::shared_lock L(Lock);
-				std::for_each_n(begin(Data), Size, Fun);
-			}*/
 
 		void replace(T From, T To){
 
@@ -1879,11 +1917,10 @@ template<typename T, size_t Size>
 		}
 	};
 
-
 template<typename T, size_t Reserve = 16>
 	struct locked_vector{
 
-		std::mutex Lock;
+		std::shared_mutex Lock;
 		std::vector<T> Vec;
 
 		template<typename ... P>
@@ -1906,6 +1943,16 @@ template<typename T, size_t Reserve = 16>
 			Lock.unlock();
 
 			for(auto& t : Temp)Func(t);
+		}
+
+		T find_copy_default(const T Lambda, const T Default){
+
+			s_mlock(Lock)
+				for (const auto& v : Vec)
+				if (Lambda(v))
+					return v;
+
+			return Default;
 		}
 
 		locked_vector() {
@@ -1938,14 +1985,14 @@ void SendToLobby(const std::vector<byte> &Data){
 		});*/
 }
 
-
 void DisconnectUser(_User *u);
 
 void DisconnectUser(size_t Pointer){
 	return Pointer ? DisconnectUser((_User*)Pointer) : void();
 }
 
-struct _UserRef {
+struct _UserRef{
+
 	_User* User;
 
 	_UserRef(){User = 0;}
@@ -1971,9 +2018,7 @@ struct _UserRef {
 			User->addRef();
 	}
 
-	_User* operator->()const noexcept {
-		return User;
-	}
+	_User* operator->()const noexcept {return User;}
 
 	const bool operator!()const noexcept {
 		return !(User);
@@ -2123,7 +2168,7 @@ void Event_client_stopSpectating(_User *u){
 
 		auto b = PacketBuilder::Fixed_Build<Packet::Server::fellowSpectatorLeft, 'i'>(u->UserID);
 
-		if(std::shared_lock<std::shared_mutex> l(SpecTarget->SpecLock); 1){
+		s_mlock (SpecTarget->SpecLock){
 
 			for (auto& Spec : SpecTarget->Spectators){
 				if (Spec == u)
@@ -2251,7 +2296,7 @@ void Event_client_userStatsRequest(_User *u, const byte* const Packet, const DWO
 		const USHORT Count = al_min(*(USHORT*)&Packet[0], 64);
 
 		if ((Count << 2) + 2 <= Size) {
-			if (std::scoped_lock<std::mutex> L(u->qLock); 1)
+			mlock (u->qLock)
 				for (DWORD i = 0; i < Count; i++){
 
 					const DWORD uID = *(DWORD*)&Packet[2 + (i << 2)];
@@ -2443,34 +2488,13 @@ bool OppaiCheckMapDownload(ezpp_t ez, const DWORD BID) {
 
 int getSetID_fHash(const std::string &H, _SQLCon* c){//Could combine getbeatmapid and getsetid into one
 
-	if (H.size() != 32)
-		return 0;
-
 	if (c){
 		std::unique_ptr<sql::ResultSet> res{c->ExecuteQuery("SELECT beatmapset_id FROM beatmaps WHERE beatmap_md5 = '" + H + "' LIMIT 1")};
 		if (res && res->next())
 			return res->getInt(1);
 	}
 
-	const std::string BeatmapData = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "h=" + H);
-
-	if (BeatmapData.size() <= 25)return 0;
-
-	DWORD Off = BeatmapData.find("\"beatmapset_id\"");
-
-	if (Off == std::string::npos)return 0;
-
-	Off += 17;
-
-	std::string t;//TODO: Dont.
-
-	while (BeatmapData[Off] != '"') {
-		t.push_back(BeatmapData[Off]);
-		Off++;
-	}
-
-	//TODO add to database
-	return StringToNum(int,t);
+	return StringToNum(int, JSON::_Json(GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "h=" + H)).GetString<WSTI("beatmapset_id")>());
 }
 
 
@@ -2484,26 +2508,7 @@ int getBeatmapID_fHash(const std::string &H, _SQLCon* c) {
 		if (res && res->next())
 			return res->getInt(1);
 	}
-	const std::string &BeatmapData = GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "h=" + H);
-
-	if (BeatmapData.size() <= 25)return 0;
-
-	DWORD Off = BeatmapData.find("\"beatmap_id\"");
-
-	if (Off == std::string::npos)return 0;
-
-	Off += 14;
-
-	std::string t;
-
-	while (BeatmapData[Off] != '"') {
-		t.push_back(BeatmapData[Off]);
-		Off++;
-	}
-
-	//TODO add to database
-
-	return StringToNum(int,t);
+	return StringToNum(int, JSON::_Json(GET_WEB_CHUNKED("old.ppy.sh", osu_API_BEATMAP + "h=" + H)).GetString<WSTI("beatmap_id")>());
 }
 
 #define AddDeci(s,o) if (*(byte*)(s + o) == 0) { *(USHORT*)(s + o - 1) = *(USHORT*)(s + o - 2); *(byte*)(s + o - 2) = '.'; return s;}
@@ -2838,7 +2843,7 @@ void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const D
 			VEC(byte) b;
 			PacketBuilder::Build<Packet::Server::sendMessage,'s','v','v','i'>(b, &tP->Username, &Message, &TargetString, tP->UserID);
 
-			if (std::shared_lock<std::shared_mutex> L(SpecHost->SpecLock); 1){
+			s_mlock (SpecHost->SpecLock){
 				for (_User* const s : SpecHost->Spectators){
 					if (s && s != tP)
 						s->addQueVector(b);
@@ -2998,12 +3003,13 @@ void ReadMatchData(_Match &m, const byte* const Packet,const DWORD Size, bool Sa
 	if (!Safe)memcpy(tSlotTeam, (void*)O, NORMALMATCH_MAX_COUNT); O += NORMALMATCH_MAX_COUNT;
 	if (!Safe)m.HostID = *(DWORD*)O; O += 4;
 	
+	/*
 	if (!Safe){
 		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++) {
 			m.Slots[i].SlotStatus = tSlotStatus[i];
 			m.Slots[i].SlotTeam = tSlotTeam[i];
 		}
-	}
+	}*/
 
 	for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++)
 		if (m.Slots[i].SlotStatus & SlotStatus::HasPlayer)
@@ -3312,7 +3318,7 @@ void Event_client_matchChangeTeam(_User *tP){
 		
 		for (auto& Slot : m->Slots)
 			if (Slot.User == tP){
-				Slot.SlotTeam = !Slot.SlotTeam;
+				Slot.SlotTeam = ~Slot.SlotTeam;
 				m->sendUpdateVector(bPacket::bMatch(m));
 				break;
 			}
@@ -3467,14 +3473,21 @@ void Event_client_matchScoreUpdate(_User *tP, const byte* const Packet, const DW
 
 			*(u16*)b.data() = (u16)Packet::Server::matchScoreUpdate;
 			b[2] = 0;
-			*(u32*)&b[3] = Size;;
+			*(u32*)&b[3] = Size;
+
+
+
 			memcpy(7 + b.data() , Packet, Size);
+			enum {b_time,id,count300,count100,count50,countGeki,countKatu,countMiss,totalScore,maxCombo,currentCombo,perfect,currentHp,tagByte,usingScoreVs,comboPortion,bonusPortion};
+			r_struct<u32,u8,u16,u16,u16,u16,u16,u16,u32,u16,u16,u8,u8,u8,u8> MatchData(&b[7]);
 
 			std::scoped_lock L(m->Lock);
 
 			for (auto& Slot : m->Slots)
 				if (Slot.User == tP){
-					b[11] = (u8)GetIndex(m->Slots, Slot);
+
+					MatchData / R_L(id) = (u8)GetIndex(m->Slots, Slot);
+					
 					m->sendUpdateVector(b);
 					break;
 				}
@@ -3668,7 +3681,7 @@ u32 LogoutLog[32] = {};
 
 void LogOutUser(_User* tP){
 
-	if (std::scoped_lock L(LogOutLock); 1)
+	mlock (LogOutLock)
 		LogoutLog[LogoutOffset++ & 0x1f] = tP->UserID;
 
 	DisconnectUser(tP);
@@ -3681,7 +3694,7 @@ _inline void LogoutUpdates(_User* tP){
 		u32 Arr[aSize(LogoutLog)];
 		int Start(tP->LogOffset), End(tP->LogOffset);
 
-		if (std::shared_lock L(LogOutLock);1){
+		s_mlock (LogOutLock){
 			memcpy(Arr, LogoutLog, sizeof(Arr));
 			End = (tP->LogOffset = LogoutOffset) & 0x1f;
 		}
@@ -4690,7 +4703,7 @@ void receiveConnections(){
 
 #if defined(LINUX) && defined(API)
 	{
-		std::thread a(API_Main);
+		std::thread a(r_API::API_Main);
 		a.detach();
 	}
 #endif

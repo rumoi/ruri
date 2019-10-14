@@ -180,7 +180,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Achievement.h" />
-    <ClInclude Include="Admin.h" />
+    <ClInclude Include="HTML.h" />
+    <ClInclude Include="Web.h" />
     <ClInclude Include="aes.h" />
     <ClInclude Include="Aria.h" />
     <ClInclude Include="Base64.h" />

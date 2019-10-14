@@ -4,7 +4,6 @@
 #include "Base64.h"
 #define ModuleName "Aria"
 
-
 struct _Score {
 
 	std::string UserName;
@@ -272,7 +271,7 @@ struct _LeaderBoardCache{
 
 						std::unique_ptr<sql::ResultSet> res{(sql::ResultSet*)0};
 
-						if (std::scoped_lock L(SQL->Lock);1){
+						mlock (SQL->Lock){
 
 							SQL->ExecuteUPDATE("UPDATE " + Score_Table_Name[TableOffset] + " SET completed = 2 WHERE id = " + std::to_string(ScoreCache[i].ScoreID) + " LIMIT 1", 1);
 
@@ -358,7 +357,7 @@ struct _BeatmapData{
 			v.store(o.v.load());
 		}
 		cAtomic(const int v) : v{ v } {};
-	}; cAtomic rCount;
+	} rCount;
 
 	~_BeatmapData(){
 
@@ -385,7 +384,7 @@ struct _BeatmapData{
 		ZeroMemory(lBoard.data(), sizeof(lBoard));
 	}
 
-	_BeatmapData(const int RankStatus) : rCount(1), RankStatus(RankStatus){
+	_BeatmapData(const int RankStatus) : RankStatus(RankStatus), rCount(0){
 		BeatmapID = 0;
 		SetID = 0;
 		Rating = 0.f;
@@ -809,7 +808,7 @@ _BeatmapData* GetBeatmapCache(const DWORD SetID, const DWORD BID,const std::stri
 		if (!BS->ID)
 			return &BeatmapNotSubmitted;
 
-		if (std::shared_lock L(BS->MapUpdateLock);1){
+		s_mlock (BS->MapUpdateLock){
 
 			for (auto& Map : BS->Maps){
 				if ((ValidMD5 && Map.Hash == MD5) || (BID && Map.BeatmapID == BID) ||
@@ -917,7 +916,6 @@ _inline std::string GetParam(const std::string& s, const std::string&& param) {
 struct _GetParams {
 
 	std::vector<std::pair<int/*Key Hash*/, std::string_view/*Value*/>> Params;
-
 
 	template<const u32 Key>
 	std::string_view get()const{
@@ -1250,6 +1248,7 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 					ezpp_set_accuracy(ez, sData.count100, sData.count50);
 					ezpp_set_combo(ez, sData.MaxCombo);
 					ezpp_set_mode(ez, sData.GameMode);
+
 					if (!OppaiCheckMapDownload(ez, BD->BeatmapID)){
 						printf("Could not download\n");
 						return TryScoreAgain(s);
@@ -1548,7 +1547,7 @@ void osu_checkUpdates(_GetParams&& Params,_Con s){
 
 	const u32 reqStream = WSTI<u32>(Params.get<WSTI("stream")>());
 
-	if(std::shared_lock L(UpdateCache_Lock); 1)
+	s_mlock (UpdateCache_Lock)
 		for (auto& [Stream,LastTime,Cache] : UpdateCache)
 			if (reqStream == Stream){
 				if (LastTime + 3600000 > clock_ms()){
@@ -1652,7 +1651,7 @@ void Thread_WebReplay(const uint64_t ID, _Con s){
 		AddStream(Total, UnixToDateTime(res->getUInt(14)));//Date
 		AddStream(Total, u32(Data.size()));
 		AddVector(Total, Data);
-		AddStream(Total, ID);		
+		AddStream(Total, ID);
 
 		s.SendData(ConstructResponse(200, {
 			{"Content-type","application/octet-stream"},
@@ -1674,19 +1673,29 @@ void Thread_UpdateOSU(const std::string URL, _Con s){
 	return s.Dis();
 }
 
-std::string RandomString(const size_t Count){
 
-	std::string rString(Count,'\0');
+template<size_t Size>
+struct rString {
 
-	constexpr char CharList[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-								 'A', 'B', 'C', 'D', 'E', 'F', '_', 'a', 'b', 'c',
-								 'd', 'e', 'f', '-', 'r', 'u', 'm', 'o', 'i', 'l', 'g', 'n'};
+	char Data[Size];
 
-	for (auto& c : rString)
-		c = CharList[BR::GetRand(0, 31)];
+#pragma warning(suppress: 26495)
+	template<typename Alloc> rString(Alloc A) noexcept {
+		for (size_t i = 0; i < Size; i++)
+			Data[i] = A();
+	}
 
-	return rString;
-}
+	constexpr size_t size() const noexcept { return Size; }
+
+	void operator+(std::string& String)const noexcept {
+		if constexpr (Size == 0)return;
+		String.resize(String.size() + Size);
+		memcpy((String.data() + String.size()) - Size, Data, Size);
+	}
+
+	std::string to_string()const noexcept{ return std::string((const char*)Data, Size); }
+
+};
 
 void UploadScreenshot(const _HttpRes &res, _Con s){
 
@@ -1710,7 +1719,13 @@ void UploadScreenshot(const _HttpRes &res, _Con s){
 	const auto end = res.Body.end() - CONSTX<size_t, _strlen_(SCREENSHOT_END)>::value;
 
 	if (end > it){
-		const std::string Filename = RandomString(8) + ".png";
+
+		constexpr char CharList[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+									  'A', 'B', 'C', 'D', 'E', 'F', '_', 'a', 'b', 'c',
+									  'd', 'e', 'f', '-', 'r', 'u', 'm', 'o', 'i', 'l', 'g', 'n' };
+
+		const std::string Filename = rString<8>([&CharList]()->char {return CharList[BR::GetRand(0, sizeof(CharList) - 1)]; }).to_string() + ".png";
+
 		WriteAllBytes("/home/ss/" + Filename, &*it, end - it);
 		s.SendData(ConstructResponse(200, {}, Filename));
 	}
@@ -1736,7 +1751,7 @@ namespace MIRROR {
 
 				QueCopy.clear();
 
-				if(std::scoped_lock<std::mutex> L(MirrorAPILock);1){
+				mlock (MirrorAPILock){
 
 					for (DWORD i = 0; i < MirrorAPIQue.size(); i++)
 						QueCopy.emplace_back(_M(MirrorAPIQue[i].first), MirrorAPIQue[i].second);
@@ -1812,7 +1827,7 @@ void LastFM(_GetParams&& Params, _Con s){
 
 #define IS_NUM(s)!(s < '0' || s > '9')
 
-#include "Admin.h"
+#include "Web.h"
 
 void HandleAria(_Con s){
 
@@ -1835,7 +1850,9 @@ void HandleAria(_Con s){
 			if (res.Host[Size] == '/' && ++Size)
 				break;
 
-		switch (WSTI<u64>(std::string_view(res.Host.data(),Size))){
+		if (unlikely(MEM_CMP_START(res.Host, "/home/")))
+			web::handle_web(res,s);
+		else switch (WSTI<u64>(std::string_view(res.Host.data(),Size))){
 
 			case WSTI<u64>("/web/osu-submit-modular-selector.php") :
 				ScoreServerHandle(res, s);
@@ -1919,9 +1936,9 @@ void HandleAria(_Con s){
 			case WSTI<u64>("/web/lastfm.php") :
 				LastFM(_GetParams(res.Host), s);
 				break;
-			case WSTI<u64>("/web/admin.php") :
-				HandleAdmin(_GetParams(res.Host), s);
-				break;
+			//case WSTI<u64>("/web/admin.php") :
+			//	web::HandleAdmin(_GetParams(res.Host), s);
+			//	break;
 				
 			default:
 				SendAria404(s);
@@ -1983,8 +2000,6 @@ struct _SocketWorker{
 		::bind(listening, (sockaddr*)& hint, sizeof(hint));
 
 		listen(listening, SOMAXCONN);// Sets the socket to listen
-
-		sockaddr_in client;
 
 		DWORD Time = 5000;
 		DWORD MPL = MAX_PACKET_LENGTH;

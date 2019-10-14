@@ -122,10 +122,13 @@
     <ClInclude Include="pp\Beatmap.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Admin.h">
+    <ClInclude Include="User.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="User.h">
+    <ClInclude Include="Web.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="HTML.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
