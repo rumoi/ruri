@@ -8,38 +8,7 @@
 #define BANCHO_THREAD_COUNT 4
 #define ARIA_THREAD_COUNT 4
 
-
 constexpr bool UsingRawMirror = 1;
-
-/*
-enum Privileges {
-	UserBanned = 0,
-	UserPublic = 1,
-	UserNormal = 2 << 0,
-	UserDonor = 2 << 1,
-	AdminAccessRAP = 2 << 2,
-	AdminManageUsers = 2 << 3,
-	AdminBanUsers = 2 << 4,
-	AdminSilenceUsers = 2 << 5,
-	AdminWipeUsers = 2 << 6,
-	AdminManageBeatmaps = 2 << 7,
-	AdminManageServers = 2 << 8,
-	AdminManageSettings = 2 << 9,
-	AdminManageBetaKeys = 2 << 10,
-	AdminManageReports = 2 << 11,
-	AdminManageDocs = 2 << 12,
-	AdminManageBadges = 2 << 13,
-	AdminViewRAPLogs = 2 << 14,
-	AdminManagePrivileges = 2 << 15,
-	AdminSendAlerts = 2 << 16,
-	AdminChatMod = 2 << 17,
-	AdminKickUsers = 2 << 18,
-	UserPendingVerification = 2 << 19,
-	UserTournamentStaff = 2 << 20,
-	AdminDev = 2 << 21,
-	Premium = 2 << 22,
-	AdminQAT = 2 << 23
-};*/
 
 enum class Privileges : unsigned int {
 
@@ -365,28 +334,28 @@ _inline T al_clamp(const T v, const T minv, const T maxv) {
 	return v;
 }
 
-#define R_L(s)[]{return s;}
-
 template<typename... T>
 struct r_struct {
+
+	template<size_t N, typename TT, typename... types>struct get_Nth_type{using type = typename get_Nth_type<N - 1, types...>::type;};
+	template<typename TT, typename... types>struct get_Nth_type<0, TT, types...>{using type = TT;};
 
 	u8* Data;
 	r_struct(void* P) noexcept : Data((u8*)P) {}
 	~r_struct() { Data = 0; }
 
-	template<typename Lamb>
-	[[nodiscard]] constexpr auto& operator /(Lamb f)const noexcept {
+	template<size_t i>
+	[[nodiscard]] constexpr auto& get() const noexcept{
 
-		constexpr size_t i(f()), Offset = [i] {
+		using T2 = typename get_Nth_type<i, T...>::type;
+
+		constexpr size_t Offset = []{
 			size_t c(0);
 			return (((c++ < i) ? sizeof(T) : 0) + ...);
 		}();
 
-		static_assert(Offset < ([] {return ((sizeof(T)) + ...); }()) - 1, "r_struct::get called out of bounds");
-
-		return (decltype(std::tuple_element<i, std::tuple<T...>>::type{})&)Data[Offset];
+		return (T2&)Data[Offset];
 	}
-
 };
 
 #include <thread>
@@ -434,7 +403,6 @@ const std::string PPColNames[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
 const std::string Acc_Col_Name[] = { "avg_accuracy_std","avg_accuracy_taiko","avg_accuracy_ctb","avg_accuracy_mania" };
 const std::string PP_Col_Name[] = { "pp_std","pp_taiko","pp_ctb","pp_mania" };
 
-
 constexpr size_t _strlen_(const char* s)noexcept{
 	size_t V = 0;
 	while (s[V++]);
@@ -444,14 +412,8 @@ template<typename T, size_t size>
 	constexpr size_t aSize(const T(&)[size]) noexcept{ return size; }
 
 #define ARRAY_SIZE(s) (sizeof(s) / sizeof(s[0]))
-
-
-/*template<typename T>
-	[[nodiscard]] _inline auto make_unique(T A) noexcept {
-		return std::unique_ptr<std::remove_pointer<T>::type>>(A);
-	}*/
-
 #define ZeroArray(s) memset(s,0,sizeof(s))
+
 #define SafeRead(Var)if(O + sizeof(Var) > End)return;Var = *(decltype(Var)*)O;O += sizeof(Var)
 
 template<const size_t nSize>
@@ -592,52 +554,74 @@ _SQLCon SQL_BanchoThread[BANCHO_THREAD_COUNT];
 
 #include "BCrypt/BCrypt.hpp"
 
-std::string GET_WEB(const std::string &&HostName, const std::string &&Page) {
+std::string GET_WEB(const std::string& HostName, const std::string& Page) {
 
-	SOCKET Socket_WEB = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	SOCKET Socket = 0;
+	addrinfo* result(0), * rp(0);
 
-	if (!Socket_WEB)
-		return "";
-	
-	struct hostent *hp = gethostbyname(HostName.c_str());
+	std::string Ret;
 
-	if (!hp){
-		closesocket(Socket_WEB);
-		return "";
-	}
+	for (;;) {
 
-	SOCKADDR_IN SockAddr_WEB;
-	SockAddr_WEB.sin_family = AF_INET;
-	SockAddr_WEB.sin_port = htons(80);
-	SockAddr_WEB.sin_addr.s_addr = *(unsigned long*)hp->h_addr;
-		
-	if (connect(Socket_WEB, (SOCKADDR*)(&SockAddr_WEB), sizeof(SockAddr_WEB))){
-		closesocket(Socket_WEB);
-		return "";
-	}
+		if (Socket)closesocket(Socket);
 
-	const std::string pData = "GET /" + Page + " HTTP/1.1\r\nHost: " + HostName + "\r\nConnection: close\r\n\r\n";
+		Socket = 0;
 
-	if (send(Socket_WEB, (char*)&pData[0], pData.size(), 0) == SOCKET_ERROR){
-		closesocket(Socket_WEB); return "";
-	}
-	
-	int tSize = 0; std::string Return_WEB(MAX_PACKET_LENGTH, '\0'); \
-		while (1) {
-			const int rByte = recv(Socket_WEB, &Return_WEB[tSize], MAX_PACKET_LENGTH, 0);
-			if (rByte == 0)
-				break;
-			if (rByte < 0)
-				return "";
+		addrinfo ainfo;
+		ZeroMemory(&ainfo, sizeof(ainfo));
 
-			Return_WEB.resize(Return_WEB.size() + rByte);
-			tSize += rByte;
+		ainfo.ai_family = AF_UNSPEC;
+		ainfo.ai_socktype = SOCK_STREAM;
+
+		if (getaddrinfo(HostName.c_str(), "80", &ainfo, &result) != 0)
+			break;
+
+		for (rp = result; rp; rp = rp->ai_next) {
+			if ((Socket = socket(rp->ai_family, rp->ai_socktype,
+				rp->ai_protocol)) == SOCKET_ERROR)continue;
+
+			if (connect(Socket, rp->ai_addr, rp->ai_addrlen) == SOCKET_ERROR){
+				closesocket(Socket);
+				Socket = 0;
+				continue;
+			}
+
+			break;
 		}
 
-	closesocket(Socket_WEB);
-	Return_WEB.resize(tSize);
+		if (rp == NULL)
+			break;
 
-	return Return_WEB;
+
+		const std::string pData = "GET /" + Page + " HTTP/1.1\r\nHost: " + HostName + "\r\nConnection: close\r\n\r\n";
+
+		if (send(Socket, pData.data(), pData.size(), 0) == SOCKET_ERROR)
+			break;
+
+		size_t Total = 0;
+		for (;;) {
+
+			constexpr int BufferSize = 1024;
+
+			Ret.resize(Total + BufferSize);
+
+			const int Size = recv(Socket, &Ret[Total], BufferSize, 0);
+
+			if (Size == -1) {
+				Ret.clear();
+				break;
+			}
+			if (Size == 0)break;
+			Ret.resize((Total += Size));
+		}
+
+		break;
+	}
+
+	if (result)freeaddrinfo(result);
+	if (Socket)closesocket(Socket);
+
+	return Ret;
 }
 
 int CharHexToDecimal(const char c){
@@ -654,26 +638,42 @@ _inline int DecimalToHex(const char c){
 	return c <= 0x9 ? '0' + c : c <= 0xF ? ('a' - 10) + c : ' ';
 }
 
+std::string GET_WEB_CHUNKED(const std::string& HostName, const std::string& Page) {
 
-std::string GET_WEB_CHUNKED(const std::string &&HostName, const std::string &&Page){
+	const auto h2d = [](const char c)->int {
+		return c >= '0' && c <= '9'
+			? c - '0'
+			: c >= 'A' && c <= 'F'
+			? c - ('A' - 10)
+			: c >= 'a' && c <= 'f'
+			? c - ('a' - 10)
+			: 0;
+	};
 
-	const std::string rp = GET_WEB(_M(HostName), _M(Page));
+	const std::string& rp = GET_WEB(HostName, Page);
 
 	if (rp.size() == 0)
 		return "";
 
 	std::string p; p.reserve(rp.size());
 	size_t Start = rp.find("\r\n\r\n");
+
 	if (Start == std::string::npos)
 		return "";
 
-	for (size_t i = Start + 4; i < rp.size(); i++){
+
+	const size_t End = rp.size();
+
+	for (size_t i = Start + 4; i < End; i++) {
 		Start = i;
-		while (*(USHORT*)&rp[i] != 0x0a0d)i++;//\r\n
-		DWORD ChunkSize = 0;
-		for (DWORD z = Start; z < i; z++){
-			ChunkSize = ChunkSize << 4;
-			ChunkSize += CharHexToDecimal(rp[z]);
+		while (i < End && *(USHORT*)&rp[i] != 0x0a0d)i++;//\r\n
+		if (i == End)break;
+
+		size_t ChunkSize = 0;
+
+		for (DWORD z = Start; z < i; z++) {
+			ChunkSize <<= 4;
+			ChunkSize += h2d(rp[z]);
 		}
 
 		if (ChunkSize == 0)break;
@@ -939,18 +939,10 @@ namespace BR {
 
 	void random_bytes(void* dest, const size_t Size){
 
-		union{
-			size_t t;
-			u8 b[sizeof(t)];
-		} Bytes{(size_t)std::uniform_int_distribution<size_t>{ 0, size_t(-1)}(mersenneTwister)};
+		const auto Ran = []{return (size_t)std::uniform_int_distribution<size_t>{ 0, size_t(-1)}(mersenneTwister);};
 
-		for (size_t i = 0; i < Size; i++){
-
-			*(u8*)((size_t)dest + i) = Bytes.b[0];
-
-			if (unlikely((Bytes.t >>= 8) == 0))
-				Bytes.t = (size_t)std::uniform_int_distribution<size_t>{ 0, size_t(-1)}(mersenneTwister);
-		}
+		for (size_t i(0),b(Ran()); i < Size; i++)
+			*(u8*)((size_t)dest + i) = (likely(b >>= 8) ? b : b = Ran()) & 0xff;
 	}
 
 };
@@ -1644,19 +1636,16 @@ struct _User{
 	u32 UserID;
 	u32 privileges;
 	int silence_end;
+	char ActionMD5[32];
+	u32 actionMods;
+	int BeatmapID;
+	u32 LogOffset : 16, timeOffset : 5, SpamLevel : 5, GameMode : 3, SendToken : 1, inLobby : 1, FriendsOnlyChat : 1;
+
+	_MD5 Password;
 	std::string Username;
 	std::string Username_Safe;
-	_MD5 Password;
-	char ActionMD5[32];
 	std::array<byte, 64> ActionText;
-	DWORD actionMods;
-	int BeatmapID;
-	u32 LogOffset;
-	byte timeOffset:5, GameMode:3;
-	byte SpamLevel:5, SendToken:1, inLobby:1, FriendsOnlyChat:1;
-
-	byte country;
-	byte actionID;
+	u32 country : 8, actionID : 8;
 	float lat;
 	float lon;
 
@@ -1677,7 +1666,7 @@ struct _User{
 	
 	int LastSentBeatmap;
 
-	_Achievement Ach;//TODO: thread this.
+	Achievement Ach;
 	
 	size_t ActiveChannels[MAX_CHAN_COUNT];//There is no way to resolve the actual size without restructuring xdxdxd
 	
@@ -1832,7 +1821,6 @@ void reset() {
 		choToken = 0;
 		UserID = 0;
 		privileges = -1;
-
 	}
 
 	template<const bool Locked = true>
@@ -2560,6 +2548,8 @@ struct _UserUpdate{
 };
 
 locked_vector<_UserUpdate> UpdateQue;
+
+//#include "PKM.h"
 
 #include "Aria.h"
 #include "User.h"
@@ -3486,8 +3476,7 @@ void Event_client_matchScoreUpdate(_User *tP, const byte* const Packet, const DW
 			for (auto& Slot : m->Slots)
 				if (Slot.User == tP){
 
-					MatchData / R_L(id) = (u8)GetIndex(m->Slots, Slot);
-					
+					MatchData.get<id>() = (u8)GetIndex(m->Slots, Slot);
 					m->sendUpdateVector(b);
 					break;
 				}
@@ -4031,6 +4020,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 		int SilenceEnd = 0;
 		byte CountryCode = 0;
 		bool NewLogin = 0;
+		Achievement Ach;
 
 		_UserRef u(GetUserFromNameSafe(Username_Safe, 1),1);
 
@@ -4039,6 +4029,7 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 			Priv = u->privileges;//TODO make this able to be updated.
 			SilenceEnd = u->silence_end;
 			CountryCode = u->country;
+			Ach = u->Ach;
 		}else u.User = 0;
 
 		if(!u){
@@ -4122,6 +4113,21 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 
 			if (Username != GetUsernameFromCache(UserID))
 				UsernameCacheUpdateName(UserID, Username, &SQL_BanchoThread[s.ID]);
+
+			{
+				res.reset(con->ExecuteQuery("SELECT achievements_0,achievements_1 FROM users WHERE id=" + std::to_string(UserID)));
+
+				if (res && res->next()){
+
+					u64 Data[]{ res->getUInt64(1),res->getUInt64(2)};
+
+
+					Ach.General[0] = Data[0] & u32(-1);Ach.General[1] = (Data[0] >> 32) & u32(-1);
+					Ach.General[2] = Data[1] & u32(-1); Ach.General[3] = (Data[1] >> 32) & u32(-1);
+
+
+				}
+			}
 
 			for(byte z = 0; z < 				
 			#ifndef NO_RELAX
@@ -4207,6 +4213,8 @@ void HandleBanchoPacket(_Con s, const _HttpRes &&RES,const uint64_t choToken) {
 			u->LastPacketTime = u->LoginTime;
 			u->UserID = UserID;
 			u->silence_end = SilenceEnd;
+
+			u->Ach = Ach;
 
 			if(NewLogin)
 				u->Username = Username;
@@ -4340,7 +4348,7 @@ void DisconnectUser(_User *u){
 
 		C->PartChannel(u);
 	}
-
+	
 	u->choToken = 0;
 
 	if (u->inLobby){

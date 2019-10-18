@@ -131,6 +131,15 @@
     <ClInclude Include="HTML.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="PKM.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PKM\Species_Data.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PKM\Abilities.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="cpp.hint" />

@@ -983,35 +983,27 @@ void ScoreFailed(_Con s){
 	s.Dis();
 }
 
-_Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
+Achievement GetAchievementsFromScore(const _Score &s, const float StarDiff) {
+	
+	Achievement Ret;
 
-	_Achievement Ret;
-		
-	DWORD *const Gen = [&](){
-		if (s.GameMode == 0)
-			return &Ret.osuGeneral;
-		else if (s.GameMode == 1)
-			return &Ret.taikoGeneral;
-		else if (s.GameMode == 2)
-			return &Ret.ctbGeneral;
-		return &Ret.maniaGeneral;
-	}();
+	u32& Bytes = Ret.General[al_clamp((int)s.GameMode,0, GM_MAX)];
 
 	if (s.MaxCombo >= 500)
-		*Gen += AchGeneral::Combo500;
+		Bytes |= Achievement::Combo500;
 	if (s.MaxCombo >= 750)
-		*Gen += AchGeneral::Combo750;
+		Bytes |= Achievement::Combo750;
 	if (s.MaxCombo >= 1000)
-		*Gen += AchGeneral::Combo1000;
+		Bytes |= Achievement::Combo1000;
 	if (s.MaxCombo >= 2000)
-		*Gen += AchGeneral::Combo2000;
+		Bytes |= Achievement::Combo2000;
 
 	int StarCount = al_min(int(StarDiff), 8);
 
 	while (StarCount > 0){
 		if (s.FullCombo)
-			*Gen += 1 << (11 + StarCount);
-		*Gen += 1 << (3 + StarCount);
+			Bytes += 1 << (11 + StarCount);
+		Bytes += 1 << (3 + StarCount);
 
 		StarCount--;
 	}
@@ -1295,13 +1287,18 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 				//TODO: might want to add overall stats
 				std::string achievements;
 				
-				_Achievement New = u->Ach;// GetAchievementsFromScore(sData, MapStars);
+				Achievement New = GetAchievementsFromScore(sData, MapStars);
 
-				CalculateAchievement(New, u->Ach, sData.GameMode, &achievements);//TODO Add ach to DB.
+				CalculateAchievement(New, u->Ach, sData.GameMode, achievements);//TODO Add ach to DB.
 				u->Ach = New;
-				if(achievements.size())
+
+				if (achievements.size()){
+					SQLExecQue.AddQue("UPDATE users SET achievements_0=" +
+						std::to_string(u64(New.General[0]) + (u64(New.General[1]) << 32)) + ",achievements_1=" + std::to_string(u64(New.General[2]) + (u64(New.General[3]) << 32)) +
+						" WHERE id=" + std::to_string(u->UserID) + " LIMIT 1;");
+
 					Charts += "|achievements-new: " + achievements + "\n";
-				else Charts += "\n";
+				}else Charts += "\n";
 			}
 			
 			s.SendData(ConstructResponse(200, Empty_Headers, Charts));
@@ -1668,7 +1665,7 @@ void Thread_WebReplay(const uint64_t ID, _Con s){
 
 void Thread_UpdateOSU(const std::string URL, _Con s){
 
-	s.SendData(GET_WEB("old.ppy.sh", _M(URL)));//Their osu clients will unchunk the data for us :)
+	s.SendData(GET_WEB("old.ppy.sh", URL));//Their osu clients will unchunk the data for us :)
 
 	return s.Dis();
 }
@@ -1760,8 +1757,10 @@ namespace MIRROR {
 				}
 
 				for (auto& [req,Con] : QueCopy){
-					Con.SendData(GET_WEB(MIRROR_IP, _M(req)));
-					Con.Dis();
+					if constexpr (UsingRawMirror) {
+						Con.SendData(GET_WEB(MIRROR_IP, req));
+						Con.Dis();
+					}
 				}
 			}
 
