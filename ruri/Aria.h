@@ -1395,7 +1395,7 @@ struct pack {
 template<typename ...T>
 auto get_param_sbind(_GetParams &a, const T& ...Output){
 
-	return std::tuple<std::decay<decltype(T::type)>::type...>{
+	return std::tuple<typename std::decay<decltype(T::type)>::type...>{
 		([&]{
 			if constexpr (std::is_same<std::string_view, typename std::decay<decltype(T::type)>::type>::value)
 				return a.get_pop<T::Hash>();
