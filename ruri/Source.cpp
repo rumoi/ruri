@@ -295,8 +295,6 @@ enum LoginReply {
 	Login_Failed = -1
 };
 
-constexpr size_t MAX_PACKET_LENGTH = 2816;
-
 #ifndef LINUX
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #define WIN32_LEAN_AND_MEAN
@@ -324,6 +322,8 @@ constexpr size_t MAX_PACKET_LENGTH = 2816;
 #define MM_ALIGN __attribute__((aligned(16)))
 
 #endif
+
+constexpr size_t MAX_PACKET_LENGTH = 2816;
 
 #define RURI_UNIX_SOCKET "/tmp/ruri.sock"
 #define ARIA_UNIX_SOCKET "/tmp/aria.sock"
@@ -574,6 +574,28 @@ template<const size_t nSize>
 constexpr auto _VIEW(const char(&String)[nSize]) {
 	return c_string_view<nSize - 1>{(char*)String};
 }
+
+template<typename T>
+struct T_to_string_max {
+
+	static constexpr size_t value = [] {
+
+		if constexpr (std::is_same<std::decay<T>::type, double>::value)
+			return 24;
+		if constexpr (std::is_same<std::decay<T>::type, float>::value)
+			return 16;
+
+		switch (sizeof(std::decay<T>::type)) {
+		case 1: return 4;
+		case 2: return 6;
+		case 4: return 11;
+		case 8: return 20;
+		};
+
+		return 0;
+	}();
+
+};
 
 template<typename>
 struct is_c_string_view : std::false_type {};
@@ -4803,8 +4825,6 @@ const char* Splashes[] = {	"Undefined definitively defined level of undefined be
 
 int main(){
 
-	constexpr size_t dsdsd = (size_t)Privileges::Visible | (size_t)Privileges::Verified | (size_t)Privileges::SuperAdmin | (size_t)Privileges::Name_Periwinkle;
-
 	#define COL1 KCYN
 	#define COL2 KGRN
 
@@ -4813,7 +4833,7 @@ int main(){
 	#undef COL1
 	#undef COL2
 
-	printf("%s!\n",Splashes[time(0) & 0xf]);
+	printf("%s!\n",Splashes[time(0) % (sizeof(Splashes) / sizeof(char*))]);
 
 	printf(TAG);
 
