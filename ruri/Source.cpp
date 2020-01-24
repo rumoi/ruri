@@ -232,66 +232,70 @@ namespace Packet{
 		RTX = 105,
 		switchTourneyServer = 107
 	};
-	enum class Client : unsigned short{
-		changeAction = 0,
-		sendPublicMessage = 1,
-		logout = 2,
-		requestStatusUpdate = 3,
-		pong = 4,
-		startSpectating = 16,
-		stopSpectating = 17,
-		spectateFrames = 18,
-		errorReport = 20,
-		cantSpectate = 21,
-		sendPrivateMessage = 25,
-		partLobby = 29,
-		joinLobby = 30,
-		createMatch = 31,
-		joinMatch = 32,
-		partMatch = 33,
-		matchChangeSlot = 38,
-		matchReady = 39,
-		matchLock = 40,
-		matchChangeSettings = 41,
-		matchStart = 44,
-		AllPlayersLoaded_unused = 45,
-		matchScoreUpdate = 47,
-		matchComplete = 49,
-		matchChangeMods = 51,
-		matchLoadComplete = 52,
-		matchNoBeatmap = 54,
-		matchNotReady = 55,
-		matchFailed = 56,
-		matchHasBeatmap = 59,
-		matchSkipRequest = 60,
-		channelJoin = 63,
-		beatmapInfoRequest = 68,
-		matchTransferHost = 70,
-		friendAdd = 73,
-		friendRemove = 74,
-		matchChangeTeam = 77,
-		channelPart = 78,
-		receiveUpdates = 79,
-		setAwayMessage = 82,
-		IRC_only = 84,
-		userStatsRequest = 85,
-		invite = 87,
-		matchChangePassword = 90,
-		specialMatchInfoRequest = 93,
-		userPresenceRequest = 97,
-		userPresenceRequestAll = 98,
-		userToggleBlockNonFriendPM = 99,
-		matchAbort = 106,
-		specialJoinMatchChannel = 108,
-		specialLeaveMatchChannel = 109
-	};
+	namespace Client{
+		enum : unsigned short {
+			changeAction = 0,
+			sendPublicMessage = 1,
+			logout = 2,
+			requestStatusUpdate = 3,
+			pong = 4,
+			startSpectating = 16,
+			stopSpectating = 17,
+			spectateFrames = 18,
+			errorReport = 20,
+			cantSpectate = 21,
+			sendPrivateMessage = 25,
+			partLobby = 29,
+			joinLobby = 30,
+			createMatch = 31,
+			joinMatch = 32,
+			partMatch = 33,
+			matchChangeSlot = 38,
+			matchReady = 39,
+			matchLock = 40,
+			matchChangeSettings = 41,
+			matchStart = 44,
+			AllPlayersLoaded_unused = 45,
+			matchScoreUpdate = 47,
+			matchComplete = 49,
+			matchChangeMods = 51,
+			matchLoadComplete = 52,
+			matchNoBeatmap = 54,
+			matchNotReady = 55,
+			matchFailed = 56,
+			matchHasBeatmap = 59,
+			matchSkipRequest = 60,
+			channelJoin = 63,
+			beatmapInfoRequest = 68,
+			matchTransferHost = 70,
+			friendAdd = 73,
+			friendRemove = 74,
+			matchChangeTeam = 77,
+			channelPart = 78,
+			receiveUpdates = 79,
+			setAwayMessage = 82,
+			IRC_only = 84,
+			userStatsRequest = 85,
+			matchInvite = 87,
+			matchChangePassword = 90,
+			specialMatchInfoRequest = 93,
+			userPresenceRequest = 97,
+			userPresenceRequestAll = 98,
+			userToggleBlockNonFriendPM = 99,
+			matchAbort = 106,
+			specialJoinMatchChannel = 108,
+			specialLeaveMatchChannel = 109
+		};
+
+	}
+
 }
 
 enum LoginReply {
 	Login_Failed = -1
 };
 
-const unsigned int MAX_PACKET_LENGTH = 2816;
+constexpr size_t MAX_PACKET_LENGTH = 2816;
 
 #ifndef LINUX
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
@@ -349,10 +353,7 @@ struct r_struct {
 
 		using T2 = typename get_Nth_type<i, T...>::type;
 
-		constexpr size_t Offset = []{
-			size_t c(0);
-			return (((c++ < i) ? sizeof(T) : 0) + ...);
-		}();
+		constexpr size_t Offset = []{size_t c = 0; return (((c++ < i) ? sizeof(T) : 0) + ...);}();
 
 		return (T2&)Data[Offset];
 	}
@@ -414,7 +415,7 @@ template<typename T, size_t size>
 #define ARRAY_SIZE(s) (sizeof(s) / sizeof(s[0]))
 #define ZeroArray(s) memset(s,0,sizeof(s))
 
-#define SafeRead(Var)if(O + sizeof(Var) > End)return;Var = *(decltype(Var)*)O;O += sizeof(Var)
+#define SafeRead(Var)if(Current + sizeof(Var) > End)return;Var = *(decltype(Var)*)Current;Current += sizeof(Var)
 
 template<const size_t nSize>
 	_inline const auto STACK(const char(&String)[nSize]) {
@@ -480,9 +481,17 @@ template<typename T>
 		return T();
 	}
 
-#define StringToNum(TYPE, STRING) [](const std::string_view S){return MemToNum<TYPE>(S.data(), S.size());}(STRING)
+#include <charconv>
 
+#define StringToNum(TYPE, STRING) [](const std::string_view S){return MemToNum<TYPE>(S.data(), S.size());}(STRING)
 #define DeleteAndNull(s)if(s)delete s;s=0
+
+template<typename T, typename T2>
+	_inline T STN(const T2& String){
+		T v;
+		return std::from_chars(String.data(), String.data() + String.size(), v).ptr != String.data() ? v : T();
+	}
+
 
 #define mlock(s) if constexpr(std::scoped_lock L(s);1 == 1)
 #define s_mlock(s) if constexpr(std::shared_lock L(s);1)
@@ -545,7 +554,57 @@ size_t GetIndex(const T& Start, const T2& End) {
 	return (size_t(&End) - size_t(&Start[0])) / sizeof(Start[0]);
 }
 
+const auto Space_To_Underscore = [](char& c) {if (c == ' ')c = '_';};
+
+const auto Convert_Username_Safe = [](char& c){
+	if (c == ' ') c = '_';
+	else if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+};
+
+
 template<typename T, T V> struct CONSTX { constexpr static T value = V;};
+
+template<size_t Size_T>
+struct c_string_view {
+	char* data;
+	static constexpr size_t Size = Size_T;
+};
+
+template<const size_t nSize>
+constexpr auto _VIEW(const char(&String)[nSize]) {
+	return c_string_view<nSize - 1>{(char*)String};
+}
+
+template<typename>
+struct is_c_string_view : std::false_type {};
+
+template<size_t Size>
+struct is_c_string_view<c_string_view<Size>> : std::true_type {};
+
+template<typename ...T>
+auto PRINTF(T... Params) {
+
+	constexpr size_t Size = (([]()->size_t {
+		if constexpr (is_c_string_view<T>::value) return T::Size;
+		return T_to_string_max<T>::value;
+		}()) + ...);
+
+	std::array<char, Size> Ret;
+
+	char* Current = (char*)Ret.data(), * End = Current + Size;
+
+	(([&Current, &Params, End] {
+		if constexpr (is_c_string_view<T>::value) {
+			memcpy((void*)Current, Params.data, T::Size);
+			Current += T::Size;
+		}
+		else Current = std::to_chars(Current, End, Params).ptr;
+
+		}()), ...);
+
+	return std::pair{ (size_t)Current - (size_t)Ret.data(), Ret };
+}
+
 
 #include "SQL.h"
 #include "Json.h"
@@ -946,7 +1005,6 @@ namespace BR {
 	}
 
 };
-
 
 void LogError(int i){
 	printf(KRED "ERROR CODE: %i\n" KRESET, i);
@@ -1678,6 +1736,10 @@ struct _User{
 	/*MM_ALIGN */u32 Friends[256];
 	/*MM_ALIGN */u32 Blocked[32];
 
+	const bool is_banned()const noexcept{
+		return (privileges & (u32)Privileges::Visible) == 0;
+	}
+
 	bool AddBlock(const DWORD UID){
 		if (UID >= USERID_START)
 			for (size_t i = 0; i < aSize(Blocked); i++) {
@@ -2008,6 +2070,9 @@ struct _UserRef{
 
 	_User* operator->()const noexcept {return User;}
 
+	const inline bool valid()const noexcept {
+		return User != 0;
+	}
 	const bool operator!()const noexcept {
 		return !(User);
 	}
@@ -2229,144 +2294,19 @@ _inline DWORD ReadUlebSize(size_t &O, const size_t Max) {
 	return (size_t(O) + Size <= Max) ? Size : 0;
 }
 
-_inline std::string ReadUleb(size_t &O, const size_t Max) {
+template<typename T = std::string>
+_inline T ReadUleb(size_t &O, const size_t Max) {
 
 	const DWORD Size = ReadUlebSize(O, Max);
 
 	const char* S = (char*)O;
 	O += Size;
 
-	return std::string(S, Size);
-}
-_inline std::string_view ReadUleb_View(size_t& O, const size_t Max){
-	const DWORD Size = ReadUlebSize(O, Max);
-	const char*const S = (char*)O;
-	O += Size;
-	return std::string_view(S, Size);
+	return T(S, Size);
 }
 
 _inline void SkipUleb(size_t &O, const size_t Max){
 	O += ReadUlebSize(O, Max);
-}
-
-
-void Event_client_channelJoin(_User *tP,const byte* const Packet, const DWORD Size){
-
-	if (Size > 2) {
-
-		size_t O = (size_t)&Packet[0];
-
-		const std::string_view ChannelName = ReadUleb_View(O, O + Size);
-
-		_Channel* c = GetChannelByName(WSTI(ChannelName));
-		
-		if (c) {
-			c->JoinChannel(tP);
-			PacketBuilder::Build<Packet::Server::channelJoinSuccess, 'm', 'v'>(tP->QueBytes, &tP->qLock, &ChannelName);
-		}else
-			PacketBuilder::Build<Packet::Server::channelKicked, 'm', 'v'>(tP->QueBytes, &tP->qLock, &ChannelName);
-			
-	}
-}
-void Event_client_channelPart(_User *tP, const byte* const Packet, const DWORD Size){
-	if (Size > 2){
-
-		size_t O = (size_t)&Packet[0];
-
-		if (_Channel * c = GetChannelByName(WSTI(ReadUleb_View(O, O + Size))); c)
-			c->PartChannel(tP);
-	}
-}
-
-void Event_client_userStatsRequest(_User *u, const byte* const Packet, const DWORD Size){
-	if (Size > 2){
-
-		const USHORT Count = al_min(*(USHORT*)&Packet[0], 64);
-
-		if ((Count << 2) + 2 <= Size) {
-			mlock (u->qLock)
-				for (DWORD i = 0; i < Count; i++){
-
-					const DWORD uID = *(DWORD*)&Packet[2 + (i << 2)];
-
-					if (uID < USERID_START){
-						u->addQueArray<0>(PacketBuilder::CT::BotInfo::Bot_Stats);
-						continue;
-					}
-
-					_UserRef tP(GetUserFromID(uID), 1);
-
-					if (!tP || !tP->choToken || (!(tP->privileges & (u32)Privileges::Visible) && u != tP.User)){
-						//u->addQueArray<0>(PacketBuilder::Fixed_Build<Packet::Server::userLogout,'i'>(uID));
-						continue;
-					}
-
-					const DWORD Off = tP->GetStatsOffset();
-					
-					PacketBuilder::Build<Packet::Server::userStats,
-						'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(u->QueBytes,
-							tP->UserID, tP->actionID, tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
-							tP->BeatmapID, tP->Stats[Off].rScore, *(int*)&tP->Stats[Off].Acc,
-							tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
-							tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
-							);
-				}
-		}
-	}
-}
-
-void Event_client_changeAction(_User *tP, const byte* const Packet, const DWORD Size){
-
-	if (Size < 12)return;
-
-	size_t O = (size_t)&Packet[0];
-	const size_t End = O + Size;
-
-	const byte n_actionID = *(byte*)O++;
-	const std::string n_ActionText = ReadUleb(O, End);
-	const std::string n_CheckSum = REMOVEQUOTES(ReadUleb(O, End));
-	if (O + 4 > End)return;
-	const DWORD n_Mods = *(DWORD*)O; O += 4;
-	if (O + 1 > End)return;
-	const byte n_GameMode = *(byte*)O; O++;
-	if (O + 4 > End)return;
-	const int n_BeatmapID = *(int*)O;	
-	tP->actionID = n_actionID;
-
-	WriteStringToArray(tP->ActionText, n_ActionText);
-
-	if (n_CheckSum.size() == 32)
-		memcpy(tP->ActionMD5, &n_CheckSum[0], 32);
-
-	if(n_actionID != bStatus::sAfk)//Stop relax flickering.
-		tP->actionMods = n_Mods;
-	tP->GameMode = n_GameMode;
-	if(n_BeatmapID)tP->BeatmapID = n_BeatmapID;
-
-
-	VEC(byte) Stats;
-	const DWORD Off = tP->GetStatsOffset();
-
-	PacketBuilder::Build<Packet::Server::userStats,
-		'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(Stats,
-			tP->UserID, tP->actionID, tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
-			tP->BeatmapID, tP->Stats[Off].rScore, *(int*)&tP->Stats[Off].Acc,
-			tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
-			tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
-			);
-
-	tP->addQueVector(Stats);
-
-	if (tP->Spectators.size()){
-		tP->SpecLock.lock_shared();
-
-		for (auto Spec : tP->Spectators)
-			if (Spec)
-				Spec->addQueVector(Stats);
-
-		tP->SpecLock.unlock_shared();
-	}
-
 }
 
 #include <fstream>
@@ -2548,8 +2488,6 @@ struct _UserUpdate{
 };
 
 locked_vector<_UserUpdate> UpdateQue;
-
-//#include "PKM.h"
 
 #include "Aria.h"
 #include "User.h"
@@ -2737,234 +2675,8 @@ WITHMODS:
 	}
 }
 
-void Event_client_sendPrivateMessage(_User *tP, const byte* const Packet, const DWORD Size){
-
-	if (Size < 7 || tP->isSilenced() || !(tP->privileges & (u32)Privileges::Visible))
-		return;
-
-	size_t O = (size_t)&Packet[0];
-	const size_t End = O + Size;
-
-	SkipUleb(O, End);//Skip sender. It is useless
-
-	const std::string_view Message = ReadUleb_View(O, End);
-	const std::string_view Target = ReadUleb_View(O, End);
-
-	if (O + 4 > End)return;
-	const int ID = *(int*)O;
-
-	if (Message.size()) {
-
-		if (Target == BOT_NAME)
-			return BotMessaged(tP, Message);
-
-		_UserRef u(GetUserFromName(Target), 1);
-
-		if (unlikely(!u))
-			return tP->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::userLogout, 'i'>(ID));
-
-		if (u->isBlocked(tP->UserID))
-			return;
-		
-		if (u->FriendsOnlyChat && !u->isFriend(tP->UserID))
-			PacketBuilder::Build<Packet::Server::userPMBlocked, 'm', 's', 'b', 's', 'i'>(tP->QueBytes, &tP->qLock, &tP->Username, 0, &u->Username, tP->UserID);
-		else PacketBuilder::Build<Packet::Server::sendMessage, 'm', 's', 'v', 'v', 'i'>(u->QueBytes, &u->qLock, &tP->Username, &Message, &Target, tP->UserID);
-
-	}
-
-}
-
-void Event_client_sendPublicMessage(_User *tP, const byte* const Packet, const DWORD Size) {
-
-	if (Size < 7 || tP->isSilenced())
-		return;
-
-	size_t O = (size_t)&Packet[0];
-	const size_t End = O + Size;
-
-	SkipUleb(O, End);//Skip sender. It is useless
-
-	const std::string_view Message = TrimString_View(ReadUleb_View(O, End));
-
-	if (Message.size() == 0)
-		return;
-
-	const std::string_view TargetString = ReadUleb_View(O, End);
-
-	const u32 Target = WSTI<u32>(TargetString);
-
-	if ((Target == CONSTX<u32, WSTI<u32>("#highlight")>::value) | (Target == CONSTX<u32, WSTI<u32>("#userlog")>::value))
-		return;
-
-	_Channel *c = 0;
-	
-	if (Target == CONSTX<u32, WSTI<u32>("#multiplayer")>::value){
-
-		if (_Match * const m = getMatchFromID(tP->CurrentMatchID); m){
-
-			DWORD notVisible = 0;
-
-			const std::string &s = ProcessCommandMultiPlayer(tP, Message, notVisible, m);
-				
-			if (VEC(byte) Pack; !s.size()){
-
-				PacketBuilder::Build<Packet::Server::sendMessage,'s','v','-','i'>(Pack, &tP->Username, &Message, STACK("#multiplayer"), tP->UserID);
-
-				std::scoped_lock L(m->Lock);
-				m->sendUpdateVector(Pack, tP);
-
-			}else{
-				PacketBuilder::Build<Packet::Server::sendMessage, '-', 's', '-', 'i'>(Pack, STACK(M_BOT_NAME), &s, STACK("#multiplayer"), USERID_START-1);
-
-				if (!notVisible){
-					std::scoped_lock L(m->Lock);
-					m->sendUpdateVector(Pack, 0);
-				}else tP->addQueVector(Pack);
-			}			
-		}
-
-		return;
-	}else if ((tP->CurrentlySpectating || tP->Spectators.size()) && Target == CONSTX<u32, WSTI<u32>("#spectator")>::value){
-
-		_User *const SpecHost = (tP->Spectators.size()) ? tP : tP->CurrentlySpectating;
-
-		if (SpecHost){
-
-			VEC(byte) b;
-			PacketBuilder::Build<Packet::Server::sendMessage,'s','v','v','i'>(b, &tP->Username, &Message, &TargetString, tP->UserID);
-
-			s_mlock (SpecHost->SpecLock){
-				for (_User* const s : SpecHost->Spectators){
-					if (s && s != tP)
-						s->addQueVector(b);
-				}
-			}
-			if (SpecHost != tP)
-				SpecHost->addQueVector(b);
-		}
-
-		return;
-	}else c = GetChannelByName(Target);
-
-	if (!c)
-		return PacketBuilder::Build<Packet::Server::channelKicked, 'm', 'v'>(tP->QueBytes, &tP->qLock, &TargetString);
-
-	if (Message[0] == '!'){
-
-		DWORD notVisible = 0;
-		const std::string& Res = ProcessCommand(tP, Message, notVisible);
-
-		if (!(tP->privileges & (u32)Privileges::Visible))
-			notVisible = 1;
-
-		if (Res.size()){
-			if (notVisible)
-				PacketBuilder::Build<Packet::Server::sendMessage, 'm', '-', 's', 'v', 'i'>(tP->QueBytes, &tP->qLock, STACK(M_BOT_NAME), &Res, &TargetString, USERID_START - 1);
-			else
-				c->Bot_SendMessage(Res);
-		}
-
-		return;
-	}
-
-	if (tP->privileges & (u32)Privileges::Visible) {
-		VEC(byte) Pack;
-		PacketBuilder::Build<Packet::Server::sendMessage, 's', 'v', 'v', 'i'>(Pack,&tP->Username,&Message,&TargetString,tP->UserID);
-
-		c->SendPublicMessage(tP, Pack);
-	}
-}
-
-void Event_client_startSpectating(_User *tP, const byte* const Packet, const DWORD Size){
-
-	if (Size < 4)return;
-
-	const DWORD ID = *(DWORD*)&Packet[0];
-
-	if (ID < USERID_START || ID == tP->UserID){
-		constexpr auto cPack = PacketBuilder::CT::String_Packet(Packet::Server::notification, "You can not spectate that user.");
-		return tP->addQueArray(cPack);
-	}
-	_UserRef SpecTarget(GetUserFromID(ID),1);
-
-	if (!SpecTarget){
-		constexpr auto cPack = PacketBuilder::CT::String_Packet(Packet::Server::notification, "Failed to find user.");
-		return tP->addQueArray(cPack);
-	}
-
-	if (tP->CurrentlySpectating)
-		Event_client_stopSpectating(tP);
-
-	bool Add = (tP->CurrentlySpectating != SpecTarget.User);
-
-	tP->CurrentlySpectating = SpecTarget.User;
-
-	{
-
-		const auto b = PacketBuilder::Fixed_Build<Packet::Server::fellowSpectatorJoined, 'i'>(tP->UserID);
-
-		std::scoped_lock L(SpecTarget->SpecLock);
-
-		if (SpecTarget->Spectators.size() == 0)
-			SpecTarget->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::channelJoinSuccess, '-'>(STACK("#spectator")));
-
-		VEC(byte) Fellow; Fellow.reserve(SpecTarget->Spectators.size() * 11);
-
-		for (auto& fSpec : SpecTarget->Spectators){
-			if (!fSpec){
-				if (Add)
-					fSpec = tP;
-				Add = 0;
-			}else if (fSpec != tP){
-				fSpec->addQueArray(b);
-				PacketBuilder::Build<Packet::Server::fellowSpectatorJoined, 'i'>(Fellow, fSpec->UserID);
-			}
-			else Add = 0;
-		}
-
-		tP->addQueVector(Fellow);
-
-		if (Add)
-			SpecTarget->Spectators.push_back(tP);
-
-	}
-
-	{
-		const DWORD sOff = tP->GetStatsOffset();
-
-		PacketBuilder::Build<Packet::Server::userPanel,'m', 'i', 's', 'b', 'b', 'b', 'i', 'i', 'i'
-													  ,'!', 'i'>
-				(SpecTarget->QueBytes,&SpecTarget->qLock,
-				tP->UserID, &tP->Username, 24 + tP->timeOffset, tP->country, GetUserType(tP->privileges), *(int*)&tP->lon, *(int*)&tP->lat, tP->Stats[sOff].getRank(sOff, tP->UserID),
-				Packet::Server::spectatorJoined, tP->UserID);
-
-	}
-
-}
-
-void Event_client_spectateFrames(_User *tP, const byte* const Packet, const DWORD Size){
-
-	if (tP->Spectators.size() == 0)
-		return;
-
-	VEC(byte) Frame; Frame.resize(Size + 7);
-	*(USHORT*)Frame.data() = (USHORT)Packet::Server::spectateFrames;
-	Frame[2] = 0;
-	*(DWORD*)&Frame[3] = Size;
-
-	memcpy(&Frame[7], Packet, Size);
-
-	std::shared_lock<std::shared_mutex> L(tP->SpecLock);
-
-	for (_User* s : tP->Spectators){
-		if (s)
-			s->addQueVector(Frame);
-	}
-
-}
-
 void ReadMatchData(_Match &m, const byte* const Packet,const DWORD Size, bool Safe = 0){//todo make better
-
+	/*
 	size_t O = (size_t)&Packet[0];
 	const size_t End = O + Size;
 
@@ -2992,14 +2704,6 @@ void ReadMatchData(_Match &m, const byte* const Packet,const DWORD Size, bool Sa
 	if (O + NORMALMATCH_MAX_COUNT > End)return;
 	if (!Safe)memcpy(tSlotTeam, (void*)O, NORMALMATCH_MAX_COUNT); O += NORMALMATCH_MAX_COUNT;
 	if (!Safe)m.HostID = *(DWORD*)O; O += 4;
-	
-	/*
-	if (!Safe){
-		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++) {
-			m.Slots[i].SlotStatus = tSlotStatus[i];
-			m.Slots[i].SlotTeam = tSlotTeam[i];
-		}
-	}*/
 
 	for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++)
 		if (m.Slots[i].SlotStatus & SlotStatus::HasPlayer)
@@ -3022,48 +2726,76 @@ void ReadMatchData(_Match &m, const byte* const Packet,const DWORD Size, bool Sa
 
 		O += NORMALMATCH_MAX_COUNT * 4;
 	}
+	SafeRead(m.Seed);*/
+}
+
+void New_ReadMatchData(_Match& m, const u8* const Packet, const u32 Size, bool FullRead = 0) {//todo make better
+
+
+	const u8* Current = Packet;
+	const u8* End = Current + Size;
+
+	Current += 3;//Skip MatchId and inProgress.
+
+	SafeRead(m.Settings.MatchType);
+	SafeRead(m.Settings.Mods);
+
+	m.Settings.Name = ReadUleb((size_t&)Current, (size_t)End);
+
+	if (!FullRead) {
+
+		m.Settings.Password = ReadUleb((size_t&)Current, (size_t)End);
+
+		std::for_each(begin(m.Settings.Password), end(m.Settings.Password), Space_To_Underscore);
+
+		//ReplaceAll(m.Settings.Password, "//private", "");
+
+	}else SkipUleb((size_t&)Current, (size_t)End);
+
+	m.Settings.BeatmapName = ReadUleb((size_t&)Current, (size_t)End);
+	SafeRead(m.Settings.BeatmapID);
+	m.Settings.BeatmapChecksum = ReadUleb((size_t&)Current, (size_t)End);
+
+	byte tSlotStatus[NORMALMATCH_MAX_COUNT];
+	byte tSlotTeam[NORMALMATCH_MAX_COUNT];
+	if (Current + NORMALMATCH_MAX_COUNT > End)return;
+	if (!FullRead)memcpy(tSlotStatus, (void*)Current, NORMALMATCH_MAX_COUNT); Current += NORMALMATCH_MAX_COUNT;
+	if (Current + NORMALMATCH_MAX_COUNT > End)return;
+	if (!FullRead)memcpy(tSlotTeam, (void*)Current, NORMALMATCH_MAX_COUNT); Current += NORMALMATCH_MAX_COUNT;
+	if (!FullRead) {
+		m.HostID = *(DWORD*)Current; Current += 4;
+	}
+	/*
+	if (!Safe){
+		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++) {
+			m.Slots[i].SlotStatus = tSlotStatus[i];
+			m.Slots[i].SlotTeam = tSlotTeam[i];
+		}
+	}*/
+
+	for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++)
+		if (m.Slots[i].SlotStatus & SlotStatus::HasPlayer)
+			Current += 4;
+
+	SafeRead(m.Settings.PlayMode);
+	SafeRead(m.Settings.ScoringType);
+	SafeRead(m.Settings.TeamType);
+	SafeRead(m.Settings.FreeMod);
+
+
+	if (m.Settings.FreeMod) {
+		if (Current + (NORMALMATCH_MAX_COUNT * 4) > End)return;
+		int tCurrentMods[NORMALMATCH_MAX_COUNT];
+		memcpy(tCurrentMods, (void*)Current, NORMALMATCH_MAX_COUNT * 4);
+
+		for (DWORD i = 0; i < NORMALMATCH_MAX_COUNT; i++)
+			m.Slots[i].CurrentMods = tCurrentMods[i];
+
+		Current += NORMALMATCH_MAX_COUNT * 4;
+	}
 	SafeRead(m.Seed);
 }
 
-void Event_client_createMatch(_User *tP, const byte* const Packet, const DWORD Size){
-
-	constexpr auto Failed = PacketBuilder::CT::PacketHeader(Packet::Server::matchJoinFail);
-
-	if (tP->CurrentMatchID || !(tP->privileges & (u32)Privileges::Visible))//already in a match? Might want to kick them from the old one.
-		return tP->addQueArray(Failed);
-
-	_Match *const m = getEmptyMatch();
-
-	if(unlikely(!m))
-		return tP->addQueArray(Failed);
-
-	if (tP->inLobby){
-		LobbyUsers.replace(tP, 0);
-		tP->inLobby = 0;
-	}
-
-	ReadMatchData(*m, Packet,Size);
-
-	m->HostID = tP->UserID;
-	m->inProgress = 0;
-	m->PlayersLoading = 0;
-	m->Settings.Mods = 0;
-	m->PlayerCount = 1;
-	m->Slots[0].SlotStatus = SlotStatus::NotReady;
-	m->Slots[0].User = tP;
-	tP->CurrentMatchID = m->MatchId;
-	m->Tournament = 0;
-
-	SendToLobby(bPacket::bMatch<0>(m));
-
-	auto MatchData = bPacket::bMatch(m);
-	*(USHORT*)MatchData.data() = (USHORT)Packet::Server::matchJoinSuccess;
-
-	PacketBuilder::Build<Packet::Server::channelJoinSuccess, '-'>(MatchData,STACK("#multiplayer"));
-
-	tP->addQueVector(MatchData);
-
-}
 /*
 _inline void SendMatchList(_User *tP){
 
@@ -3086,584 +2818,6 @@ _inline void SendMatchList(_User *tP){
 			}
 		}	
 }*/
-
-void Event_client_partMatch(_User *tP){
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m){
-
-		std::scoped_lock L(m->Lock);
-		m->removeUser(tP, 0);
-		m->sendUpdateVector(bPacket::bMatch(m));
-		SendToLobby(bPacket::bMatch<0>(m));
-	}
-}
-
-void Event_client_matchChangeSlot(_User *const tP, const byte* const Packet, const DWORD Size){
-
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m && Size == 4){
-
-		std::scoped_lock L(m->Lock);
-
-		_Slot* OldSlot = 0;
-
-		for (auto& Slot : m->Slots)
-			if (Slot.User == tP){
-				OldSlot = &Slot;
-				break;
-			}
-		if (_Slot& New = m->Slots[al_min(*(DWORD*)&Packet[0], MULTI_MAXSIZE - 1)];
-			OldSlot && OldSlot != &New && !New.User && New.SlotStatus != SlotStatus::Locked && OldSlot->SlotStatus != SlotStatus::Ready){
-
-			New = *OldSlot;
-			*OldSlot = _Slot();
-			m->sendUpdateVector(bPacket::bMatch(m));
-		}
-
-	}
-
-}
-
-void Event_client_joinLobby(_User *tP){
-
-	_Match *const m = getMatchFromID(tP->CurrentMatchID);
-
-	if (m){
-		std::scoped_lock L(m->Lock);
-		m->removeUser(tP, 0);
-		m->sendUpdateVector(bPacket::bMatch(m));//tell the other people that they left.
-	}
-
-	if (!tP->inLobby){
-		LobbyUsers.replace(0, tP);
-		tP->inLobby = 1;
-		//Might want to send all match data here.
-	}
-}
-
-void Event_client_matchChangeSettings(_User *tP, const byte* const Packet, const DWORD Size){
-
-	_Match *m = getMatchFromID(tP->CurrentMatchID);
-
-	if (!m)return;
-
-	std::scoped_lock L(m->Lock);
-
-	if (m->HostID != tP->UserID)//Non host trying to change settings
-		return;
-
-	const auto OldFlags = m->Settings.StatusFlags();
-
-	ReadMatchData(*m, Packet,Size, 1);
-
-	const bool unReadyUsers = (OldFlags.Total != m->Settings.StatusFlags().Total);
-
-	if (OldFlags.FreeMod != m->Settings.FreeMod){
-
-		const u32 TimeMods(m->Settings.Mods & TimeAltering),
-				  NonTimeMods(m->Settings.Mods & (~TimeAltering));
-
-		if (m->Settings.FreeMod){
-
-			m->Settings.Mods = TimeMods;
-			for (auto& Slot : m->Slots)
-				Slot.CurrentMods = Slot.User ? NonTimeMods : 0;
-		}else{
-			for (auto& Slot : m->Slots){
-				if (unlikely(Slot.User == tP))
-					m->Settings.Mods = Slot.CurrentMods | TimeMods;//This slot is the host so we need to update the global mods to their personal mods.
-
-				Slot.CurrentMods = 0;
-			}
-		}
-	}
-
-	if (unReadyUsers){
-		m->ClearPlaying();
-		m->UnreadyUsers();
-	}
-
-	/*VEC(byte) Update = bPacket::bMatch(m);
-	if (MapUpdated){
-		std::string Mes = "(Bloodcat)[https://bloodcat.com/osu?q=" + std::to_string(m->Settings.BeatmapID) + "]";
-		PacketBuilder::Build<Packet::Server::sendMessage, '-', 's', '-', 'i'>(Update, STACK(M_BOT_NAME), &Mes, STACK("#multiplayer"), USERID_START - 1);
-	}*/
-	m->sendUpdateVector(bPacket::bMatch(m));
-	SendToLobby(bPacket::bMatch<0>(m));
-}
-
-void Event_client_matchLock(_User *tP, const byte* const Packet, const DWORD Size){
-
-	if (Size != 4)return;
-
-	const DWORD SlotID = *(DWORD*)&Packet[0];
-
-	if(_Match * m = getMatchFromID(tP->CurrentMatchID);
-					m && SlotID < MULTI_MAXSIZE){
-
-		if (std::scoped_lock L(m->Lock); m->HostID == tP->UserID) {
-
-			if (_Slot& Slot = m->Slots[SlotID]; Slot.SlotStatus & SlotStatus::HasPlayer) {
-				if (Slot.User != tP)
-					m->removeUser(Slot.User, 1);
-			}else
-				Slot.SlotStatus = (Slot.SlotStatus == SlotStatus::Open) ? SlotStatus::Locked : SlotStatus::Open;
-			m->sendUpdateVector(bPacket::bMatch(m));
-			SendToLobby(bPacket::bMatch<0>(m));
-		}
-	}
-
-}
-
-void Event_client_matchChangeMods(_User *tP, const byte* const Packet, const DWORD Size){
-
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID);m && Size == 4){
-
-		const DWORD Mods = *(DWORD*)&Packet[0];
-
-		std::scoped_lock L(m->Lock);
-
-		if (const bool isHost = (m->HostID == tP->UserID); !m->Settings.FreeMod){
-			if (!isHost)return;
-			m->Settings.Mods = Mods;
-
-		}else
-			for(auto& Slot : m->Slots)
-				if (Slot.User == tP){
-					const int SlotID = GetIndex(m->Slots,Slot);
-
-					if (isHost)
-						m->Settings.Mods = Mods & TimeAltering;
-
-					m->Slots[SlotID].CurrentMods = Mods - (Mods & TimeAltering);
-					break;
-				}
-		m->sendUpdateVector(bPacket::bMatch(m));
-	}
-
-}
-
-void Event_client_joinMatch(_User *tP, const byte* const Packet, const DWORD Size) {
-
-	if (!(tP->privileges & (u32)Privileges::Visible)){
-		constexpr auto b = PacketBuilder::CT::PacketHeader(Packet::Server::matchJoinFail);
-		return tP->addQueArray(b);
-	}
-
-	size_t O = (size_t)&Packet[0];
-	const size_t End = O + Size;
-	
-	if (O + 4 > End)return;
-
-	const USHORT MatchID = USHORT(*(DWORD*)O); O += 4;
-
-	const std::string_view Password = ReadUleb_View(O,End);
-
-	if (_Match* m = getMatchFromID(tP->CurrentMatchID); m){
-		std::scoped_lock L(m->Lock);
-		m->removeUser(tP, 0);
-	}
-
-	if (_Match * m = getMatchFromID(MatchID); m){
-
-		std::scoped_lock L(m->Lock);
-
-		if (m->Settings.Password.size() == 0 || m->Settings.Password == Password && m->PlayerCount) {//Dont let players join empty matchs.
-
-			for (auto& Slot : m->Slots){
-
-				if (Slot.SlotStatus == SlotStatus::Open && !Slot.User){
-
-					m->PlayerCount++;
-					Slot.reset();
-					Slot.SlotStatus = SlotStatus::NotReady;
-					Slot.User = tP;
-
-					tP->CurrentMatchID = m->MatchId;
-
-					VEC(byte) Pack = bPacket::bMatch(m);
-					m->sendUpdateVector(Pack, tP);
-
-					PacketBuilder::Build<Packet::Server::channelJoinSuccess, '-'>(Pack,STACK("#multiplayer"));
-					*(USHORT*)Pack.data() = (USHORT)Packet::Server::matchJoinSuccess;
-					tP->addQueVector(Pack);
-
-					if (tP->inLobby) {
-						LobbyUsers.replace(tP, 0);
-						tP->inLobby = 0;
-					}
-					SendToLobby(bPacket::bMatch<0>(m));
-					return;
-				}
-			}
-		}
-	}
-
-	tP->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::disposeMatch,'i','!'>(MatchID, Packet::Server::matchJoinFail));
-}
-
-void Event_client_matchChangeTeam(_User *tP){
-
-	if (_Match* m = getMatchFromID(tP->CurrentMatchID); m){
-
-		std::scoped_lock L(m->Lock);
-		
-		for (auto& Slot : m->Slots)
-			if (Slot.User == tP){
-				Slot.SlotTeam = ~Slot.SlotTeam;
-				m->sendUpdateVector(bPacket::bMatch(m));
-				break;
-			}
-	}
-}
-
-void Event_client_matchNoBeatmap(_User *tP){
-
-	if (_Match* m = getMatchFromID(tP->CurrentMatchID); m){
-
-		std::scoped_lock L(m->Lock);
-
-		for (auto& Slot : m->Slots)
-			if (Slot.User == tP){
-				if (Slot.SlotStatus != SlotStatus::NoMap){
-					Slot.SlotStatus = SlotStatus::NoMap;
-					m->sendUpdateVector(bPacket::bMatch(m));
-				}
-				break;
-			}
-	}
-
-}
-
-void Event_client_matchHasBeatmap(_User *tP){
-
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
-
-		std::scoped_lock L(m->Lock);
-
-		for (auto& Slot : m->Slots)
-			if (Slot.User == tP) {
-				if (Slot.SlotStatus == SlotStatus::NoMap) {
-					Slot.SlotStatus = SlotStatus::NotReady;
-					m->sendUpdateVector(bPacket::bMatch(m));
-				}break;
-			}
-	}
-}
-
-void Event_client_matchTransferHost(_User *tP, const byte* const Packet, const DWORD Size){
-
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m && Size == 4){
-
-		std::scoped_lock L(m->Lock);
-
-		_Slot& Slot = m->Slots[al_min(*(u32*)Packet, MULTI_MAXSIZE - 1)];
-
-		if (m->HostID == tP->UserID && Slot.User && Slot.User->choToken){
-
-			m->HostID = Slot.User->UserID;
-
-			constexpr auto HostPacket = PacketBuilder::CT::PacketHeader(Packet::Server::matchTransferHost);
-
-			Slot.User->addQueArray(HostPacket);
-
-			m->sendUpdateVector(bPacket::bMatch(m));
-		}
-
-	}
-
-}
-
-void Event_client_matchReady(_User *tP) {
-
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
-
-		std::scoped_lock L(m->Lock);
-
-		for (auto& Slot : m->Slots)
-			if (Slot.User == tP){
-				if (likely(Slot.SlotStatus != SlotStatus::Ready)){
-					Slot.SlotStatus = SlotStatus::Ready;
-					m->sendUpdateVector(bPacket::bMatch(m));
-				}
-				break;
-			}
-	}
-}
-
-void Event_client_matchNotReady(_User *tP){
-
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
-
-		std::scoped_lock L(m->Lock);
-
-		for (auto& Slot : m->Slots)
-			if (Slot.User == tP){
-				if (likely(Slot.SlotStatus != SlotStatus::NotReady)) {
-					Slot.SlotStatus = SlotStatus::NotReady;
-					m->sendUpdateVector(bPacket::bMatch(m));
-				}
-				break;
-			}
-	}
-}
-
-void Event_client_matchStart(_User *tP) {
-
-	if (_Match* m = getMatchFromID(tP->CurrentMatchID); m){
-
-		std::scoped_lock L(m->Lock);
-
-		if (m->HostID == tP->UserID && m->Settings.BeatmapID != -1){
-
-			m->ClearPlaying();
-
-			for (auto& Slot : m->Slots)
-				if (Slot.SlotStatus & (SlotStatus::Ready | SlotStatus::NotReady)) {
-					Slot.resetPlaying();
-					Slot.SlotStatus = SlotStatus::Playing;
-				}
-
-			auto MatchData = bPacket::bMatch(m);
-			*(u16*)MatchData.data() = (u16)Packet::Server::matchStart;
-
-			m->sendUpdateVector(MatchData);
-			SendToLobby(bPacket::bMatch<0>(m));
-		}
-	}
-
-}
-
-void Event_client_matchLoadComplete(_User *tP){
-
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
-
-		std::scoped_lock L(m->Lock);
-
-		bool AllLoaded = 1;
-
-		for (auto& Slot : m->Slots)
-			if (unlikely(Slot.User == tP))
-				Slot.Loaded = 1;
-			else if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Loaded)
-				AllLoaded = 0;
-
-		if (AllLoaded){
-			auto Packet = bPacket::bMatch(m);
-			PacketBuilder::Build<Packet::Server::matchAllPlayersLoaded,'.'>(Packet,0);
-			m->sendUpdateVector(Packet);
-		}
-	}
-}
-
-void Event_client_matchScoreUpdate(_User *tP, const byte* const Packet, const DWORD Size){
-
-	if (tP->CurrentMatchID)
-		if (_Match* m = getMatchFromID(tP->CurrentMatchID); m && (Size == 29 || Size == 45/*Score V2*/)){
-
-			VEC(u8) b(7 + Size);
-
-			*(u16*)b.data() = (u16)Packet::Server::matchScoreUpdate;
-			b[2] = 0;
-			*(u32*)&b[3] = Size;
-
-
-
-			memcpy(7 + b.data() , Packet, Size);
-			enum {b_time,id,count300,count100,count50,countGeki,countKatu,countMiss,totalScore,maxCombo,currentCombo,perfect,currentHp,tagByte,usingScoreVs,comboPortion,bonusPortion};
-			r_struct<u32,u8,u16,u16,u16,u16,u16,u16,u32,u16,u16,u8,u8,u8,u8> MatchData(&b[7]);
-
-			std::scoped_lock L(m->Lock);
-
-			for (auto& Slot : m->Slots)
-				if (Slot.User == tP){
-
-					MatchData.get<id>() = (u8)GetIndex(m->Slots, Slot);
-					m->sendUpdateVector(b);
-					break;
-				}
-		}
-}
-
-void Event_client_matchComplete(_User *tP){
-
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m){
-
-		std::scoped_lock L(m->Lock);
-
-		for (auto& Slot : m->Slots)
-			if (Slot.User == tP)
-				Slot.Completed = 1;
-
-		bool AllFinished = 1;
-
-		for (auto& Slot : m->Slots) {
-
-			if (Slot.User == tP)
-				Slot.Completed = 1;
-
-			if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Completed)
-				AllFinished = 0;
-		}
-
-		if (AllFinished){
-
-			m->sendUpdate(PacketBuilder::CT::PacketHeader(Packet::Server::matchComplete));
-
-			m->ClearPlaying();
-
-			m->sendUpdateVector(bPacket::bMatch(m));
-
-		}
-
-	}
-}
-
-void Event_client_matchFailed(_User *tP){
-
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m) {
-
-		std::scoped_lock L(m->Lock);
-
-		for (auto& Slot : m->Slots)
-			if (Slot.User == tP){
-				m->sendUpdate(PacketBuilder::Fixed_Build<Packet::Server::matchPlayerFailed, 'i'>(GetIndex(m->Slots, Slot)));
-				break;
-			}
-
-	}
-}
-
-void Event_client_matchSkipRequest(_User* tP){
-
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m){
-
-		std::scoped_lock L(m->Lock);
-
-		for (auto& Slot : m->Slots)
-			if (Slot.User == tP){
-				Slot.Skipped = 1;
-				m->sendUpdate(PacketBuilder::Fixed_Build<Packet::Server::matchPlayerSkipped,'i'>(GetIndex(m->Slots, Slot)));
-				break;
-			}
-
-		for (auto& Slot : m->Slots)
-			if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Skipped)
-				return;
-
-		m->sendUpdate(PacketBuilder::CT::PacketHeader(Packet::Server::matchSkip));
-	}
-}
-
-void Event_client_invite(_User *tP, const byte* const Packet, const DWORD Size){
-
-	if (_Match * m = getMatchFromID(tP->CurrentMatchID); m && Size == 4) {
-		const u32 InviteID = *(u32*)Packet;
-
-		using namespace PacketBuilder::CT;
-
-		if (InviteID < USERID_START) {
-			constexpr auto b = PopulateHeader(Concate(PacketHeader(Packet::Server::sendMessage),
-				String(M_BOT_NAME), String("Why would a bot want to join your match? You dirty shaved monkey."), String("#multiplayer"), Number<int>(USERID_START - 1)));
-
-			return tP->addQueArray(b);
-		}
-
-		_UserRef Target(GetUserFromID(InviteID), 1);
-
-		if (!Target){
-
-			constexpr auto b = PopulateHeader(Concate(PacketHeader(Packet::Server::sendMessage),
-				String(M_BOT_NAME), String("Could not find player."), String("#multiplayer"), Number<int>(USERID_START - 1)));
-
-			return tP->addQueArray(b);
-		}
-
-		{
-			const std::string Mes = "Invited " + Target->ProfileLink() + " to your match.";
-
-			PacketBuilder::Build<Packet::Server::sendMessage, 'm', '-', 's', '-', 'i'>(tP->QueBytes, &tP->qLock, STACK(M_BOT_NAME), &Mes, STACK("#multiplayer"), USERID_START - 1);
-		}
-		if (Target->isBlocked(tP->UserID))
-			return;
-
-		{
-			const std::string Mes = "I have invited you to the multiplayer lobby \"[osump://" + std::to_string(m->MatchId) + "/" + m->Settings.Password + " " + m->Settings.Name + "]\".";
-
-			//Users could fuck with the client [] url construction but its not dangerous in anyway so who cares.
-
-			PacketBuilder::Build<Packet::Server::invite, 'm', 's', 's', 's', 'i'>(Target->QueBytes, &Target->qLock,
-				&tP->Username, &Mes, &Target->Username, tP->UserID);
-		}
-
-	}
-}
-
-void Event_client_friendAdd(_User *tP, const byte* const Packet, const DWORD Size) {
-
-	if (Size != 4)
-		return;
-
-	const DWORD ID = *(DWORD*)Packet;
-
-	enum { ListFull, Added, AlreadyIn };
-
-	char Status = ListFull;
-
-	for (USHORT i = 0; i < aSize(tP->Friends); i++){
-		if (tP->Friends[i] == ID){
-			Status = AlreadyIn;
-			break;
-		}
-		if (!tP->Friends[i]){
-			Status = Added;
-			tP->Friends[i] = ID;
-			break;
-		}
-	}
-
-	if (Status == ListFull){
-		constexpr auto b = PacketBuilder::CT::String_Packet(Packet::Server::notification, "You may only have a maximum of 256 friends.");
-		tP->addQueArray(b);
-	}
-	else if (Status == Added)
-		SQLExecQue.AddQue(SQL_INSERT("users_relationships",{
-			_SQLKey("user1", tP->UserID),
-			_SQLKey("user2", ID)
-		}));
-}
-
-void Event_client_friendRemove(_User *tP, const byte* const Packet, const DWORD Size) {
-
-	if (Size != 4)return;
-
-	const DWORD ID = *(DWORD*)Packet;
-
-	enum { NotRemoved, Removed};
-
-	char Status = NotRemoved;
-
-	for (USHORT i = 0; i < aSize(tP->Friends); i++)
-		if (unlikely(tP->Friends[i] == ID)){
-
-			bool f = 0;
-
-			for (USHORT z = aSize(tP->Friends); --z > i;){
-				if (tP->Friends[z]){
-					f = 1;
-					tP->Friends[i] = tP->Friends[z];
-					tP->Friends[z] = 0;
-				}
-			}
-			if (!f)
-				tP->Friends[i] = 0;
-
-			Status = Removed;
-			break;
-		}
-
-	if (Status == Removed)
-		SQLExecQue.AddQue("DELETE FROM users_relationships WHERE user1 = " + std::to_string(tP->UserID) + " AND user2 = " + std::to_string(ID));
-	
-}
 
 std::shared_mutex LogOutLock;
 u32 LogoutLog[32] = {};
@@ -3693,18 +2847,1008 @@ _inline void LogoutUpdates(_User* tP){
 	}
 }
 
+template<typename ...T>
+[[nodiscard]] std::tuple<T...> deserialize(const u8* Start, const size_t Size)noexcept {
 
-void Event_client_requestStatusUpdate(_User *const tP){
+	constexpr size_t Static_Size = ((std::is_same<T, std::string_view>::value ? 2 : sizeof(T)) + ...);
 
-	const DWORD Off = tP->GetStatsOffset();
+	const size_t EndPointer = (size_t)Start + Size;
 
-	PacketBuilder::Build<Packet::Server::userStats, 'm',
-		'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(tP->QueBytes, &tP->qLock,
-		tP->UserID,tP->actionID,tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
-			tP->BeatmapID, tP->Stats[Off].rScore,*(int*)&tP->Stats[Off].Acc,
-			tP->Stats[Off].pp > u16(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
-			tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), u16(tP->Stats[Off].pp)
-			);
+	if (Static_Size > Size)
+		return { T{}... };
+
+	return {
+		([&Start,&EndPointer]{
+
+			T V = T();
+
+			if constexpr (std::is_same<T, std::string_view>::value)
+				V = ReadUleb<std::string_view>((size_t&)Start, EndPointer);
+			else if ((size_t)Start + sizeof(T) < EndPointer) {
+				V = *(T*)Start;
+				Start += sizeof(T);
+			}
+
+			return V;
+		}())...
+	};
+}
+
+namespace Bancho_Event{
+
+	namespace Client_Event{
+
+		#define DefaultRead const u8* const Packet, const u32 Size
+
+		void requestStatusUpdate(_User* const tP) {
+
+			const DWORD Off = tP->GetStatsOffset();
+
+			PacketBuilder::Build<Packet::Server::userStats, 'm',
+				'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(tP->QueBytes, &tP->qLock,
+					tP->UserID, tP->actionID, tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
+					tP->BeatmapID, tP->Stats[Off].rScore, *(int*)&tP->Stats[Off].Acc,
+					tP->Stats[Off].pp > u16(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
+					tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), u16(tP->Stats[Off].pp)
+					);
+		}
+
+		void changeAction(_User* tP, DefaultRead) {
+
+			const auto& [new_ActionID, new_ActionText, new_CheckSum, new_Mods, new_GameMode, new_BeatmapID] = deserialize<u8, std::string_view, std::string_view, u32, byte, int>(Packet, Size);
+
+			WriteStringToArray(tP->ActionText, new_ActionText);
+
+			if (new_CheckSum.size() == 32) {
+
+				std::array<char, 32> Buffer;
+				memcpy(Buffer.data(), new_CheckSum.data(), 32);
+
+				for (auto& c : Buffer)
+					if (c == '\'')
+						c = '_';
+
+				memcpy(tP->ActionMD5, Buffer.data(), 32);
+			}
+
+			if (new_ActionID != bStatus::sAfk)tP->actionMods = new_Mods; //Stop relax flickering.
+
+			tP->GameMode = new_GameMode;
+
+			if (new_BeatmapID)tP->BeatmapID = new_BeatmapID;
+
+			VEC(byte) Stats;
+			const DWORD Off = tP->GetStatsOffset();
+
+			PacketBuilder::Build<Packet::Server::userStats,
+				'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(Stats,
+					tP->UserID, tP->actionID, tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
+					tP->BeatmapID, tP->Stats[Off].rScore, *(int*)&tP->Stats[Off].Acc,
+					tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
+					tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
+					);
+
+			tP->addQueVector(Stats);
+
+			if (tP->Spectators.size()) {
+				std::shared_lock l(tP->SpecLock);
+
+				for (auto Spec : tP->Spectators)
+					if (Spec)Spec->addQueVector(Stats);
+			}
+
+		}
+
+		void userStatsRequest(_User* u, DefaultRead) {
+
+			if (unlikely(Size <= 2))
+				return;
+
+			const size_t Count = al_min(*(USHORT*)Packet, 64);
+
+			if (unlikely((Count * 4) + 2 > Size))
+				return;
+
+			std::scoped_lock l(u->qLock);
+
+			const u32* UserID = (u32*)(Packet + 2);
+
+			for (const u32* End = UserID + Count; UserID != End; ++UserID){
+				if (*UserID < USERID_START) {
+					u->addQueArray<0>(PacketBuilder::CT::BotInfo::Bot_Stats);
+					continue;
+				}
+
+				_UserRef tP(GetUserFromID(*UserID), 1);
+				if (!tP || !tP->choToken || (tP->is_banned() && u != tP.User)) {
+					//u->addQueArray<0>(PacketBuilder::Fixed_Build<Packet::Server::userLogout,'i'>(uID));
+					continue;
+				}
+
+				const DWORD Off = tP->GetStatsOffset();
+
+				PacketBuilder::Build<Packet::Server::userStats,
+					'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(u->QueBytes,
+						tP->UserID, tP->actionID, tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
+						tP->BeatmapID, tP->Stats[Off].rScore, *(int*)&tP->Stats[Off].Acc,
+						tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
+						tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
+						);
+				
+			}
+			
+		}
+
+		void channelJoin(_User* tP, DefaultRead) {
+
+			if (unlikely(Size <= 2))
+				return;		
+
+			const auto& [ChannelName] = deserialize<std::string_view>(Packet, Size);
+
+			if (_Channel* c = GetChannelByName(WSTI(ChannelName)); c) {
+				  c->JoinChannel(tP);
+				  PacketBuilder::Build<Packet::Server::channelJoinSuccess, 'm', 'v'>(tP->QueBytes, &tP->qLock, &ChannelName);
+			}else PacketBuilder::Build<Packet::Server::channelKicked, 'm', 'v'>(tP->QueBytes, &tP->qLock, &ChannelName);
+
+			
+		}
+
+		void channelPart(_User* tP, DefaultRead) {
+
+			if (unlikely(Size <= 2))
+				return;
+
+			const auto& [ChannelName] = deserialize<std::string_view>(Packet, Size);
+
+			if (_Channel* c = GetChannelByName(WSTI(ChannelName)); c)
+				c->PartChannel(tP);
+			
+		}
+		
+		void sendPublicMessage(_User* tP, DefaultRead) {
+
+			if (Size < 7 || tP->isSilenced())
+				return;
+
+			const auto& [Sender, Message, Target_Channel] = deserialize<std::string_view, std::string_view, std::string_view>(Packet, Size);
+
+			if (Message.size() == 0)
+				return;
+
+			const u32 Target = WSTI<u32>(Target_Channel);
+
+			if ((Target == std::integral_constant<u32, "#highlight"_HU>::value) | (Target == std::integral_constant<u32, "#userlog"_HU>::value))
+				return;
+
+			_Channel* c = 0;
+
+			if (Target == std::integral_constant<u32, "#multiplayer"_HU>::value) {
+
+				if (_Match* const m = getMatchFromID(tP->CurrentMatchID); m) {
+
+					DWORD notVisible = 0;
+
+					const std::string& s = ProcessCommandMultiPlayer(tP, Message, notVisible, m);
+
+					if (VEC(byte) Pack; !s.size()) {
+
+						PacketBuilder::Build<Packet::Server::sendMessage, 's', 'v', '-', 'i'>(Pack, &tP->Username, &Message, STACK("#multiplayer"), tP->UserID);
+
+						std::scoped_lock L(m->Lock);
+						m->sendUpdateVector(Pack, tP);
+
+					}else {
+
+						PacketBuilder::Build<Packet::Server::sendMessage, '-', 's', '-', 'i'>(Pack, STACK(M_BOT_NAME), &s, STACK("#multiplayer"), USERID_START - 1);
+
+						if (!notVisible) {
+							  std::scoped_lock L(m->Lock);
+							  m->sendUpdateVector(Pack, 0);
+						}else tP->addQueVector(Pack);
+					}
+				}
+
+				return;
+			}
+			else if ((tP->CurrentlySpectating || tP->Spectators.size()) && Target == CONSTX<u32, WSTI<u32>("#spectator")>::value) {
+
+				_User* const SpecHost = (tP->Spectators.size()) ? tP : tP->CurrentlySpectating;
+
+				if (SpecHost) {
+
+					VEC(byte) b;
+					PacketBuilder::Build<Packet::Server::sendMessage, 's', 'v', 'v', 'i'>(b, &tP->Username, &Message, &Target_Channel, tP->UserID);
+
+					s_mlock(SpecHost->SpecLock) {
+						for (_User* const s : SpecHost->Spectators) {
+							if (s && s != tP)
+								s->addQueVector(b);
+						}
+					}
+					if (SpecHost != tP)
+						SpecHost->addQueVector(b);
+				}
+
+				return;
+			}
+			else c = GetChannelByName(Target);
+
+			if (!c)
+				return PacketBuilder::Build<Packet::Server::channelKicked, 'm', 'v'>(tP->QueBytes, &tP->qLock, &Target_Channel);
+
+			if (Message[0] == '!') {
+
+				DWORD notVisible = 0;
+				const std::string& Res = ProcessCommand(tP, Message, notVisible);
+
+				if (!(tP->privileges & (u32)Privileges::Visible))
+					notVisible = 1;
+
+				if (Res.size()) {
+					if (notVisible)
+						PacketBuilder::Build<Packet::Server::sendMessage, 'm', '-', 's', 'v', 'i'>(tP->QueBytes, &tP->qLock, STACK(M_BOT_NAME), &Res, &Target_Channel, USERID_START - 1);
+					else
+						c->Bot_SendMessage(Res);
+				}
+
+				return;
+			}
+
+			if (tP->privileges & (u32)Privileges::Visible) {
+				VEC(byte) Pack;
+				PacketBuilder::Build<Packet::Server::sendMessage, 's', 'v', 'v', 'i'>(Pack, &tP->Username, &Message, &Target_Channel, tP->UserID);
+
+				c->SendPublicMessage(tP, Pack);
+			}
+		}
+
+		void sendPrivateMessage(_User* tP, DefaultRead) {
+
+			if (Size < 7 || tP->isSilenced() || tP->is_banned())
+				return;
+
+			const auto& [Sender, Message, Target, ID] = deserialize<std::string_view, std::string_view, std::string_view, int>(Packet, Size);
+
+			if (likely(Message.size())){
+
+				if (Target == BOT_NAME)
+					return BotMessaged(tP, Message);
+
+				_UserRef u(GetUserFromName(Target), 1);
+
+				if (unlikely(!u))
+					return tP->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::userLogout, 'i'>(ID));
+
+				if (u->isBlocked(tP->UserID))
+					return;
+
+				if (u->FriendsOnlyChat && !u->isFriend(tP->UserID))
+					 PacketBuilder::Build<Packet::Server::userPMBlocked, 'm', 's', 'b', 's', 'i'>(tP->QueBytes, &tP->qLock, &tP->Username, 0, &u->Username, tP->UserID);
+				else PacketBuilder::Build<Packet::Server::sendMessage, 'm', 's', 'v', 'v', 'i'>(u->QueBytes, &u->qLock, &tP->Username, &Message, &Target, tP->UserID);
+
+			}
+
+		}
+
+		void startSpectating(_User* tP, DefaultRead) {
+
+			if (Size < 4)return;
+
+			const u32 ID = *(u32*)Packet;
+
+			if (ID < USERID_START || ID == tP->UserID) {
+				constexpr auto cPack = PacketBuilder::CT::String_Packet(Packet::Server::notification, "You can not spectate that user.");
+				return tP->addQueArray(cPack);
+			}
+
+			_UserRef SpecTarget(GetUserFromID(ID), 1);
+
+			if (!SpecTarget) {
+				constexpr auto cPack = PacketBuilder::CT::String_Packet(Packet::Server::notification, "Failed to find user.");
+				return tP->addQueArray(cPack);
+			}
+
+			if (tP->CurrentlySpectating)
+				Event_client_stopSpectating(tP);
+
+			bool Add = (tP->CurrentlySpectating != SpecTarget.User);
+
+			tP->CurrentlySpectating = SpecTarget.User;
+
+			{
+
+				const auto b = PacketBuilder::Fixed_Build<Packet::Server::fellowSpectatorJoined, 'i'>(tP->UserID);
+
+				std::scoped_lock L(SpecTarget->SpecLock);
+
+				if (SpecTarget->Spectators.size() == 0)
+					SpecTarget->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::channelJoinSuccess, '-'>(STACK("#spectator")));
+
+				VEC(byte) Fellow; Fellow.reserve(SpecTarget->Spectators.size() * 11);
+
+				for (auto& fSpec : SpecTarget->Spectators) {
+					if (!fSpec) {
+						if (Add)
+							fSpec = tP;
+						Add = 0;
+					}
+					else if (fSpec != tP) {
+						fSpec->addQueArray(b);
+						PacketBuilder::Build<Packet::Server::fellowSpectatorJoined, 'i'>(Fellow, fSpec->UserID);
+					}
+					else Add = 0;
+				}
+
+				tP->addQueVector(Fellow);
+
+				if (Add)
+					SpecTarget->Spectators.push_back(tP);
+
+			}
+
+			{
+				const DWORD sOff = tP->GetStatsOffset();
+
+				PacketBuilder::Build<Packet::Server::userPanel, 'm', 'i', 's', 'b', 'b', 'b', 'i', 'i', 'i'
+					, '!', 'i'>
+					(SpecTarget->QueBytes, &SpecTarget->qLock,
+						tP->UserID, &tP->Username, 24 + tP->timeOffset, tP->country, GetUserType(tP->privileges), *(int*)&tP->lon, *(int*)&tP->lat, tP->Stats[sOff].getRank(sOff, tP->UserID),
+						Packet::Server::spectatorJoined, tP->UserID);
+
+			}
+
+		}
+
+		void spectateFrames(_User* tP, DefaultRead) {
+
+			if (tP->Spectators.size() == 0)
+				return;
+
+			VEC(byte) Frame((size_t)Size + 7);
+
+			*(USHORT*)Frame.data() = (USHORT)Packet::Server::spectateFrames;
+			//Frame[2] = 0;
+			*(DWORD*)(Frame.data() + 3) = Size;
+
+			memcpy(Frame.data() + 7, Packet, Size);
+
+			std::shared_lock<std::shared_mutex> L(tP->SpecLock);
+
+			for (_User* s : tP->Spectators)
+				if (s) s->addQueVector(Frame);
+
+		}
+
+		void createMatch(_User* tP, DefaultRead) {
+
+			constexpr auto Failed = PacketBuilder::CT::PacketHeader(Packet::Server::matchJoinFail);
+
+			if (tP->CurrentMatchID || tP->is_banned())//already in a match? Might want to kick them from the old one.
+				return tP->addQueArray(Failed);
+
+			_Match* const m = getEmptyMatch();
+
+			if (unlikely(!m))
+				return tP->addQueArray(Failed);
+
+			if (tP->inLobby) {
+				LobbyUsers.replace(tP, 0);
+				tP->inLobby = 0;
+			}
+
+			ReadMatchData(*m, Packet, Size);//Might want to clean this up.
+
+			m->HostID = tP->UserID;
+			m->inProgress = 0;
+			m->PlayersLoading = 0;
+			m->Settings.Mods = 0;
+			m->PlayerCount = 1;
+			m->Slots[0].SlotStatus = SlotStatus::NotReady;
+			m->Slots[0].User = tP;
+			tP->CurrentMatchID = m->MatchId;
+			m->Tournament = 0;
+
+			SendToLobby(bPacket::bMatch<0>(m));
+
+			auto MatchData = bPacket::bMatch(m);
+			*(USHORT*)MatchData.data() = (USHORT)Packet::Server::matchJoinSuccess;
+
+			PacketBuilder::Build<Packet::Server::channelJoinSuccess, '-'>(MatchData, STACK("#multiplayer"));
+
+			tP->addQueVector(MatchData);
+
+		}
+
+		void partMatch(_User* tP) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+
+				std::scoped_lock L(m->Lock);
+				m->removeUser(tP, 0);
+				m->sendUpdateVector(bPacket::bMatch(m));
+				SendToLobby(bPacket::bMatch<0>(m));
+			}
+
+		}
+
+		void matchChangeSlot(_User* tP, DefaultRead) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m && Size == 4) {
+
+				std::scoped_lock L(m->Lock);
+
+				_Slot* OldSlot = 0;
+
+				for (auto& Slot : m->Slots)
+					if (Slot.User == tP) {
+						OldSlot = &Slot;
+						break;
+					}
+
+				_Slot& New = m->Slots[al_min(*(u32*)Packet, MULTI_MAXSIZE - 1)];
+
+				if (OldSlot && OldSlot != &New && !New.User && (New.SlotStatus & (SlotStatus::Locked | SlotStatus::Ready)) == 0){
+					New = *OldSlot;
+					*OldSlot = _Slot();
+					m->sendUpdateVector(bPacket::bMatch(m));
+				}
+
+			}
+
+		}
+
+		void joinLobby(_User* tP) {
+
+			_Match* const m = getMatchFromID(tP->CurrentMatchID);
+
+			if (m) {
+				std::scoped_lock L(m->Lock);
+				m->removeUser(tP, 0);
+				m->sendUpdateVector(bPacket::bMatch(m));//tell the other people that they left.
+			}
+
+			if (!tP->inLobby) {
+				LobbyUsers.replace(0, tP);
+				tP->inLobby = 1;
+				//Might want to send all match data here.
+			}
+		} 
+
+		void matchChangeSettings(_User* tP, DefaultRead) {
+
+			_Match* m = getMatchFromID(tP->CurrentMatchID);
+
+			if (!m)return;
+
+			std::scoped_lock L(m->Lock);
+
+			if (m->HostID != tP->UserID)//Non host trying to change settings
+				return;
+
+			const auto OldFlags = m->Settings.StatusFlags();
+
+			ReadMatchData(*m, Packet, Size, 1);
+
+			const bool unReadyUsers = (OldFlags.Total != m->Settings.StatusFlags().Total);
+
+			if (OldFlags.FreeMod != m->Settings.FreeMod) {
+
+				const u32 TimeMods(m->Settings.Mods & TimeAltering),
+					NonTimeMods(m->Settings.Mods & (~TimeAltering));
+
+				if (m->Settings.FreeMod) {
+
+					m->Settings.Mods = TimeMods;
+					for (auto& Slot : m->Slots)
+						Slot.CurrentMods = Slot.User ? NonTimeMods : 0;
+				}
+				else {
+					for (auto& Slot : m->Slots) {
+						if (unlikely(Slot.User == tP))
+							m->Settings.Mods = Slot.CurrentMods | TimeMods;//This slot is the host so we need to update the global mods to their personal mods.
+
+						Slot.CurrentMods = 0;
+					}
+				}
+			}
+
+			if (unReadyUsers) {
+				m->ClearPlaying();
+				m->UnreadyUsers();
+			}
+
+			/*VEC(byte) Update = bPacket::bMatch(m);
+			if (MapUpdated){
+				std::string Mes = "(Bloodcat)[https://bloodcat.com/osu?q=" + std::to_string(m->Settings.BeatmapID) + "]";
+				PacketBuilder::Build<Packet::Server::sendMessage, '-', 's', '-', 'i'>(Update, STACK(M_BOT_NAME), &Mes, STACK("#multiplayer"), USERID_START - 1);
+			}*/
+			m->sendUpdateVector(bPacket::bMatch(m));
+			SendToLobby(bPacket::bMatch<0>(m));
+		}
+
+		void friendAdd(_User* tP, DefaultRead) {
+
+			const u32 ID = Size == 4 ? *(u32*)Packet : 0;
+
+			if (!ID || ID >= INT_MAX)return;
+
+			enum : u8{ ListFull, Added, AlreadyIn };
+
+			u8 Status = ListFull;
+
+			for (size_t i = 0; i < aSize(tP->Friends); ++i) {
+				if (tP->Friends[i] == ID) {
+					Status = AlreadyIn;
+					break;
+				}
+				if (!tP->Friends[i]) {
+					Status = Added;
+					tP->Friends[i] = ID;
+					break;
+				}
+			}
+
+			if (Status == ListFull) {
+				constexpr auto b = PacketBuilder::CT::String_Packet(Packet::Server::notification, "You may only have a maximum of 256 friends.");
+				tP->addQueArray(b);
+			}else if (Status == Added)
+				SQLExecQue.AddQue(SQL_INSERT("users_relationships", {
+					_SQLKey("user1", tP->UserID),
+					_SQLKey("user2", ID)
+					}));
+		}
+
+		void friendRemove(_User* tP, DefaultRead) {
+
+			const u32 ID = Size == 4 ? *(u32*)Packet : 0;
+
+			if (!ID || ID >= INT_MAX)return;
+
+			enum : u8{ NotRemoved, Removed };
+
+			u8 Status = NotRemoved;
+
+			for (size_t i = 0; i < aSize(tP->Friends); ++i)
+				if (unlikely(tP->Friends[i] == ID)){
+
+					bool f = 0;
+
+					for (USHORT z = aSize(tP->Friends); --z > i;) {
+						if (tP->Friends[z]) {
+							f = 1;
+							tP->Friends[i] = tP->Friends[z];
+							tP->Friends[z] = 0;
+						}
+					}
+					if (!f)
+						tP->Friends[i] = 0;
+
+					Status = Removed;
+					break;
+				}
+
+			if (Status == Removed){
+
+
+
+				SQLExecQue.AddQue("DELETE FROM users_relationships WHERE user1 = " + std::to_string(tP->UserID) + " AND user2 = " + std::to_string(ID));
+			}
+		}
+
+		void matchLock(_User* tP, DefaultRead) {
+
+			if (Size != 4)return;
+
+			const u32 SlotID = *(u32*)Packet;
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID);
+				m && SlotID < MULTI_MAXSIZE) {
+
+				if (std::scoped_lock L(m->Lock); m->HostID == tP->UserID) {
+
+					_Slot& Slot = m->Slots[SlotID];
+
+					if (Slot.User)m->removeUser(Slot.User, 1);
+					else Slot.SlotStatus = Slot.SlotStatus == SlotStatus::Open ? SlotStatus::Locked : SlotStatus::Open;
+
+					m->sendUpdateVector(bPacket::bMatch(m));
+					SendToLobby(bPacket::bMatch<0>(m));
+				}
+			}
+
+		}
+
+		void matchChangeMods(_User* tP, DefaultRead) {
+
+			if (Size != 4)return;
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+
+				const u32 Mods = *(u32*)Packet;
+
+				std::scoped_lock L(m->Lock);
+
+				const bool isHost = (m->HostID == tP->UserID);
+
+				if (!m->Settings.FreeMod) {
+
+					if (isHost) m->Settings.Mods = Mods;
+					else return;
+
+				}else for (auto& Slot : m->Slots)
+					if (Slot.User == tP) {
+
+						if (isHost) m->Settings.Mods = Mods & TimeAltering;
+
+						m->Slots[GetIndex(m->Slots, Slot)].CurrentMods = Mods & (~TimeAltering);
+
+						break;
+					}
+
+				m->sendUpdateVector(bPacket::bMatch(m));
+			}
+
+		}
+
+		void joinMatch(_User* tP, DefaultRead) {
+
+			if (tP->is_banned()){
+				constexpr auto b = PacketBuilder::CT::PacketHeader(Packet::Server::matchJoinFail);
+				return tP->addQueArray(b);
+			}
+
+			const auto& [MatchID, Password] = deserialize<u32, std::string_view>(Packet, Size);
+
+			if (!MatchID)return;
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+				std::scoped_lock L(m->Lock);
+				m->removeUser(tP, 0);
+			}
+
+			if (_Match* m = getMatchFromID(MatchID); m) {
+
+				std::scoped_lock L(m->Lock);
+
+				if (m->Settings.Password.size() == 0 || m->Settings.Password == Password && m->PlayerCount) {//Dont let players join empty matchs.
+
+					for (auto& Slot : m->Slots) {
+
+						if (Slot.SlotStatus == SlotStatus::Open && !Slot.User) {
+
+							m->PlayerCount++;
+							Slot.reset();
+							Slot.SlotStatus = SlotStatus::NotReady;
+							Slot.User = tP;
+
+							tP->CurrentMatchID = m->MatchId;
+
+							auto Pack = bPacket::bMatch(m);
+							m->sendUpdateVector(Pack, tP);
+
+							PacketBuilder::Build<Packet::Server::channelJoinSuccess, '-'>(Pack, STACK("#multiplayer"));
+							*(USHORT*)Pack.data() = (USHORT)Packet::Server::matchJoinSuccess;
+							tP->addQueVector(Pack);
+
+							if (tP->inLobby) {
+								LobbyUsers.replace(tP, 0);
+								tP->inLobby = 0;
+							}
+
+							SendToLobby(bPacket::bMatch<0>(m));
+							return;
+						}
+					}
+				}
+			}
+
+			tP->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::disposeMatch, 'i', '!'>(MatchID, Packet::Server::matchJoinFail));
+		}
+
+		void matchChangeTeam(_User* tP) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+
+				std::scoped_lock L(m->Lock);
+
+				for (auto& Slot : m->Slots)
+					if (Slot.User == tP) {
+						Slot.SlotTeam = ~Slot.SlotTeam;
+						m->sendUpdateVector(bPacket::bMatch(m));
+						break;
+					}
+			}
+		}
+
+		void matchNoBeatmap(_User* tP) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+
+				std::scoped_lock L(m->Lock);
+
+				for (auto& Slot : m->Slots)
+					if (Slot.User == tP) {
+						if (Slot.SlotStatus != SlotStatus::NoMap) {
+							Slot.SlotStatus = SlotStatus::NoMap;
+							m->sendUpdateVector(bPacket::bMatch(m));
+						}
+						break;
+					}
+			}
+
+		}
+
+		void matchHasBeatmap(_User* tP) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+
+				std::scoped_lock L(m->Lock);
+
+				for (auto& Slot : m->Slots)
+					if (Slot.User == tP) {
+						if (Slot.SlotStatus == SlotStatus::NoMap) {
+							Slot.SlotStatus = SlotStatus::NotReady;
+							m->sendUpdateVector(bPacket::bMatch(m));
+						}break;
+					}
+			}
+		}
+
+		void matchTransferHost(_User* tP, DefaultRead) {
+
+			if (Size != 4)return;
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+
+				std::scoped_lock L(m->Lock);
+
+				_Slot& Target = m->Slots[al_min(*(u32*)Packet, MULTI_MAXSIZE - 1)];
+
+				if (m->HostID == tP->UserID && Target.User && Target.User->choToken) {
+
+					m->HostID = Target.User->UserID;
+
+					constexpr auto HostPacket = PacketBuilder::CT::PacketHeader(Packet::Server::matchTransferHost);
+
+					Target.User->addQueArray(HostPacket);
+
+					m->sendUpdateVector(bPacket::bMatch(m));
+				}
+
+			}
+
+		}
+
+		void matchReady(_User* tP) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+
+				std::scoped_lock L(m->Lock);
+
+				for (auto& Slot : m->Slots)
+					if (Slot.User == tP) {
+						if (likely(Slot.SlotStatus != SlotStatus::Ready)) {
+							Slot.SlotStatus = SlotStatus::Ready;
+							m->sendUpdateVector(bPacket::bMatch(m));
+						}
+						break;
+					}
+			}
+		}
+
+		void matchNotReady(_User* tP) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+
+				std::scoped_lock L(m->Lock);
+
+				for (auto& Slot : m->Slots)
+					if (Slot.User == tP) {
+						if (likely(Slot.SlotStatus != SlotStatus::NotReady)) {
+							Slot.SlotStatus = SlotStatus::NotReady;
+							m->sendUpdateVector(bPacket::bMatch(m));
+						}
+						break;
+					}
+			}
+		}
+
+		void matchStart(_User* tP) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+
+				std::scoped_lock L(m->Lock);
+
+				if (m->HostID == tP->UserID && m->Settings.BeatmapID != -1) {
+
+					m->ClearPlaying();
+
+					for (auto& Slot : m->Slots)
+						if (Slot.SlotStatus & (SlotStatus::Ready | SlotStatus::NotReady)) {
+							Slot.resetPlaying();
+							Slot.SlotStatus = SlotStatus::Playing;
+						}
+
+					auto MatchData = bPacket::bMatch(m);
+					*(u16*)MatchData.data() = (u16)Packet::Server::matchStart;
+
+					m->sendUpdateVector(MatchData);
+					SendToLobby(bPacket::bMatch<0>(m));
+				}
+			}
+
+		}
+
+		void matchLoadComplete(_User* tP) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {				
+				
+				bool AllLoaded = 1;
+
+				std::scoped_lock L(m->Lock);				
+
+				for (auto& Slot : m->Slots)
+					if (unlikely(Slot.User == tP))
+						Slot.Loaded = 1;
+					else if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Loaded)
+						AllLoaded = 0;
+
+				if (AllLoaded) {
+					auto Packet = bPacket::bMatch(m);
+					PacketBuilder::Build<Packet::Server::matchAllPlayersLoaded, '.'>(Packet, 0);
+					m->sendUpdateVector(Packet);
+				}
+			}
+		}
+
+		void matchScoreUpdate(_User* tP, DefaultRead) {
+
+			if (tP->CurrentMatchID)
+				if (_Match* m = getMatchFromID(tP->CurrentMatchID); m && (Size == 29 || Size == 45/*Score V2*/)) {
+
+					VEC(u8) b(7 + Size);
+
+					*(u16*)b.data() = (u16)Packet::Server::matchScoreUpdate;
+					b[2] = 0;
+					*(u32*)&b[3] = Size;
+
+					memcpy(7 + b.data(), Packet, Size);
+					enum { b_time, id, count300, count100, count50, countGeki, countKatu, countMiss, totalScore, maxCombo, currentCombo, perfect, currentHp, tagByte, usingScoreVs, comboPortion, bonusPortion };
+					r_struct<u32, u8, u16, u16, u16, u16, u16, u16, u32, u16, u16, u8, u8, u8, u8> MatchData(b.data() + 7);
+
+					std::scoped_lock L(m->Lock);
+
+					for (auto& Slot : m->Slots)
+						if (Slot.User == tP) {
+
+							MatchData.get<id>() = (u8)GetIndex(m->Slots, Slot);
+							m->sendUpdateVector(b);
+							break;
+						}
+				}
+		}
+
+		void matchComplete(_User* tP) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+
+				std::scoped_lock L(m->Lock);
+
+				for (auto& Slot : m->Slots)
+					if (Slot.User == tP) {
+						Slot.Completed = 1;
+						break;
+					}
+
+				bool AllFinished = 1;
+
+				for (auto& Slot : m->Slots){					
+					if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Completed){
+						AllFinished = 0;
+						break;
+					}
+				}
+
+				if (AllFinished) {
+
+					m->sendUpdate(PacketBuilder::CT::PacketHeader(Packet::Server::matchComplete));
+
+					m->ClearPlaying();
+
+					m->sendUpdateVector(bPacket::bMatch(m));
+
+				}
+
+			}
+		}
+
+		void matchFailed(_User* tP) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+
+				std::scoped_lock L(m->Lock);
+
+				for (auto& Slot : m->Slots)
+					if (Slot.User == tP) {
+						m->sendUpdate(PacketBuilder::Fixed_Build<Packet::Server::matchPlayerFailed, 'i'>(GetIndex(m->Slots, Slot)));
+						break;
+					}
+
+			}
+		}
+
+		void matchSkipRequest(_User* tP) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m) {
+
+				std::scoped_lock L(m->Lock);
+
+				for (auto& Slot : m->Slots)
+					if (Slot.User == tP) {
+						Slot.Skipped = 1;
+						m->sendUpdate(PacketBuilder::Fixed_Build<Packet::Server::matchPlayerSkipped, 'i'>(GetIndex(m->Slots, Slot)));
+						break;
+					}
+
+				for (auto& Slot : m->Slots)
+					if (Slot.SlotStatus == SlotStatus::Playing && !Slot.Skipped)
+						return;
+
+				m->sendUpdate(PacketBuilder::CT::PacketHeader(Packet::Server::matchSkip));
+			}
+		}
+
+		void matchInvite(_User* tP, DefaultRead) {
+
+			if (_Match* m = getMatchFromID(tP->CurrentMatchID); m && Size == 4) {
+				const u32 InviteID = *(u32*)Packet;
+
+				using namespace PacketBuilder::CT;
+
+				if (InviteID < USERID_START) {
+					constexpr auto b = PopulateHeader(Concate(PacketHeader(Packet::Server::sendMessage),
+						String(M_BOT_NAME), String("Why would a bot want to join your match? You dirty shaved monkey."), String("#multiplayer"), Number<int>(USERID_START - 1)));
+
+					return tP->addQueArray(b);
+				}
+
+				_UserRef Target(GetUserFromID(InviteID), 1);
+
+				if (!Target) {
+
+					constexpr auto b = PopulateHeader(Concate(PacketHeader(Packet::Server::sendMessage),
+						String(M_BOT_NAME), String("Could not find player."), String("#multiplayer"), Number<int>(USERID_START - 1)));
+
+					return tP->addQueArray(b);
+				}
+
+				{
+					const std::string Mes = "Invited " + Target->ProfileLink() + " to your match.";
+
+					PacketBuilder::Build<Packet::Server::sendMessage, 'm', '-', 's', '-', 'i'>(tP->QueBytes, &tP->qLock, STACK(M_BOT_NAME), &Mes, STACK("#multiplayer"), USERID_START - 1);
+				}
+
+				if (Target->isBlocked(tP->UserID))
+					return;
+
+				{
+					const std::string Mes = "I have invited you to the multiplayer lobby \"[osump://" + std::to_string(m->MatchId) + "/" + m->Settings.Password + " " + m->Settings.Name + "]\".";
+
+					//Users could fuck with the client [] url construction but its not dangerous in anyway so who cares.
+
+					PacketBuilder::Build<Packet::Server::invite, 'm', 's', 's', 's', 'i'>(Target->QueBytes, &Target->qLock,
+						&tP->Username, &Mes, &Target->Username, tP->UserID);
+				}
+
+			}
+		}
+
+		#undef DefaultRead
+
+	}
+
+
 }
 
 void DoBanchoPacket(_Con s,const uint64_t choToken,const std::string_view PacketBundle){
@@ -3722,180 +3866,186 @@ void DoBanchoPacket(_Con s,const uint64_t choToken,const std::string_view Packet
 
 	tP->LastPacketTime = clock_ms();
 
-	DWORD In = 0;
+	const u8* Pos = (u8*)PacketBundle.data();
+	const u8* End = Pos + PacketBundle.size();
 
-	while (In <= PacketBundle.size() - 7){
+	while (Pos < End - 7){
 
-		const USHORT PacketID = *(USHORT*)&PacketBundle[In];
-		const DWORD PacketSize = *(DWORD*)&PacketBundle[In + 3];
+		const struct {
+			const size_t ID : 16, Size : 32;
+		} PacketHeader{ *(u16*)Pos, *(u32*)(Pos += 3) };
 
-		In += 7;
+		Pos += 4;
 
-		if (In + PacketSize > PacketBundle.size()) {
-			printf("%s> Out of range packet %i|%i|%llu\n", tP->Username.c_str(), PacketID, (In + PacketSize), PacketBundle.size());
+		if (Pos + PacketHeader.Size > End) {
+			printf("%s> Out of range packet %llu|%llu\n", tP->Username.c_str(), PacketHeader.ID, PacketHeader.Size);
 			tP->choToken = 0;
 			return;
 		}
 
-		const byte* const Packet = ((byte*)&PacketBundle[In-1]) + 1;
-		In += PacketSize;
+		const u8* const Packet = Pos;
+		
+		Pos += PacketHeader.Size;
 
-		switch ((Packet::Client)PacketID){
+		using namespace Bancho_Event;
+		using namespace Packet::Client;
 
-		case Packet::Client::pong:
-		case Packet::Client::beatmapInfoRequest:
-		case Packet::Client::receiveUpdates://ruri does all this automatically so its useless :)
+		switch (PacketHeader.ID){
+
+		case pong:
+		case beatmapInfoRequest:
+		case receiveUpdates://ruri does all this automatically so its useless :)
 			break;
 
-		case Packet::Client::requestStatusUpdate:
-			Event_client_requestStatusUpdate(tP.User);
+		case requestStatusUpdate:
+			Client_Event::requestStatusUpdate(tP.User);
 			break;
 
-		case Packet::Client::changeAction:
-			Event_client_changeAction(tP.User, Packet, PacketSize);
+		case changeAction:
+			Client_Event::changeAction(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::userStatsRequest:
-			Event_client_userStatsRequest(tP.User, Packet, PacketSize);
+		case userStatsRequest:
+			Client_Event::userStatsRequest(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::channelJoin:
-			Event_client_channelJoin(tP.User, Packet, PacketSize);
+		case channelJoin:
+			Client_Event::channelJoin(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::channelPart:
-			Event_client_channelPart(tP.User, Packet, PacketSize);
+		case channelPart:
+			Client_Event::channelPart(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::sendPublicMessage:
-			Event_client_sendPublicMessage(tP.User, Packet, PacketSize);
+		case sendPublicMessage:
+			Client_Event::sendPublicMessage(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::sendPrivateMessage:
-			Event_client_sendPrivateMessage(tP.User, Packet, PacketSize);
+		case sendPrivateMessage:
+			Client_Event::sendPrivateMessage(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::logout:
+		case logout:
 			if (tP->LoginTime + 5000 > tP.User->LastPacketTime)break;
 			LogOutUser(tP.User);
 			break;
 
-		case Packet::Client::startSpectating:
-			Event_client_startSpectating(tP.User, Packet, PacketSize);
+		case startSpectating:
+			Client_Event::startSpectating(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::stopSpectating:
+		case stopSpectating:
 			Event_client_stopSpectating(tP.User);
 			break;
-		case Packet::Client::cantSpectate:
+		case cantSpectate:
 			Event_client_cantSpectate(tP.User);
 			break;
 
-		case Packet::Client::spectateFrames:
-			Event_client_spectateFrames(tP.User,Packet,PacketSize);
+		case spectateFrames:
+			Client_Event::spectateFrames(tP.User,Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::createMatch:
-			Event_client_createMatch(tP.User, Packet, PacketSize);
+		case createMatch:
+			Client_Event::createMatch(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::partMatch:
-			Event_client_partMatch(tP.User);
+		case partMatch:
+			Client_Event::partMatch(tP.User);
 			break;
 
-		case Packet::Client::matchChangeSlot:
-			Event_client_matchChangeSlot(tP.User,Packet, PacketSize);
+		case matchChangeSlot:
+			Client_Event::matchChangeSlot(tP.User,Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::joinLobby:
-			Event_client_joinLobby(tP.User);
+		case joinLobby:
+			Client_Event::joinLobby(tP.User);
 			break;
 
-		case Packet::Client::partLobby:
-			if (tP->inLobby) {
-				LobbyUsers.replace(tP.User, 0);
+		case partLobby:
+			if (tP->inLobby){
 				tP->inLobby = 0;
+				LobbyUsers.replace(tP.User, 0);
 			}
 			break;
 
-		case Packet::Client::matchChangeSettings:
-			Event_client_matchChangeSettings(tP.User,Packet, PacketSize);
+		case matchChangeSettings:
+			Client_Event::matchChangeSettings(tP.User,Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::matchLock:
-			Event_client_matchLock(tP.User, Packet, PacketSize);
+		case matchLock:
+			Client_Event::matchLock(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::matchChangeMods:
-			Event_client_matchChangeMods(tP.User, Packet, PacketSize);
+		case matchChangeMods:
+			Client_Event::matchChangeMods(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::joinMatch:
-			Event_client_joinMatch(tP.User, Packet, PacketSize);
+		case joinMatch:
+			Client_Event::joinMatch(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::matchChangeTeam:
-			Event_client_matchChangeTeam(tP.User);
+		case matchChangeTeam:
+			Client_Event::matchChangeTeam(tP.User);
 			break;
 
-		case Packet::Client::matchNoBeatmap:
-			Event_client_matchNoBeatmap(tP.User);
+		case matchNoBeatmap:
+			Client_Event::matchNoBeatmap(tP.User);
 			break;
 
-		case Packet::Client::matchHasBeatmap:
-			Event_client_matchHasBeatmap(tP.User);
+		case matchHasBeatmap:
+			Client_Event::matchHasBeatmap(tP.User);
 			break;
 
-		case Packet::Client::matchTransferHost:
-			Event_client_matchTransferHost(tP.User, Packet, PacketSize);
+		case matchTransferHost:
+			Client_Event::matchTransferHost(tP.User, Packet, PacketHeader.Size);
 			break;
 		
-		case Packet::Client::matchReady:
-			Event_client_matchReady(tP.User);
+		case matchReady:
+			Client_Event::matchReady(tP.User);
 			break;
 
-		case Packet::Client::matchNotReady:
-			Event_client_matchNotReady(tP.User);
+		case matchNotReady:
+			Client_Event::matchNotReady(tP.User);
 			break;
 
-		case Packet::Client::matchStart:
-			Event_client_matchStart(tP.User);
+		case matchStart:
+			Client_Event::matchStart(tP.User);
 			break;
 
-		case Packet::Client::matchLoadComplete:
-			Event_client_matchLoadComplete(tP.User);
+		case matchLoadComplete:
+			Client_Event::matchLoadComplete(tP.User);
 			break;
 
-		case Packet::Client::matchScoreUpdate:
-			Event_client_matchScoreUpdate(tP.User, Packet, PacketSize);
+		case matchScoreUpdate:
+			Client_Event::matchScoreUpdate(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::matchComplete:
-			Event_client_matchComplete(tP.User);
+		case matchComplete:
+			Client_Event::matchComplete(tP.User);
 			break;
 
-		case Packet::Client::matchFailed:
-			Event_client_matchFailed(tP.User);
+		case matchFailed:
+			Client_Event::matchFailed(tP.User);
 			break;
 
-		case Packet::Client::matchSkipRequest:
-			Event_client_matchSkipRequest(tP.User);
+		case matchSkipRequest:
+			Client_Event::matchSkipRequest(tP.User);
 			break;
 
-		case Packet::Client::invite:
-			Event_client_invite(tP.User, Packet, PacketSize);
+		case matchInvite:
+			Client_Event::matchInvite(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::friendAdd:
-			Event_client_friendAdd(tP.User, Packet, PacketSize);
+		case friendAdd:
+			Client_Event::friendAdd(tP.User, Packet, PacketHeader.Size);
 			break;
 
-		case Packet::Client::friendRemove:
-			Event_client_friendRemove(tP.User, Packet, PacketSize);
+		case friendRemove:
+			Client_Event::friendRemove(tP.User, Packet, PacketHeader.Size);
 			break;
 
 		default:
-			printf("PacketID:%i | Length:%i\n", PacketID, PacketSize);
+			printf("Unhandled Packet: ID:%i | Length:%i\n", PacketHeader.ID, PacketHeader.Size);
 			break;
 		}
 
@@ -4424,13 +4574,11 @@ void HandlePacket(_Con s){
 //Used to logout dropped users and other house keeping
 void LazyThread(){
 
-	//(WSTI<u32>(osu_API_Key) == 0xaa613ab1);
-
 	int LastUpdateCheck = 0;
 
 	_SQLCon lThreadSQL;
 	lThreadSQL.Connect();
-	VEC(std::string) Que;
+	VEC(std::string) Que_Buffer;
 
 	for (;;){
 
@@ -4438,49 +4586,54 @@ void LazyThread(){
 
 		const int cTime = clock_ms();
 		
-		DWORD PCount = 0;
+		{
+			DWORD PlayerCount = 0;
 
-		for (auto& User : Users){
+			for (auto& User : Users) {
 
-			if (User.LastPacketTime == INT_MIN)
-				continue;
+				if (User.LastPacketTime == INT_MIN)
+					continue;
 
-			if (User.choToken){
-				PCount++;
-				if (User.LastPacketTime + PING_TIMEOUT_OSU < cTime) {
-					_UserRef UF(&User, 0);
-					LogOutUser(UF.User);
+				if (User.choToken){
+
+					if (User.LastPacketTime + PING_TIMEOUT_OSU < cTime) {
+						_UserRef UF(&User, 0);
+						LogOutUser(UF.User);
+					}else ++PlayerCount;
 				}
-			}else if (User.LastPacketTime + FREE_SLOT_TIME < cTime)//Free slots after 30 minutes of logging out.
-				User.LastPacketTime = INT_MIN;
+				else if (User.LastPacketTime + FREE_SLOT_TIME < cTime)//Free slots after 30 minutes of logging out.
+					User.LastPacketTime = INT_MIN;
+			}
+			COUNT_CURRENTONLINE = PlayerCount;
 		}
-		COUNT_CURRENTONLINE = PCount;
 
 		Sleep(500);
 
-		DWORD ActiveLobbies = 0;
+		{
+			DWORD ActiveLobbyCount = 0;
 
-		for (DWORD i = 0; i < MAX_MULTI_COUNT; i++)
-			if (Match[i].PlayerCount)
-				ActiveLobbies++;
+			for(const auto& M : Match)
+				if (M.PlayerCount > 0)
+					++ActiveLobbyCount;
 
-		COUNT_MULTIPLAYER = ActiveLobbies;
+			COUNT_MULTIPLAYER = ActiveLobbyCount;
+		}
 
 		if (SQLExecQue.Commands.size()){
 
 			{
 
-				Que.clear();
+				Que_Buffer.clear();
 
 				std::scoped_lock L(SQLExecQue.CommandLock);
 
 				for(auto& Command : SQLExecQue.Commands)
-					Que.emplace_back(_M(Command));
+					Que_Buffer.emplace_back(_M(Command));
 
 				SQLExecQue.Commands.clear();
 			}
 
-			for(auto& Command : Que)
+			for(auto& Command : Que_Buffer)
 				lThreadSQL.ExecuteUPDATE(_M(Command), 1);
 		}
 
@@ -4509,89 +4662,6 @@ void LazyThread(){
 
 	}
 }
-
-/*
-void PushUsers() {
-
-	{
-
-		struct CacheUsers {
-
-			VEC(DWORD) PrivTable;
-			VEC(byte) UserData;
-
-			void push_User(const _User& u){
-
-				VEC(byte) Data;
-
-				AddStream(Data, u.choToken ^ size_t(u.privileges));
-				AddStream(Data, u.UserID);
-				AddStream(Data, u.privileges);
-				AddStream(Data, u.silence_end);
-				AddString(Data, u.Username);
-				AddString(Data, u.Username_Safe);
-				AddMem(Data, &u.Password.MD5[0], 16);
-				AddMem(Data, &u.ActionMD5[0], 32);
-				AddStream(Data, u.actionMods);
-				AddStream(Data, u.BeatmapID);
-				Data.push_back(u.timeOffset);
-				Data.push_back(u.country);
-				Data.push_back(u.GameMode);
-				Data.push_back(u.actionID);
-				//AddString(Data, u.ActionText);
-
-				if (!u.CurrentlySpectating)
-					AddStream(Data, 0);
-				else AddStream(Data, u.CurrentlySpectating->UserID);
-
-				{
-
-					AddStream(Data, u.Spectators.size());
-
-					for (const auto Spec : u.Spectators)//Spectators changing at the very instant the server restarts is astronomically rare.
-						Spec ? AddStream(Data, Spec->UserID) : AddStream(Data, 0);
-
-				}
-
-				AddStream(Data, u.CurrentMatchID);
-				AddStream(Data, u.LastSentBeatmap);
-
-				AddMem(Data, &u.Friends[0], aSize(u.Friends));
-				AddMem(Data, &u.Blocked[0], aSize(u.Blocked));
-				Data.push_back(u.FriendsOnlyChat);
-
-				for (DWORD i = 0; i < aSize(u.ActiveChannels); i++)
-					u.ActiveChannels[i] ? AddStream(Data, ((_Channel*)u.ActiveChannels[i])->NameSum) : AddStream(Data, 0);
-
-				AddString(Data, u.c1Check);
-
-				PrivTable.push_back(u.privileges);
-				AddStream(UserData, Data.size());
-				AddVector(UserData, _M(Data));
-
-			}
-
-		};
-
-
-
-		CacheUsers Cached;
-
-		VEC(_User) UserTable;
-
-		for (const auto& User : Users) {
-
-			_UserRef u((_User*)& User, 0);
-
-			if (!(User.privileges & 1))//Banned users can feel the pain :)
-				continue;
-
-			Cached.push_User(User);
-		}
-
-	}
-
-}*/
 
 void FillRankCache(){
 
@@ -4732,6 +4802,8 @@ const char* Splashes[] = {	"Undefined definitively defined level of undefined be
 							"Abuses the instruction cache","Not sentient " KYEL"yet" KRESET};
 
 int main(){
+
+	constexpr size_t dsdsd = (size_t)Privileges::Visible | (size_t)Privileges::Verified | (size_t)Privileges::SuperAdmin | (size_t)Privileges::Name_Periwinkle;
 
 	#define COL1 KCYN
 	#define COL2 KGRN

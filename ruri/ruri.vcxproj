@@ -181,9 +181,7 @@
   <ItemGroup>
     <ClInclude Include="Achievement.h" />
     <ClInclude Include="HTML.h" />
-    <ClInclude Include="PKM.h" />
-    <ClInclude Include="PKM\Abilities.h" />
-    <ClInclude Include="PKM\Species_Data.h" />
+    <ClInclude Include="Register.h" />
     <ClInclude Include="Web.h" />
     <ClInclude Include="aes.h" />
     <ClInclude Include="Aria.h" />

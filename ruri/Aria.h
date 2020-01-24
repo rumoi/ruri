@@ -627,7 +627,7 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, bool For
 
 				for (auto& MapData : BeatmapData){
 
-					std::string MD5 = std::string(JsonListGet<WSTI("file_md5")>(MapData));
+					std::string MD5 = std::string(JsonListGet<"file_md5"_HU>(MapData));
 
 					{
 						for (char& c : MD5)
@@ -635,24 +635,24 @@ _BeatmapSet *GetBeatmapSetFromSetID(const DWORD SetID, _SQLCon* SQLCon, bool For
 								c = ' ';
 					}
 
-					const DWORD beatmap_id = StringToNum(DWORD, JsonListGet<WSTI("beatmap_id")>(MapData));
+					const u32 beatmap_id = STN<u32>(JsonListGet<"beatmap_id"_HU>(MapData));
 
 					if (beatmap_id && MD5.size() == 32){
 
-						float diff_size = StringToNum(float, JsonListGet<WSTI("diff_size")>(MapData))
-							 ,diff_overall = StringToNum(float, JsonListGet<WSTI("diff_overall")>(MapData))
-							 ,diff_approach = StringToNum(float, JsonListGet<WSTI("diff_approach")>(MapData));
+						float diff_size = STN<float>(JsonListGet<"diff_size"_HU>(MapData)),
+							  diff_overall = STN<float>(JsonListGet<"diff_overall"_HU>(MapData)),
+							  diff_approach = STN<float>(JsonListGet<"diff_approach"_HU>(MapData));
 
-						int Length = StringToNum(int, JsonListGet<WSTI("hit_length")>(MapData))
-							,RankedStatus = StringToNum(int, JsonListGet<WSTI("approved")>(MapData))
-							,MaxCombo = StringToNum(int, JsonListGet<WSTI("max_combo")>(MapData))
-							,BPM = StringToNum(int, JsonListGet<WSTI("bpm")>(MapData));
+						int Length = STN<int>(JsonListGet<"hit_length"_HU>(MapData)),
+							RankedStatus = STN<int>(JsonListGet<"approved"_HU>(MapData)),
+							MaxCombo = STN<int>(JsonListGet<"max_combo"_HU>(MapData)),
+							BPM = STN<int>(JsonListGet<"bpm"_HU>(MapData));
 
-						const byte mode = StringToNum(byte, JsonListGet<WSTI("mode")>(MapData));
+						const byte mode = StringToNum(byte, JsonListGet<"mode"_HU>(MapData));
 
-						std::string Title = std::string(JsonListGet<WSTI("artist")>(MapData)) +
-							" - " + std::string(JsonListGet<WSTI("title")>(MapData)) +
-							" [" + std::string(JsonListGet<WSTI("version")>(MapData)) + "]";
+						std::string Title = std::string(JsonListGet<"artist"_HU>(MapData)) +
+							" - " + std::string(JsonListGet<"title"_HU>(MapData)) +
+							" [" + std::string(JsonListGet<"version"_HU>(MapData)) + "]";
 
 						FileNameClean(Title);
 						ReplaceAll(Title, "'", "''");
@@ -874,27 +874,6 @@ std::string unAesString(const std::string &Input, const std::string &K, const st
 	return rString;
 }
 
-enum scoreOffset {
-	score_FileCheckSum,
-	score_PlayerName,
-	score_onlineCheckSum,
-	score_Count300,
-	score_Count100,
-	score_Count50,
-	score_CountGeki,
-	score_CountKatu,
-	score_CountMiss,
-	score_totalScore,
-	score_maxCombo,
-	score_Perfect,
-	score_Rank,
-	score_Mods,
-	score_Pass,
-	score_playMode,
-	score_Date,
-	Score_Version
-};
-
 _inline std::string GetParam(const std::string& s, const std::string&& param) {
 
 	size_t Off = s.find(param);
@@ -916,6 +895,23 @@ _inline std::string GetParam(const std::string& s, const std::string&& param) {
 struct _GetParams {
 
 	std::vector<std::pair<int/*Key Hash*/, std::string_view/*Value*/>> Params;
+
+	template<const u32 Key>
+	std::string_view get_pop() {
+
+		for (size_t i = 0; i < Params.size(); ++i) {
+
+			if (Params[i].first != Key)
+				continue;
+
+			std::string_view Ret = Params[i].second;
+
+			std::swap(Params[i], Params.back());
+			Params.pop_back();
+			return Ret;
+		}
+		return std::string_view();
+	}
 
 	template<const u32 Key>
 	std::string_view get()const{
@@ -1113,8 +1109,6 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 		if (Quit == -1)
 			Quit = 0;
 
-
-
 		score_iv = base64_decode(score_iv);
 		
 		const std::string Key = "osu!-scoreburgr---------" + score_osuver;
@@ -1127,9 +1121,30 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 
 			if (ScoreData.size() != 18) {
 				const std::string Error = "Score sent with wrong ScoreData length (" + std::to_string(ScoreData.size()) + ")\0";
-				LogError(&Error[0], "Aria");
+				LogError(Error.data(), "Aria");
 				return ScoreFailed(s);
 			}
+
+			enum scoreOffset {
+				score_FileCheckSum,
+				score_PlayerName,
+				score_onlineCheckSum,
+				score_Count300,
+				score_Count100,
+				score_Count50,
+				score_CountGeki,
+				score_CountKatu,
+				score_CountMiss,
+				score_totalScore,
+				score_maxCombo,
+				score_Perfect,
+				score_Rank,
+				score_Mods,
+				score_Pass,
+				score_playMode,
+				score_Date,
+				Score_Version
+			};
 
 			sData.Mods = StringToNum(DWORD,ScoreData[score_Mods]);
 
@@ -1153,6 +1168,8 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			sData.MaxCombo = StringToNum(USHORT, ScoreData[score_maxCombo]);
 			sData.FullCombo = (ScoreData[score_Perfect] == "True") ? 1 : 0;
 			sData.GameMode = StringToNum(byte, ScoreData[score_playMode]);if (sData.GameMode > 3)sData.GameMode = 3;
+
+			printf("AC: %i", std::count_if(begin(ScoreData[Score_Version]), end(ScoreData[Score_Version]), [](const char v) {return v == ' '; }));
 			
 		}//Score Data is ready to read.
 
@@ -1187,14 +1204,13 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 			const std::string TableName = sData.Mods & Relax ? "rx_stats" : "users_stats";
 		#endif
 			const std::string Mode = [](const byte GM){
-				if (GM == 0)
-					return "std";//imagine being ripple
-				if (GM == 1)
-					return "taiko";
-				if (GM == 2)
-					return "ctb";
-
-				return "mania";
+				switch (GM) {
+				default:
+					case 0: return "std";
+					case 1: return "taiko";
+					case 2: return "ctb";
+					case 3: return "mania";				
+				}
 			}(sData.GameMode);
 
 			SQLExecQue.AddQue("UPDATE " + TableName + " SET playcount_" + Mode + "=playcount_" + Mode + "+1,total_score_" + Mode +
@@ -1368,30 +1384,65 @@ std::string urlDecode(const std::string_view SRC){
 	return ret;
 }
 
+
+#define PACK(Name,Type)pack<Type, ""#Name##_HU>{}
+template<typename T, u32 Hash_Value>
+struct pack {
+	static constexpr u32 Hash = Hash_Value;
+	static constexpr T type{};
+};
+
+template<typename ...T>
+auto get_param_sbind(_GetParams &a, const T& ...Output){
+
+	return std::tuple<std::decay<decltype(T::type)>::type...>{
+		([&]{
+			if constexpr (std::is_same<std::string_view, std::decay<decltype(T::type)>::type>::value)
+				return a.get_pop<T::Hash>();
+			else if constexpr (1) {
+				const auto T_Value = a.get_pop<T::Hash>();
+
+				std::decay_t<decltype(T::type)> V{};
+
+				std::from_chars(T_Value.data(), T_Value.data() + T_Value.size(), V);
+
+				return V;
+			}
+			return decltype(T::type){};
+		}()
+	)...};
+}
+
 void osu_getScores(const _HttpRes& http, _Con s){
 
-	const auto Params = _GetParams(http.Host);
+	auto [LeaderBoardVersion, LType, BeatmapMD5, FileName, Mode,
+		  SetID, Mods, UserName_View, Password_View] = get_param_sbind(_GetParams(http.Host),
+			PACK("vv", int), PACK("v", int),
+			PACK("c", std::string_view),
+			PACK("f", std::string_view),
+			PACK("m", u32), PACK("i", int),
+			PACK("mods", u32),
+			PACK("us", std::string_view),
+			PACK("ha", std::string_view)
+	);
 
-	const std::string_view BeatmapMD5 = Params.get<WSTI("c")>();
-
-	const DWORD SetID = StringToNum(DWORD,Params.get<WSTI("i")>());
-
-	if (unlikely(BeatmapMD5.size() != 32 || http.GetHeaderValue("Host") != " osu.ppy.sh"))
+	if (unlikely(LeaderBoardVersion != 4 || BeatmapMD5.size() != 32 || http.GetHeaderValue("Host") != " osu.ppy.sh"))
 		return SendAria404(s);
 
-	_UserRef u(GetUserFromName(urlDecode(std::string(Params.get<WSTI("us")>()))), 1);
+	_UserRef u(GetUserFromName(urlDecode(UserName_View)), 1);
 
-	if (!u.User || !(_MD5(Params.get<WSTI("ha")>()) == u.User->Password))
+	if (!u || !(_MD5(Password_View) == u->Password))
 		return SendAria404(s);
-
-	const DWORD Mods = StringToNum(DWORD, Params.get<WSTI("mods")>());
-	DWORD Mode = StringToNum(DWORD, Params.get<WSTI("m")>());
-	const bool CustomClient = Params.get<WSTI("vv")>() != "4";
-	const DWORD LType = StringToNum(DWORD, Params.get<WSTI("v")>());
 
 	if constexpr (RELAX_MODE){
 
-		if ((u->actionMods & Relax) != (Mods & Relax)) {//actionMods is outdated.
+		if ((u->actionMods ^ Mods) & Mods::Relax) {
+
+			/*
+				If the selected mods are desynced compared to their last natural status update
+				we will update their mode status and send their new ranking status to their client.			
+			*/
+
 			u->actionMods = Mods;
 
 			_User* tP = u.User;
@@ -1401,7 +1452,7 @@ void osu_getScores(const _HttpRes& http, _Con s){
 			PacketBuilder::Build<Packet::Server::userStats, 'm',
 				'i', 'b', 'a', '5', 'i', 'b', 'i', 'l', 'i', 'i', 'l', 'i', 'w'>(tP->QueBytes, &tP->qLock,
 					tP->UserID, tP->actionID, tP->ActionText, tP->ActionMD5, tP->actionMods, tP->GameMode,
-					tP->BeatmapID, tP->Stats[Off].rScore, *(int*)& tP->Stats[Off].Acc,
+					tP->BeatmapID, tP->Stats[Off].rScore, *(int*)&tP->Stats[Off].Acc,
 					tP->Stats[Off].pp > USHORT(-1) ? (tP->Stats[Off].pp) : tP->Stats[Off].PlayCount,
 					tP->Stats[Off].tScore, tP->Stats[Off].getRank(Off, tP->UserID), USHORT(tP->Stats[Off].pp)
 					);
@@ -1412,14 +1463,12 @@ void osu_getScores(const _HttpRes& http, _Con s){
 	if (Mode > GM_MAX)
 		Mode = 0;
 
-	if (u.User->actionID != bStatus::sPlaying && BeatmapMD5.size() == 32)
-		memcpy(&u.User->ActionMD5[0], &BeatmapMD5[0], 32);
+	if (u->actionID != bStatus::sPlaying && BeatmapMD5.size() == 32)
+		memcpy(&u->ActionMD5[0], &BeatmapMD5[0], 32);
 
 	_BeatmapDataRef MapRef;
 
-	_BeatmapData* const BeatData = GetBeatmapCache(SetID, 0, BeatmapMD5,
-		std::string(Params.get<WSTI("f")>())
-		, &AriaSQL[s.ID],MapRef);
+	_BeatmapData* const BeatData = GetBeatmapCache(SetID, 0, BeatmapMD5, std::string(FileName), &AriaSQL[s.ID], MapRef);
 
 	if (!BeatData || !BeatData->BeatmapID){
 		s.SendData(ConstructResponse(200, Empty_Headers, STACK("-1|0")));
@@ -1428,16 +1477,14 @@ void osu_getScores(const _HttpRes& http, _Con s){
 
 	const bool NeedUpdate = (BeatData && BeatData->Hash != BeatmapMD5);
 
-
 	if (NeedUpdate)
 		CheckMapUpdate(BeatData, &AriaSQL[s.ID]);//TODO: Should probably properly handle this instead of this hack.
-
 
 	_LeaderBoardCache* const LeaderBoard = BeatData->GetLeaderBoard(Mode, &AriaSQL[s.ID]);
 
 	const DWORD TotalScores = LeaderBoard ? LeaderBoard->ScoreCache.size() : 0;
 
-	const bool Loved = (BeatData->RankStatus == LOVED);
+	const bool Loved = (BeatData->RankStatus == LOVED);	
 
 	std::string Response = NeedUpdate ? "1" : std::to_string(al_max(BeatData->RankStatus, 0));
 	Response += "|false"//server osz
@@ -1447,7 +1494,8 @@ void osu_getScores(const _HttpRes& http, _Con s){
 		+ "\n0"//offset
 		"\n" + BeatData->DisplayTitle//song name
 		+ "\n" + std::to_string(BeatData->Rating) + "\n";//rating
-//Personal best
+
+	//Personal best
 	if (!NeedUpdate && BeatData->RankStatus >= RANKED && LeaderBoard){
 
 		DWORD Rank = LeaderBoard->GetRankByUID(u.User->UserID);
@@ -1458,7 +1506,7 @@ void osu_getScores(const _HttpRes& http, _Con s){
 
 			if (s.UserID != u.User->UserID)
 				s = LeaderBoard->GetScoreByUID(u.User->UserID);
-			if (s.UserID != 0) {
+			if (s.UserID != 0){
 				Response += std::to_string(s.ScoreID);//online id
 				Response += "|" + u.User->Username;//player name
 				Response += "|" + std::to_string((!Loved && Mode > 3) ? int(s.pp + 0.5f) : s.Score);//total score
@@ -1483,7 +1531,7 @@ void osu_getScores(const _HttpRes& http, _Con s){
 
 			std::shared_lock L(LeaderBoard->ScoreLock);
 
-			DWORD Rank = 0;
+			u32 Rank = 0;
 
 			for (size_t i = 0; i < LeaderBoard->ScoreCache.size(); i++) {
 
@@ -1501,9 +1549,9 @@ void osu_getScores(const _HttpRes& http, _Con s){
 				if (Score < 0)
 					continue;
 
-				Rank++;
+				++Rank;
 
-				if (u.User->isBlocked(lScore->UserID))
+				if (u->isBlocked(lScore->UserID))
 					continue;
 
 				Response += "\n" + std::to_string(lScore->ScoreID)//online id
@@ -1777,41 +1825,62 @@ void LastFM(_GetParams&& Params, _Con s){
 		//1<<2 can false flag. Do not use.
 		InvalidName = 1 << 3,
 		InvalidFile = 1 << 4,
-		RelifeLoaded = 1 << 5
+		RelifeLoaded = 1 << 5,
+		SuspiciousFlags = RelifeLoaded | Console | InvalidName | InvalidFile | RelifeLoaded
 	};
 
-	const int Flags = [&]{
+	const int Flags = [&Params]{
 
-		auto B = Params.get<WSTI("b")>();
-		
-		return (B.size() && B[0] == 'a') ? StringToNum(int, B) : 0;
+		int Value = 0;
+
+		if (auto B = Params.get<"b"_HU>(); B.size() > 1 && unlikely(B[0] == 'a'))
+			std::from_chars(B.data() + 1, B.data() + B.size(), Value);
+
+		return Value;
 	}();
 
-	if (Flags & (RelifeLoaded | Console | InvalidName | InvalidFile | RelifeLoaded)){
+	if (unlikely(Flags & SuspiciousFlags)){
 
-		_UserRef u(GetUserFromNameSafe(USERNAMESAFE(std::string(Params.get<WSTI("us")>()))), 1);
+		_UserRef u(GetUserFromNameSafe(USERNAMESAFE(std::string(Params.get<"us"_HU>()))), 1);
 
-		if (!!u && u->Password == _MD5(Params.get<WSTI("ha")>()) && u->privileges & (u32)Privileges::Visible){
+		if (likely(u.valid() && u->Password == _MD5(Params.get<"ha"_HU>())) && !u->is_banned()){
 
-			u->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::RTX, '-'>(Flags == RelifeLoaded ? STACK("Disable osu-relife or get banned") : STACK("What did you think would happen?")));
+			u->addQueArray(PacketBuilder::Fixed_Build<Packet::Server::RTX, '-'>(
+				Flags == RelifeLoaded ? 
+					STACK("Disable osu-relife or get banned") : 
+					STACK("What did you think would happen?")
+			));
 
-			const u32 ID = u->UserID;
+			const auto ID = u->UserID;
+
+			#define C(x) std::tuple<size_t,size_t, const char*>{x, std::integral_constant<size_t,_strlen_(""#x)>::value, ""#x}
+
+			constexpr std::array Detections{
+				C(RelifeRunning), C(Console), C(InvalidName), C(InvalidFile), C(RelifeLoaded)
+			};
+
+			#undef C
 
 			std::string FlagString;
 
-		#define FlagPrint(s) if(Flags&s)FlagString += "|"#s
-			FlagPrint(RelifeRunning);
-			FlagPrint(Console);
-			FlagPrint(InvalidName);
-			FlagPrint(InvalidFile);
-			FlagPrint(RelifeLoaded);
-		#undef FlagPrint
+			for (const auto& [FlagValue, FlagNameSize, FlagName] : Detections)
+				if (Flags & FlagValue){
 
-			printf(KYEL "%i> Flags: %s\n" KRESET, ID, FlagString.c_str());
+					FlagString.resize(FlagNameSize + 1);
 
-			if (!(u->privileges & (u32)Privileges::SuperAdmin) && Flags != RelifeLoaded){
+					char* Start = FlagString.data() + (FlagString.size() - FlagNameSize);
+					*Start++ = '|';
 
-				UpdateQue.emplace_back(ID,(u32)0, _UserUpdate::Restrict, (size_t)new std::string("Restricted for flags: " + FlagString));
+					memcpy(Start, FlagName, FlagNameSize);
+				}
+
+			if (likely(FlagString.size())){
+
+				printf(KYEL "%i> AC_FM Flags: %s\n" KRESET, ID, FlagString.c_str());
+
+				if (!(u->privileges & (u32)Privileges::SuperAdmin) && Flags != RelifeLoaded)
+					UpdateQue.emplace_back(ID, (u32)0, _UserUpdate::Restrict, (size_t)new std::string("Restricted for flags: " + FlagString));
+
 			}
 		}
 	}
@@ -1851,21 +1920,21 @@ void HandleAria(_Con s){
 
 		if (unlikely(MEM_CMP_START(res.Host, "/home/")))
 			web::handle_web(res,s);
-		else switch (WSTI<u64>(std::string_view(res.Host.data(),Size))){
+		else switch (WSTI<size_t>(std::string_view(res.Host.data(),Size))){
 
-			case WSTI<u64>("/web/osu-submit-modular-selector.php") :
+			case "/web/osu-submit-modular-selector.php"_HUST:
 				ScoreServerHandle(res, s);
 				break;
 
-			case WSTI<u64>("/web/check-updates.php") :
+			case "/web/check-updates.php"_HUST:
 				osu_checkUpdates(_GetParams(res.Host), s);
 				break;
 
-			case WSTI<u64>("/web/osu-osz2-getscores.php") :
+			case "/web/osu-osz2-getscores.php"_HUST:
 				osu_getScores(res, s);
 				break;
 
-			case WSTI<u64>("/web/osu-search-set.php") :
+			case "/web/osu-search-set.php"_HUST:
 				if (const DWORD SetID = StringToNum(DWORD, std::string_view(res.Host.data() + Size,res.Host.size() - Size)); SetID){
 
 					ThreadSpawned = 1;
@@ -1875,7 +1944,7 @@ void HandleAria(_Con s){
 				}
 				break;
 
-			case WSTI<u64>("/web/osu-search.php"):{
+			case "/web/osu-search.php"_HUST:{
 
 					size_t Start = 0;
 
@@ -1900,11 +1969,11 @@ void HandleAria(_Con s){
 				}
 				break;
 
-			case WSTI<u64>("/web/osu-getreplay.php") :
+			case "/web/osu-getreplay.php"_HUST:
 				GetReplay(res.Host, s);
 				break;
 
-			case WSTI<u64>("/d/") :
+			case "/d/"_HUST:
 				if (const DWORD ID = StringToNum(DWORD, std::string_view(res.Host.data() + Size, res.Host.size() - Size)); ID) {
 					ThreadSpawned = 1;
 					std::thread a(Thread_DownloadOSZ, ID, s);
@@ -1912,7 +1981,7 @@ void HandleAria(_Con s){
 				}
 				break;
 
-			case WSTI<u64>("/web/maps/") :
+			case "/web/maps/"_HUST :
 				ThreadSpawned = 1;
 				{
 					std::thread a(Thread_UpdateOSU, std::string(res.Host.begin() + 1, res.Host.end()), s);
@@ -1920,25 +1989,24 @@ void HandleAria(_Con s){
 				}
 				break;
 
-			case WSTI<u64>("/web/replays/") :
+			case "/web/replays/"_HUST:
 				ThreadSpawned = 1;
 				{
-					std::thread a(Thread_WebReplay, MemToNum<uint64_t>(&res.Host[_strlen_("/web/replays/")], res.Host.size() - _strlen_("/web/replays/")), s);
+					constexpr size_t rSize = _strlen_("/web/replays/");
+
+					std::thread a(Thread_WebReplay, MemToNum<uint64_t>(&res.Host[rSize], res.Host.size() - rSize), s);
 					a.detach();
 				}
 				break;
 
-			case WSTI<u64>("/web/osu-screenshot.php") :
+			case "/web/osu-screenshot.php"_HUST:
 				UploadScreenshot(res, s);
 				break;
 
-			case WSTI<u64>("/web/lastfm.php") :
+			case "/web/lastfm.php"_HUST:
 				LastFM(_GetParams(res.Host), s);
 				break;
-			//case WSTI<u64>("/web/admin.php") :
-			//	web::HandleAdmin(_GetParams(res.Host), s);
-			//	break;
-				
+
 			default:
 				SendAria404(s);
 				break;
