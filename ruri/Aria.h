@@ -1412,14 +1412,13 @@ auto get_param_sbind(_GetParams &a, const T& ...Output){
 
 				return [](const std::string_view S) {return MemToNum<VALUE>(S.data(), S.size()); }(std::string_view((const char*)T_Value.data(), T_Value.size()));
 
-			#endif
-
-
+			#else
 				typename std::decay<decltype(T::type)>::type V{};
 
 				std::from_chars((const char* const)T_Value.data(), (const char* const)(T_Value.data() + T_Value.size()), V);
 
 				return V;
+			#endif
 			}
 			return decltype(T::type){};
 		}()
