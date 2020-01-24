@@ -1400,7 +1400,20 @@ auto get_param_sbind(_GetParams &a, const T& ...Output){
 			if constexpr (std::is_same<std::string_view, typename std::decay<decltype(T::type)>::type>::value)
 				return a.get_pop<T::Hash>();
 			else if constexpr (1) {
+
 				const auto T_Value = a.get_pop<T::Hash>();
+
+				constexpr bool FALL_BACK = true;
+
+
+			#if COMPILER_VERSION != IS_MSVC
+
+				using VALUE = typename std::decay<decltype(T::type)>::type;
+
+				return [](const std::string_view S) {return MemToNum<VALUE>(S.data(), S.size()); }(std::string_view((const char*)T_Value.data(), T_Value.size()));
+
+			#endif
+
 
 				typename std::decay<decltype(T::type)>::type V{};
 

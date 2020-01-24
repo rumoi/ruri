@@ -130,14 +130,24 @@ enum RankStatus {
 #define KRESET "\033[0m"
 
 
+constexpr char* COMPILER_NAME[] = {
+	"clang++","g++","MSVC","UNKNOWN"
+};
+#define IS_CLANG   0
+#define IS_GPP     1
+#define IS_MSVC    2
+#define IS_UNKNOWN 3
+
+
+
 #if defined(__clang__)
-#define COMPILER_NAME "clang++"
+#define COMPILER_VERSION IS_CLANG
 #elif defined(__GNUC__) || defined(__GNUG__)
-#define COMPILER_NAME "g++"
+#define COMPILER_VERSION IS_G++
 #elif defined(_MSC_VER)
-#define COMPILER_NAME "MSVC"
+#define COMPILER_VERSION IS_MSVC
 #else
-#define COMPILER_NAME "unknown"
+#define COMPILER_VERSION IS_UNKNOWN
 #endif
 
 #define LOGO\
@@ -148,7 +158,7 @@ enum RankStatus {
 		COL1"| |   " COL2"| |_| |" COL1"| |   " COL2"| |\n"\
 		COL1"|_|   " COL2" \\__,_|" COL1"|_|   " COL2"|_|   " KRESET
 
-#define TAG "\n   > Compiled with " KMAG COMPILER_NAME KRESET" on " __DATE__" " __TIME__".\n\n"
+#define TAG "\n   > Compiled with " KMAG "%s" KRESET" on " __DATE__" " __TIME__".\n\n"
 
 #define MIRROR_IP "34.94.215.186"
 #define MIRROR_PORT 80
@@ -4836,7 +4846,7 @@ int main(){
 
 	printf("%s!\n",Splashes[time(0) % (sizeof(Splashes) / sizeof(char*))]);
 
-	printf(TAG);
+	printf(TAG, COMPILER_NAME[COMPILER_VERSION % (IS_UNKNOWN + 1)]);
 
 	const std::vector<byte> ConfigBytes = LOAD_FILE("config.json");
 
