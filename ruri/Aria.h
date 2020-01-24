@@ -1393,7 +1393,7 @@ struct pack {
 };
 
 template<typename ...T>
-auto get_param_sbind(_GetParams &a, const T& ...Output){
+auto get_param_sbind(_GetParams &&a, const T& ...Output){
 
 	return std::tuple<typename std::decay<decltype(T::type)>::type...>{
 		([&]{

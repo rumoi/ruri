@@ -499,7 +499,7 @@ template<typename T>
 template<typename T, typename T2>
 	_inline T STN(const T2& String){
 
-	#if COMPILER_VERSION == IS_MSVC
+	#if COMPILER_VERSION != IS_MSVC
 		return [](const std::string_view S) {return MemToNum<T>(S.data(), S.size()); }(std::string_view((const char*)String.data(), String.size()));
 	#else
 		T v;
