@@ -564,6 +564,7 @@ const auto Convert_Username_Safe = [](char& c){
 
 template<typename T, T V> struct CONSTX { constexpr static T value = V;};
 
+
 template<size_t Size_T>
 struct c_string_view {
 	char* data;
@@ -580,16 +581,16 @@ struct T_to_string_max {
 
 	static constexpr size_t value = [] {
 
-		if constexpr (std::is_same<std::decay<T>::type, double>::value)
+		if constexpr (std::is_same<typename std::decay<T>::type, double>::value)
 			return 24;
-		if constexpr (std::is_same<std::decay<T>::type, float>::value)
+		if constexpr (std::is_same<typename std::decay<T>::type, float>::value)
 			return 16;
 
 		switch (sizeof(std::decay<T>::type)) {
-		case 1: return 4;
-		case 2: return 6;
-		case 4: return 11;
-		case 8: return 20;
+			case 1: return 4;
+			case 2: return 6;
+			case 4: return 11;
+			case 8: return 20;
 		};
 
 		return 0;

@@ -1397,7 +1397,7 @@ auto get_param_sbind(_GetParams &a, const T& ...Output){
 
 	return std::tuple<std::decay<decltype(T::type)>::type...>{
 		([&]{
-			if constexpr (std::is_same<std::string_view, std::decay<decltype(T::type)>::type>::value)
+			if constexpr (std::is_same<std::string_view, typename std::decay<decltype(T::type)>::type>::value)
 				return a.get_pop<T::Hash>();
 			else if constexpr (1) {
 				const auto T_Value = a.get_pop<T::Hash>();
