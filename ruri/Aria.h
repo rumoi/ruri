@@ -1384,7 +1384,7 @@ std::string urlDecode(const std::string_view SRC){
 	return ret;
 }
 
-
+/*
 #define PACK(Name,Type)pack<Type, ""#Name##_HU>{}
 template<typename T, u32 Hash_Value>
 struct pack {
@@ -1423,10 +1423,13 @@ auto get_param_sbind(_GetParams &&a, const T& ...Output){
 			return decltype(T::type){};
 		}()
 	)...};
-}
+}*/
 
 void osu_getScores(const _HttpRes& http, _Con s){
 
+	auto PARAMS = _GetParams(http.Host);
+
+	/*
 	auto [LeaderBoardVersion, LType, BeatmapMD5, FileName, Mode,
 		  SetID, Mods, UserName_View, Password_View] = get_param_sbind(_GetParams(http.Host),
 			PACK("vv", int), PACK("v", int),
@@ -1436,7 +1439,19 @@ void osu_getScores(const _HttpRes& http, _Con s){
 			PACK("mods", u32),
 			PACK("us", std::string_view),
 			PACK("ha", std::string_view)
-	);
+	);*/
+
+	const auto LeaderBoardVersion = StringToNum(int, PARAMS.get<"vv"_HU>());
+	const auto LType = StringToNum(int, PARAMS.get<"v"_HU>());
+
+	const auto BeatmapMD5 = PARAMS.get<"c"_HU>();
+	const auto FileName = PARAMS.get<"f"_HU>();
+	auto Mode = StringToNum(u32, PARAMS.get<"m"_HU>());
+	const auto SetID = StringToNum(u32, PARAMS.get<"i"_HU>());
+	const auto Mods = StringToNum(u32, PARAMS.get<"mods"_HU>());
+	const auto UserName_View = PARAMS.get<"us"_HU>();
+	const auto Password_View = PARAMS.get<"ha"_HU>();
+
 
 	if (unlikely(LeaderBoardVersion != 4 || BeatmapMD5.size() != 32 || http.GetHeaderValue("Host") != " osu.ppy.sh"))
 		return SendAria404(s);
