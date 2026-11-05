@@ -1081,7 +1081,10 @@ void ScoreServerHandle(const _HttpRes &res, _Con s){
 					score = std::string(Start, End);
 				else {
 					Start += 58;
-					End -= _strlen_("-------------------------------28947758029299--");
+					//The replay ends at the closing boundary. The request can carry more after it.
+					const size_t ReplayEnd = RawScoreData[i].find("\r\n-------------------------------28947758029299--", size_t(Start - RawScoreData[i].data()));
+					if (ReplayEnd == std::string_view::npos)continue;
+					End = RawScoreData[i].data() + ReplayEnd;
 					if (Start >= End)continue;
 					ReplayFile = std::string(Start, End);
 				}
